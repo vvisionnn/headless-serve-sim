@@ -1815,15 +1815,15 @@ async function serve(servePort: number, devices: string[], portExplicit: boolean
   }
 
   const exposedToLan = host !== "127.0.0.1" && host !== "localhost" && host !== "::1";
-  const networkIP = exposedToLan ? getLocalNetworkIP() : null;
+  const networkIP = getLocalNetworkIP();
   console.log("");
   console.log(`  - Local:   http://localhost:${boundPort}`);
-  if (networkIP) {
+  if (exposedToLan && networkIP) {
     console.log(`  - Network: http://${networkIP}:${boundPort}`);
-    console.log("");
-    console.log("  ⚠️  LAN exposure enabled (--host). The /exec route is gated by");
-    console.log("     a session token, but any host that can reach this port can");
-    console.log("     attempt to read it — only enable on trusted networks.");
+  } else if (networkIP) {
+    console.log(`  - Network: \x1b[2muse --host 0.0.0.0 to expose on http://${networkIP}:${boundPort}\x1b[0m`);
+  } else {
+    console.log("  - Network: \x1b[2muse --host 0.0.0.0 to expose on the LAN\x1b[0m");
   }
   console.log("");
 
