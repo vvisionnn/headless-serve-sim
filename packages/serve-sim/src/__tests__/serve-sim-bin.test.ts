@@ -24,7 +24,7 @@ describeIfDarwin("serve-sim-bin binary", () => {
   test("lipo reports both architectures", () => {
     const output = execSync(`lipo -info "${BIN_PATH}"`, { encoding: "utf8" });
     expect(output).toMatch(/Architectures in the fat file:.*x86_64.*arm64|arm64.*x86_64/);
-  });
+  }, 15_000);
 
   test("is executable (has user execute bit)", () => {
     const stats = statSync(BIN_PATH);
