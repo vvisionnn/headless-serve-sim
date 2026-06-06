@@ -17,7 +17,7 @@ jobs:
       - run: bun install
 
       - name: Client tests
-        run: bun test packages/serve-sim-client/src/__tests__/
+        run: bun test packages/headless-serve-sim-client/src/__tests__/
 
   publish-stable:
     if: github.repository == 'EvanBacon/serve-sim' && github.ref == 'refs/heads/main'
@@ -52,11 +52,11 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Boot iOS simulator for serve-sim tests
+      - name: Boot iOS simulator for headless-serve-sim tests
         id: boot-sim
         run: |
           # Pick the newest available iOS simulator device. The runner image
-          # ships pre-created sims - boot one so the serve-sim idle-floor
+          # ships pre-created sims - boot one so the headless-serve-sim idle-floor
           # integration test has something real to talk to. Fallback: create
           # one from the latest iOS runtime.
           UDID=$(xcrun simctl list devices available -j | node -e "
@@ -93,24 +93,24 @@ jobs:
           open -ga Simulator || true
           echo "udid=$UDID" >> $GITHUB_OUTPUT
 
-      - name: serve-sim tests (idle floor regression)
-        run: bun test packages/serve-sim/src/__tests__/
+      - name: headless-serve-sim tests (idle floor regression)
+        run: bun test packages/headless-serve-sim/src/__tests__/
 
       - name: Shutdown simulator
         if: always() && steps.boot-sim.outputs.udid != ''
         run: |
           xcrun simctl shutdown "${{ steps.boot-sim.outputs.udid }}" || true
 
-      - name: Build and publish serve-sim stable
+      - name: Build and publish headless-serve-sim stable
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          cd packages/serve-sim
+          cd packages/headless-serve-sim
 
           # Stable publishing is manual-only. Bump from max(local, npm latest)
           # + 1, publish to npm's latest tag, then commit that stable version.
           LOCAL=$(node -p "require('./package.json').version")
-          PUBLISHED=$(npm view serve-sim dist-tags.latest 2>/dev/null || echo "")
+          PUBLISHED=$(npm view headless-serve-sim dist-tags.latest 2>/dev/null || echo "")
           [ -z "$PUBLISHED" ] && PUBLISHED="$LOCAL"
           NEW=$(node -e "
             const a='$LOCAL'.split('.').map(Number);
@@ -119,7 +119,7 @@ jobs:
             max[2]++;
             console.log(max.join('.'));
           ")
-          echo "Bumped serve-sim stable: local=$LOCAL npm=$PUBLISHED -> $NEW"
+          echo "Bumped headless-serve-sim stable: local=$LOCAL npm=$PUBLISHED -> $NEW"
           node -e "
             const fs = require('fs');
             const p = JSON.parse(fs.readFileSync('package.json'));
@@ -136,16 +136,16 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add packages/serve-sim/package.json
+          git add packages/headless-serve-sim/package.json
           if git diff --cached --quiet; then
             echo "No version bump to commit"
           else
-            git commit -m "chore: bump serve-sim version [skip ci]"
+            git commit -m "chore: bump headless-serve-sim version [skip ci]"
             for i in 1 2 3; do
               if git push; then exit 0; fi
               echo "Push rejected (attempt $i/3), rebasing on origin/main..."
               git pull --rebase --autostash origin main || break
             done
-            echo "::error::Failed to push serve-sim version bump after 3 attempts. npm has been advanced; next run will self-heal."
+            echo "::error::Failed to push headless-serve-sim version bump after 3 attempts. npm has been advanced; next run will self-heal."
             exit 1
           fi

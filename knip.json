@@ -9,7 +9,7 @@
   ],
   "workspaces": {
     ".": {},
-    "packages/serve-sim": {
+    "packages/headless-serve-sim": {
       "ignoreDependencies": [
         "preact"
       ],
@@ -24,7 +24,7 @@
         "scripts/build-trails.ts"
       ]
     },
-    "packages/serve-sim-client": {
+    "packages/headless-serve-sim-client": {
       "ignoreDependencies": [
         "react-dom",
         "@types/react-dom"

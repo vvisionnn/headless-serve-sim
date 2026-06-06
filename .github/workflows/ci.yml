@@ -27,7 +27,7 @@ jobs:
       - run: bun run lint
       - run: bun run typecheck
       - name: Client unit tests
-        run: bun test packages/serve-sim-client/src/__tests__/
+        run: bun test packages/headless-serve-sim-client/src/__tests__/
 
   # Full build + simulator integration tests on macOS. On a v* tag this also
   # packages the binary and uploads it for the release job.
@@ -43,7 +43,7 @@ jobs:
 
       - name: Build
         run: bun run build.ts
-        working-directory: packages/serve-sim
+        working-directory: packages/headless-serve-sim
 
       - name: Boot iOS simulator
         id: boot-sim
@@ -85,8 +85,8 @@ jobs:
           open -ga Simulator || true
           echo "udid=$UDID" >> $GITHUB_OUTPUT
 
-      - name: serve-sim tests
-        run: bun test packages/serve-sim/src/__tests__/
+      - name: headless-serve-sim tests
+        run: bun test packages/headless-serve-sim/src/__tests__/
 
       - name: Shutdown simulator
         if: always() && steps.boot-sim.outputs.udid != ''
@@ -94,15 +94,15 @@ jobs:
 
       - name: Package release tarball
         if: startsWith(github.ref, 'refs/tags/v')
-        working-directory: packages/serve-sim/dist
-        run: tar -czf serve-sim-darwin-arm64.tar.gz serve-sim simcam
+        working-directory: packages/headless-serve-sim/dist
+        run: tar -czf headless-serve-sim-darwin-arm64.tar.gz headless-serve-sim simcam
 
       - name: Upload release artifact
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
-          name: serve-sim-darwin-arm64
-          path: packages/serve-sim/dist/serve-sim-darwin-arm64.tar.gz
+          name: headless-serve-sim-darwin-arm64
+          path: packages/headless-serve-sim/dist/headless-serve-sim-darwin-arm64.tar.gz
           if-no-files-found: error
 
   # Publish only on a v* tag, and only after check + build-test pass.
@@ -115,8 +115,8 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: serve-sim-darwin-arm64
+          name: headless-serve-sim-darwin-arm64
       - uses: softprops/action-gh-release@v2
         with:
-          files: serve-sim-darwin-arm64.tar.gz
+          files: headless-serve-sim-darwin-arm64.tar.gz
           fail_on_unmatched_files: true

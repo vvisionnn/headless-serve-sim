@@ -1,1 +1,1 @@
-packages/serve-sim/README.md
+packages/headless-serve-sim/README.md
