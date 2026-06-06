@@ -29,6 +29,7 @@ interface ServerState {
   url: string;
   streamUrl: string;
   wsUrl: string;
+  headed: boolean;
 }
 
 function ensureStateDir() {
@@ -141,6 +142,19 @@ function writeState(state: ServerState) {
   ensureStateDir();
   writeFileSync(stateFileForDevice(state.device), JSON.stringify(state, null, 2));
   debugState("wrote state pid=%d device=%s port=%d", state.pid, state.device, state.port);
+}
+
+function makeServerState(pid: number, port: number, device: string, headed: boolean): ServerState {
+  const host = "127.0.0.1";
+  return {
+    pid,
+    port,
+    device,
+    url: `http://${host}:${port}`,
+    streamUrl: `http://${host}:${port}/stream.mjpeg`,
+    wsUrl: `ws://${host}:${port}/ws`,
+    headed,
+  };
 }
 
 function clearState(udid?: string) {
@@ -316,7 +330,7 @@ function killPortHolder(port: number): void {
   sleepSync(100);
 }
 
-function bootDevice(udid: string): void {
+function bootDevice(udid: string, headed: boolean): void {
   if (!isDeviceBooted(udid)) {
     try {
       execSync(`xcrun simctl boot ${udid}`, { encoding: "utf-8", stdio: "pipe" });
@@ -327,12 +341,10 @@ function bootDevice(udid: string): void {
       }
     }
   }
-  // Ensure Simulator.app is running so the display/framebuffer pipeline is
-  // wired up. `-g` = don't bring to foreground; safe to call even if already
-  // running. A short timeout keeps us from hanging on headless macOS hosts
-  // (e.g. GitHub Actions runners) where `open` can block indefinitely waiting
-  // for a window server that never arrives — in that environment the test
-  // harness is expected to have already driven the sim via simctl.
+  if (!headed) return;
+  // Launch Simulator.app's GUI window. `-g` keeps it backgrounded; the short
+  // timeout avoids hanging on headless hosts where `open` waits forever for a
+  // window server that never arrives.
   try {
     execSync("open -ga Simulator", {
       encoding: "utf-8",
@@ -361,8 +373,8 @@ async function findAvailablePort(start: number): Promise<number> {
   throw new Error(`No available port found in range ${start}-${start + 99}`);
 }
 
-async function ensureBooted(udid: string): Promise<void> {
-  bootDevice(udid);
+async function ensureBooted(udid: string, headed: boolean): Promise<void> {
+  bootDevice(udid, headed);
   // `simctl bootstatus -b` blocks until the device's services are actually ready
   // (not just flipped to "Booted"). Much more reliable than polling `simctl list`.
   try {
@@ -530,10 +542,10 @@ async function spawnHelperAttached(opts: SpawnHelperOptions): Promise<{
 async function startHelper(
   udid: string,
   port: number,
-  opts: { detach: boolean },
+  opts: { detach: boolean; headed: boolean },
 ): Promise<{ pid: number; child?: ChildProcess }> {
-  debugHelper("startHelper udid=%s port=%d detach=%s", udid, port, opts.detach);
-  await ensureBooted(udid);
+  debugHelper("startHelper udid=%s port=%d detach=%s headed=%s", udid, port, opts.detach, opts.headed);
+  await ensureBooted(udid, opts.headed);
 
   const host = "127.0.0.1";
   const helperPath = findHelperBinary();
@@ -557,15 +569,7 @@ async function startHelper(
         result.exited,
       );
       if (result.ready) {
-        const state: ServerState = {
-          pid: result.pid,
-          port,
-          device: udid,
-          url: `http://${host}:${port}`,
-          streamUrl: `http://${host}:${port}/stream.mjpeg`,
-          wsUrl: `ws://${host}:${port}/ws`,
-        };
-        writeState(state);
+        writeState(makeServerState(result.pid, port, udid, opts.headed));
         return { pid: result.pid };
       }
       stopProcess(result.pid);
@@ -578,15 +582,7 @@ async function startHelper(
         result.child.pid,
       );
       if (result.ready) {
-        const state: ServerState = {
-          pid: result.child.pid!,
-          port,
-          device: udid,
-          url: `http://${host}:${port}`,
-          streamUrl: `http://${host}:${port}/stream.mjpeg`,
-          wsUrl: `ws://${host}:${port}/ws`,
-        };
-        writeState(state);
+        writeState(makeServerState(result.child.pid!, port, udid, opts.headed));
         return { pid: result.child.pid!, child: result.child };
       }
       stopProcess(result.child.pid!);
@@ -606,8 +602,8 @@ async function startHelper(
 // ─── Commands ───
 
 /** Foreground follow mode (default). Stays attached, cleans up on Ctrl+C. */
-async function follow(devices: string[], startPort: number, quiet: boolean) {
-  debugCli("follow devices=%o startPort=%d", devices, startPort);
+async function follow(devices: string[], startPort: number, quiet: boolean, headed: boolean) {
+  debugCli("follow devices=%o startPort=%d headed=%s", devices, startPort, headed);
   const udids = devices.length > 0
     ? devices.map(resolveDevice)
     : (() => {
@@ -644,21 +640,13 @@ async function follow(devices: string[], startPort: number, quiet: boolean) {
     }
 
     port = await findAvailablePort(port);
-    const { pid, child } = await startHelper(udid, port, { detach: false });
+    const { pid, child } = await startHelper(udid, port, { detach: false, headed });
 
     if (child) {
       children.set(udid, child);
     }
 
-    const host = "127.0.0.1";
-    const state: ServerState = {
-      pid,
-      port,
-      device: udid,
-      url: `http://${host}:${port}`,
-      streamUrl: `http://${host}:${port}/stream.mjpeg`,
-      wsUrl: `ws://${host}:${port}/ws`,
-    };
+    const state = makeServerState(pid, port, udid, headed);
     states.push(state);
 
     if (!quiet) {
@@ -734,8 +722,8 @@ async function follow(devices: string[], startPort: number, quiet: boolean) {
 }
 
 /** Detach mode (--detach). Spawns helpers and returns their states. */
-async function detach(devices: string[], startPort: number): Promise<ServerState[]> {
-  debugCli("detach devices=%o startPort=%d", devices, startPort);
+async function detach(devices: string[], startPort: number, headed: boolean): Promise<ServerState[]> {
+  debugCli("detach devices=%o startPort=%d headed=%s", devices, startPort, headed);
   const udids = devices.length > 0
     ? devices.map(resolveDevice)
     : (() => {
@@ -760,17 +748,9 @@ async function detach(devices: string[], startPort: number): Promise<ServerState
     }
 
     port = await findAvailablePort(port);
-    await startHelper(udid, port, { detach: true });
+    await startHelper(udid, port, { detach: true, headed });
 
-    const host = "127.0.0.1";
-    states.push({
-      pid: readState(udid)!.pid,
-      port,
-      device: udid,
-      url: `http://${host}:${port}`,
-      streamUrl: `http://${host}:${port}/stream.mjpeg`,
-      wsUrl: `ws://${host}:${port}/ws`,
-    });
+    states.push(makeServerState(readState(udid)!.pid, port, udid, headed));
 
     port++;
   }
@@ -990,6 +970,14 @@ async function rotate(orientation: string, deviceArg?: string) {
   const state = readState(deviceArg);
   if (!state) {
     console.error("No serve-sim server running. Run `serve-sim` first.");
+    process.exit(1);
+  }
+
+  if (!state.headed) {
+    console.error(
+      "rotate is unsupported in headless mode (Simulator.app is not running).\n" +
+        "Restart serve-sim with --headed to enable rotation.",
+    );
     process.exit(1);
   }
 
@@ -1790,11 +1778,11 @@ Examples:
 
 // ─── Serve preview ───
 
-async function serve(servePort: number, devices: string[], portExplicit: boolean, host: string) {
+async function serve(servePort: number, devices: string[], portExplicit: boolean, host: string, headed: boolean) {
   let targetDevice: string | undefined;
 
   if (devices.length > 0) {
-    const states = await detach(devices, 3100);
+    const states = await detach(devices, 3100, headed);
     targetDevice = states[0]?.device;
   } else {
     // Ensure a serve-sim stream is running (start one if not)
@@ -1803,7 +1791,7 @@ async function serve(servePort: number, devices: string[], portExplicit: boolean
       targetDevice = existing[0]?.device;
     } else {
       console.log("Starting simulator stream...");
-      const states = await detach(devices, 3100);
+      const states = await detach(devices, 3100, headed);
       targetDevice = states[0]?.device;
     }
   }
@@ -1885,6 +1873,11 @@ program
   .option("--detach", "Spawn helper and exit (daemon mode)")
   .option("-q, --quiet", "Suppress human-readable output, JSON only")
   .option("--no-preview", "Skip the web preview server; stream in foreground only")
+  .option(
+    "--headed",
+    "Launch the Simulator.app window alongside the stream. " +
+      "Default is headless (no GUI window). Required for `serve-sim rotate`.",
+  )
   .option("-l, --list [device]", "List running streams")
   .option("-k, --kill [device]", "Kill running stream(s)")
   .addHelpText(
@@ -1909,13 +1902,14 @@ Examples:
       return;
     }
     const startPort: number | undefined = opts.port;
+    const headed: boolean = !!opts.headed;
     if (opts.detach) {
-      const states = await detach(devices, startPort ?? 3100);
+      const states = await detach(devices, startPort ?? 3100, headed);
       printStatesJSON(states);
     } else if (opts.preview === false) {
-      await follow(devices, startPort ?? 3100, !!opts.quiet);
+      await follow(devices, startPort ?? 3100, !!opts.quiet, headed);
     } else {
-      await serve(startPort ?? 3200, devices, startPort !== undefined, opts.host);
+      await serve(startPort ?? 3200, devices, startPort !== undefined, opts.host, headed);
     }
   });
 

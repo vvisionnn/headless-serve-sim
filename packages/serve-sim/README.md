@@ -66,6 +66,10 @@ Options:
   -d, --detach        Spawn helper and exit (daemon mode)
   -q, --quiet         JSON-only output
       --no-preview    Skip the web UI; stream in foreground only
+      --headed        Launch the Simulator.app window alongside the stream.
+                      Default is headless (no GUI window). Required for
+                      `serve-sim rotate` (PurpleWorkspacePort only exists
+                      while Simulator.app is running).
       --list [device] List running streams
       --kill [device] Kill running stream(s)
 
@@ -84,7 +88,8 @@ Camera options (used with `serve-sim camera <bundle-id>`):
 ### Examples
 
 ```sh
-serve-sim                              # auto-detect booted sim, open preview
+serve-sim                              # auto-detect booted sim, open preview (no Simulator.app window)
+serve-sim --headed                     # also launch the Simulator.app window
 serve-sim "iPhone 16 Pro"              # target a specific device
 serve-sim --detach                     # start a background helper, return JSON
 serve-sim --list                       # show running streams
