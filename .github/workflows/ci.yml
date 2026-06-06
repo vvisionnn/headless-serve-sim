@@ -1,21 +1,39 @@
-name: serve-sim tests
+name: ci
 
 on:
+  push:
+    branches: [main]
+    tags: ["v*"]
   pull_request:
-    paths:
-      - "packages/serve-sim/**"
-      - ".github/workflows/sim-test.yml"
 
-# Cancel superseded runs — pushing twice to the same PR shouldn't burn two
-# macOS slots in parallel.
+permissions:
+  contents: read
+
+# Don't run two macOS builds for the same ref at once (e.g. rapid pushes).
 concurrency:
-  group: sim-test-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  sim-test:
-    runs-on: macos-latest
-    timeout-minutes: 15
+  # Fast, cheap checks on Linux — run on every push and PR.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run typecheck
+      - name: Client unit tests
+        run: bun test packages/serve-sim-client/src/__tests__/
+
+  # Full build + simulator integration tests on macOS. On a v* tag this also
+  # packages the binary and uploads it for the release job.
+  build-test:
+    runs-on: macos-14 # Apple Silicon (arm64)
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -23,21 +41,13 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
 
-      # The permissions e2e test drives the built CLI (dist/serve-sim.js), so
-      # build it up front rather than from inside the test.
-      - name: Build serve-sim
+      - name: Build
         run: bun run build.ts
         working-directory: packages/serve-sim
 
       - name: Boot iOS simulator
         id: boot-sim
         run: |
-          # Fast path: GitHub's macOS runner images pre-create iPhone
-          # simulators, so try booting one by name directly. `simctl list`
-          # enumerates every device/runtime and was costing 1.5-3min of
-          # cold-CoreSimulator first-touch — boot-by-name pays that once on a
-          # single device instead. The first available name wins; fall back
-          # to the full discovery+create path only if none boot.
           UDID=""
           for NAME in "iPhone 16 Pro" "iPhone 16" "iPhone 15 Pro" "iPhone 15"; do
             echo "Trying to boot \"$NAME\"..."
@@ -81,3 +91,32 @@ jobs:
       - name: Shutdown simulator
         if: always() && steps.boot-sim.outputs.udid != ''
         run: xcrun simctl shutdown "${{ steps.boot-sim.outputs.udid }}" || true
+
+      - name: Package release tarball
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: packages/serve-sim/dist
+        run: tar -czf serve-sim-darwin-arm64.tar.gz serve-sim simcam
+
+      - name: Upload release artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: serve-sim-darwin-arm64
+          path: packages/serve-sim/dist/serve-sim-darwin-arm64.tar.gz
+          if-no-files-found: error
+
+  # Publish only on a v* tag, and only after check + build-test pass.
+  release:
+    needs: [check, build-test]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: serve-sim-darwin-arm64
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: serve-sim-darwin-arm64.tar.gz
+          fail_on_unmatched_files: true
