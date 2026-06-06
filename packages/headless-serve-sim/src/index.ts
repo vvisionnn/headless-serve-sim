@@ -973,14 +973,6 @@ async function rotate(orientation: string, deviceArg?: string) {
     process.exit(1);
   }
 
-  if (!state.headed) {
-    console.error(
-      "rotate is unsupported in headless mode (Simulator.app is not running).\n" +
-        "Restart headless-serve-sim with --headed to enable rotation.",
-    );
-    process.exit(1);
-  }
-
   const valid = new Set([
     "portrait",
     "portrait_upside_down",
@@ -1876,7 +1868,7 @@ program
   .option(
     "--headed",
     "Launch the Simulator.app window alongside the stream. " +
-      "Default is headless (no GUI window). Required for `headless-serve-sim rotate`.",
+      "Default is headless (no GUI window).",
   )
   .option("-l, --list [device]", "List running streams")
   .option("-k, --kill [device]", "Kill running stream(s)")

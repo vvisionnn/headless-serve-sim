@@ -78,9 +78,7 @@ Options:
   -q, --quiet         JSON-only output
       --no-preview    Skip the web UI; stream in foreground only
       --headed        Launch the Simulator.app window alongside the stream.
-                      Default is headless (no GUI window). Required for
-                      `headless-serve-sim rotate` (PurpleWorkspacePort only exists
-                      while Simulator.app is running).
+                      Default is headless (no GUI window).
       --list [device] List running streams
       --kill [device] Kill running stream(s)
 

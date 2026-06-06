@@ -456,7 +456,7 @@ final class HIDInjector {
         var lookupError: NSError?
         let purplePort = lookup(device, lookupSel, "PurpleWorkspacePort" as NSString, &lookupError)
         if purplePort == 0 {
-            fputs("[hid] sendOrientation: PurpleWorkspacePort not found (\(lookupError?.localizedDescription ?? "no error")). Simulator.app must be running.\n", stderr)
+            fputs("[hid] sendOrientation: PurpleWorkspacePort not found (\(lookupError?.localizedDescription ?? "no error")); device may not be fully booted.\n", stderr)
             return false
         }
 
