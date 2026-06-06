@@ -1,5 +1,14 @@
 # serve-sim
 
+> [!IMPORTANT]
+> ### 🔱 Self-maintained fork
+>
+> **This is a self-maintained version of the original project, [`EvanBacon/serve-sim`](https://github.com/EvanBacon/serve-sim).**
+>
+> It is maintained independently and may diverge from upstream. For the original project — official releases, issues, and support — please use the source repository:
+>
+> ### 👉 https://github.com/EvanBacon/serve-sim
+
 The `npx serve` of Apple Simulators. 
 
 Host your simulator for use with Agent tools like Codex, Cursor, or Claude Desktop — locally, over your LAN, or host on a remote mac and tunnel anywhere. 
