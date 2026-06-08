@@ -5,6 +5,7 @@ import { AppDetectionTool } from "./app-detection-tool";
 import { AppPermissionsTool } from "./app-permissions-tool";
 import { AxTreeTool } from "./ax-tree-tool";
 import { CameraTool } from "./camera-tool";
+import { ImportDocumentTool } from "./import-document-tool";
 
 export function ToolsPanel({
   open,
@@ -38,6 +39,7 @@ export function ToolsPanel({
             onToggleOverlay={onToggleAxOverlay}
           />
           <CameraTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
+          <ImportDocumentTool udid={udid} />
           <LocationEmulationTool udid={udid} exec={execOnHost} />
           <AppPermissionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
         </div>

@@ -35,6 +35,17 @@ export function fileExtension(file: File): string {
   return "jpg";
 }
 
+// The temp filename's extension is cosmetic — documents restore the real name
+// via `document import --name`, and camera/media detect kind from magic bytes.
+// The chunk upload streams to this path through an UNQUOTED `bash -c` redirect,
+// so a crafted filename (e.g. `evil.';touch pwned;'`) whose extension carries a
+// single quote could otherwise break out and run arbitrary host commands. Strip
+// the extension to a safe charset before it ever reaches the shell.
+export function safeTmpExt(ext: string): string {
+  const cleaned = ext.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 16);
+  return cleaned || "bin";
+}
+
 export function dropKindFor(file: File): DropKind | null {
   if (fileExtension(file) === "ipa") return "ipa";
   if (DROP_MEDIA_MIME_TYPES.has(file.type)) return "media";
@@ -60,13 +71,19 @@ export async function uploadFileToTmp(
   if (file.size > DROP_MAX_FILE_SIZE) {
     throw new Error("File too large (max 500MB)");
   }
-  const tmpPath = `/tmp/${prefix}-${crypto.randomUUID()}.${ext}`;
+  const tmpPath = `/tmp/${prefix}-${crypto.randomUUID()}.${safeTmpExt(ext)}`;
   const buffer = await file.arrayBuffer();
   const b64 = arrayBufferToBase64(buffer);
+  // Truncate-create up front so a 0-byte file still lands as a real (empty)
+  // temp file — the chunk loop is skipped entirely when b64 is empty, which
+  // otherwise leaves nothing on disk and breaks the downstream consumer.
+  const created = await exec(`bash -c '> ${tmpPath}'`);
+  if (created.exitCode !== 0) {
+    throw new Error(created.stderr || `Write failed (exit ${created.exitCode})`);
+  }
   for (let offset = 0; offset < b64.length; offset += DROP_CHUNK_SIZE) {
     const chunk = b64.slice(offset, offset + DROP_CHUNK_SIZE);
-    const op = offset === 0 ? ">" : ">>";
-    const result = await exec(`bash -c 'echo ${chunk} | base64 -d ${op} ${tmpPath}'`);
+    const result = await exec(`bash -c 'echo ${chunk} | base64 -d >> ${tmpPath}'`);
     if (result.exitCode !== 0) {
       throw new Error(result.stderr || `Write failed (exit ${result.exitCode})`);
     }
@@ -87,7 +104,7 @@ export async function uploadDroppedFile(
 
   const ext = kind === "ipa" ? "ipa" : fileExtension(file);
   const prefix = kind === "ipa" ? "headless-serve-sim-install" : "headless-serve-sim-upload";
-  const tmpPath = `/tmp/${prefix}-${crypto.randomUUID()}.${ext}`;
+  const tmpPath = `/tmp/${prefix}-${crypto.randomUUID()}.${safeTmpExt(ext)}`;
 
   try {
     onProgress(0);

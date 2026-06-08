@@ -72,6 +72,10 @@ headless-serve-sim camera --list-webcams       List host camera devices
 headless-serve-sim camera --stop-webcam [-d udid]
                                       Stop the camera helper for a device
 
+headless-serve-sim document import <file...> [-d udid]
+                                      Import file(s) into the Files app under
+                                      "On My iPad/iPhone" (--into <subfolder>)
+
 Options:
   -p, --port <port>   Starting port (preview default: 3200, stream default: 3100)
   -d, --detach        Spawn helper and exit (daemon mode)
@@ -126,6 +130,11 @@ headless-serve-sim camera mirror on
 headless-serve-sim camera status                                    # JSON: alive, source, mirror
 headless-serve-sim camera --list-webcams
 headless-serve-sim camera --stop-webcam
+
+# Import documents into the Files app ("On My iPad/iPhone")
+headless-serve-sim document import ~/report.pdf                     # land at the top level
+headless-serve-sim document import ~/a.pdf ~/b.epub ~/c.txt         # multiple files
+headless-serve-sim document import ~/report.pdf --into Reports/2026 # into a subfolder
 ```
 
 Multiple booted simulators are supported — pass several device names, or leave it empty to attach to all of them.
@@ -141,6 +150,12 @@ Sources:
 - **placeholder** — animated programmatic frames (default).
 - **file** — image (PNG/JPEG/HEIC/…) or video (mp4/mov/m4v/webm/…). The CLI sniffs the kind from the extension and falls back to magic bytes for files without an extension.
 - **webcam** — live `AVCaptureDevice` (built-in, Continuity, external).
+
+### Documents
+
+`headless-serve-sim document import <file...>` copies files straight into the simulator's Files app "On My iPad/iPhone" local storage (the `group.com.apple.FileProvider.LocalStorage` app group). They show up immediately under Browse → On My iPad — no in-app document picker and no confirmation prompt. Pass `--into <subfolder>` to land them in (and create) a subfolder; same-name files are overwritten.
+
+The web preview exposes the same action as a **Documents** tool-panel card: pick or drag files (multi-select supported), optionally set a destination folder, and they import on drop.
 
 ## Connectors
 

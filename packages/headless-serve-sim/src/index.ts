@@ -9,6 +9,7 @@ import { STATE_DIR, stateFileForDevice, listStateFiles } from "./state";
 import { textToKeyEvents, UnsupportedCharacterError, sendKeyEventsToWs } from "./text-to-keys";
 import { dirnameOf, sleepSync, isPortFree, servePreview } from "./runtime";
 import { findBootedDevice, resolveDevice } from "./device";
+import { document } from "./document-import";
 import { permissions } from "./permissions";
 import { debugCli, debugHelper, debugState } from "./debug";
 
@@ -1986,5 +1987,17 @@ program
   .helpOption(false)
   .argument("[args...]")
   .action((args: string[]) => permissions(args));
+
+program
+  .command("document")
+  .description("Import documents into the simulator's Files app (see `document` with no args for usage)")
+  .allowUnknownOption(true)
+  .helpOption(false)
+  .argument("[args...]")
+  // Commander binds the root's -q/--quiet here even when it trails this
+  // passthrough subcommand, so read it from the root and forward to the parser.
+  .action((args: string[]) =>
+    document(program.opts().quiet ? [...args, "--quiet"] : args),
+  );
 
 await program.parseAsync(process.argv);
