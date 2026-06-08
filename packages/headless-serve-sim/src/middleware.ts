@@ -469,16 +469,29 @@ function bridgeWsHost(_reqHost: string | undefined, bridgePort: number): string 
 
 let _html: string | null = null;
 /**
- * Best-effort absolute path to the running headless-serve-sim entry script. Used so
- * the in-page Camera tool can `node <path> camera ...` regardless of PATH.
- * Falls back to the literal `headless-serve-sim` if we can't determine a usable path.
+ * Pure: derive a browser-usable CLI string from a resolved invocation. The
+ * in-page tools re-derive the runtime from the extension (`.ts` → `bun <p>`,
+ * `.js` → `node <p>`); a bare command (compiled binary / PATH) is used as-is.
+ * Returns `headless-serve-sim` (resolved on PATH at exec time) when the entry
+ * can't be pinpointed — e.g. embedded inside a host dev server.
+ */
+export function serveSimBinFor(
+  invocation: { command: string; baseArgs: string[] } | null,
+): string {
+  if (!invocation) return "headless-serve-sim";
+  return invocation.baseArgs.length > 0
+    ? invocation.baseArgs[invocation.baseArgs.length - 1]!
+    : invocation.command;
+}
+
+/**
+ * Best-effort browser-usable command for the running headless-serve-sim CLI so
+ * the in-page tools (camera, permissions, document import) can shell out to it
+ * via /exec regardless of how the server was launched. Crucially this must NOT
+ * be a `bun --compile` `/$bunfs/...` virtual path — /bin/sh can't exec it.
  */
 function serveSimBinPath(): string {
-  try {
-    const argv = process.argv;
-    if (argv[1] && existsSync(argv[1])) return argv[1];
-  } catch {}
-  return "headless-serve-sim";
+  return serveSimBinFor(resolveServeSimCommand());
 }
 
 function loadHtml(): string {
@@ -634,32 +647,76 @@ function buildMemoryReport(): MemoryReport {
 }
 
 /**
- * Locate the `headless-serve-sim` CLI binary so the grid can spawn helpers via
- * `headless-serve-sim --detach <udid>`. Tries, in order:
- *   1. argv[0] if it ends in `headless-serve-sim` (we're running inside the
- *      compiled standalone binary, which IS the CLI)
- *   2. `headless-serve-sim` on PATH (npm-installed / bun-installed CLI)
- * Returns the resolved command + args ready for spawn.
+ * Pure core: resolve how to invoke the headless-serve-sim CLI from process
+ * state — used both to spawn helpers (`--detach <udid>`) and to tell the
+ * in-page tools how to shell out via /exec. Returns `{ command, baseArgs }`
+ * ready for spawn(), or null when it can't be located. Order:
+ *   1. Compiled standalone binary (`bun --compile`): argv[1] is a `/$bunfs/...`
+ *      virtual path that doesn't exist on the real filesystem, so the binary
+ *      itself (execPath, or a headless-serve-sim-named argv[0]) IS the CLI.
+ *   2. argv[0] is the compiled binary directly (no bunfs entry in argv).
+ *   3. `node /path/to/headless-serve-sim.js` (npm-installed / npx).
+ *   4. `headless-serve-sim` on PATH (global install, or embedded in a host dev
+ *      server whose argv is unrelated to us).
  */
-function resolveServeSimCommand(): { command: string; baseArgs: string[] } | null {
-  // 1. Compiled standalone binary: argv[0] is the headless-serve-sim binary itself.
-  if (process.argv[0] && /(^|\/)headless-serve-sim$/.test(process.argv[0])) {
-    return { command: process.argv[0], baseArgs: [] };
+export function resolveServeSimInvocation(
+  argv: readonly string[],
+  execPath: string,
+  exists: (p: string) => boolean,
+  lookupOnPath: () => string | null,
+): { command: string; baseArgs: string[] } | null {
+  const arg0 = argv[0] ?? "";
+  const arg1 = argv[1] ?? "";
+  const isOurName = (p: string) => /(^|\/)headless-serve-sim$/.test(p);
+
+  if (arg1.startsWith("/$bunfs/")) {
+    // Our compiled standalone binary: the /$bunfs/ entry is named after our
+    // build outfile ("headless-serve-sim"), so the on-disk binary (execPath) IS
+    // the CLI — even if the file was renamed after the build. A foreign
+    // bun-compiled host that merely embeds our middleware has a different entry
+    // name and a non-headless-serve-sim execPath, so it must NOT be run as our
+    // CLI — fall through to PATH (or the explicit serveSimBin option).
+    if ((isOurName(arg1) || isOurName(execPath)) && exists(execPath)) {
+      return { command: execPath, baseArgs: [] };
+    }
+  } else if (isOurName(arg0) && exists(arg0)) {
+    // argv[0] is the binary directly.
+    return { command: arg0, baseArgs: [] };
+  } else if (arg1 && /(^|\/)headless-serve-sim(\.js)?$/.test(arg1) && exists(arg1)) {
+    // node/bun running our entry (headless-serve-sim.js), or a
+    // node_modules/.bin/headless-serve-sim link (an executable without `.js`).
+    return { command: arg0, baseArgs: [arg1] };
   }
-  // 2. Running the JS bundle directly: `node /path/to/headless-serve-sim.js`.
-  if (process.argv[1] && /(^|\/)headless-serve-sim\.js$/.test(process.argv[1])) {
-    return { command: process.argv[0]!, baseArgs: [process.argv[1]!] };
-  }
-  // 3. Global install: headless-serve-sim is on PATH.
+
+  const onPath = lookupOnPath();
+  if (onPath) return { command: onPath, baseArgs: [] };
+  return null;
+}
+
+function lookupServeSimOnPath(): string | null {
   try {
     const path = execSync("command -v headless-serve-sim", {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 1_500,
     }).trim();
-    if (path) return { command: path, baseArgs: [] };
-  } catch {}
-  return null;
+    return path || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Locate the headless-serve-sim CLI for spawning helpers and for the in-page
+ * tools. Thin process-bound wrapper over {@link resolveServeSimInvocation}.
+ */
+function resolveServeSimCommand(): { command: string; baseArgs: string[] } | null {
+  return resolveServeSimInvocation(
+    process.argv,
+    process.execPath,
+    existsSync,
+    lookupServeSimOnPath,
+  );
 }
 
 export interface SimMiddlewareOptions {
@@ -674,6 +731,13 @@ export interface SimMiddlewareOptions {
    * cross-origin pages cannot read it.
    */
   execToken?: string;
+  /**
+   * Explicit command the in-page tools use to invoke the headless-serve-sim CLI
+   * via /exec (an absolute path to the binary, or a `.js`/`.ts` entry the tools
+   * wrap with node/bun). Defaults to auto-detection; set this when embedding in
+   * a host dev server where auto-detection can't see our own entry.
+   */
+  serveSimBin?: string;
 }
 
 function safeEqualString(a: string, b: string): boolean {
@@ -705,6 +769,8 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
   // can call /exec; cross-origin pages and LAN clients cannot, because they
   // can't read this value (it's only injected into the preview page's config).
   const execToken = options?.execToken ?? randomBytes(32).toString("base64url");
+  // Resolved once per process: the command the in-page tools shell out to.
+  const serveSimBin = options?.serveSimBin ?? serveSimBinPath();
 
   return (req: SimReq, res: SimRes, next?: SimNext) => {
     const rawUrl: string = req.url ?? "";
@@ -766,7 +832,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
 
       if (state) {
         const remoteState = rewriteStateForRequestHost(state, req.headers?.host);
-        const config = JSON.stringify(previewConfigForState(remoteState, base, serveSimBinPath(), execToken));
+        const config = JSON.stringify(previewConfigForState(remoteState, base, serveSimBin, execToken));
         const configScript = `<script>window.__SIM_PREVIEW__=${config}</script>`;
         html = html.replace("<!--__SIM_PREVIEW_CONFIG__-->", configScript);
       }
@@ -1055,7 +1121,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         "Cache-Control": "no-store",
       });
       const remoteState = state ? rewriteStateForRequestHost(state, req.headers?.host) : null;
-      res.end(JSON.stringify(remoteState ? previewConfigForState(remoteState, base, serveSimBinPath(), execToken) : null));
+      res.end(JSON.stringify(remoteState ? previewConfigForState(remoteState, base, serveSimBin, execToken) : null));
       return;
     }
 
@@ -1069,7 +1135,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         const state = selectServeSimState(states, selectedDevice);
         const remoteState = state ? rewriteStateForRequestHost(state, req.headers?.host) : null;
         return JSON.stringify(
-          remoteState ? previewConfigForState(remoteState, base, serveSimBinPath(), execToken) : null,
+          remoteState ? previewConfigForState(remoteState, base, serveSimBin, execToken) : null,
         );
       };
 
