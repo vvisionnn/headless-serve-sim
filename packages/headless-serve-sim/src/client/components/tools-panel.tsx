@@ -6,6 +6,7 @@ import { AppPermissionsTool } from "./app-permissions-tool";
 import { AxTreeTool } from "./ax-tree-tool";
 import { CameraTool } from "./camera-tool";
 import { ImportDocumentTool } from "./import-document-tool";
+import { StatusBarTool } from "./status-bar-tool";
 
 export function ToolsPanel({
   open,
@@ -41,6 +42,7 @@ export function ToolsPanel({
           <CameraTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
           <ImportDocumentTool udid={udid} />
           <LocationEmulationTool udid={udid} exec={execOnHost} />
+          <StatusBarTool udid={udid} />
           <AppPermissionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
         </div>
       )}
