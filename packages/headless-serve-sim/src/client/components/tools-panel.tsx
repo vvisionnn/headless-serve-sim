@@ -1,6 +1,7 @@
 import { LocationEmulationTool } from "../location-emulation-tool";
 import { Panel, PanelCloseButton, PanelHeader, PanelTitle } from "../Panel";
 import { execOnHost } from "../utils/exec";
+import { AppActionsTool } from "./app-actions-tool";
 import { AppDetectionTool } from "./app-detection-tool";
 import { AppPermissionsTool } from "./app-permissions-tool";
 import { AxTreeTool } from "./ax-tree-tool";
@@ -45,6 +46,7 @@ export function ToolsPanel({
           <LocationEmulationTool udid={udid} exec={execOnHost} />
           <StatusBarTool udid={udid} />
           <UserDefaultsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
+          <AppActionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
           <AppPermissionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
         </div>
       )}
