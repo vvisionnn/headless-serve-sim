@@ -7,6 +7,7 @@ import { AppPermissionsTool } from "./app-permissions-tool";
 import { AxTreeTool } from "./ax-tree-tool";
 import { CameraTool } from "./camera-tool";
 import { ImportDocumentTool } from "./import-document-tool";
+import { ScreenshotTool } from "./screenshot-tool";
 import { StatusBarTool } from "./status-bar-tool";
 import { UserDefaultsTool } from "./user-defaults-tool";
 
@@ -42,6 +43,7 @@ export function ToolsPanel({
             onToggleOverlay={onToggleAxOverlay}
           />
           <CameraTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
+          <ScreenshotTool udid={udid} />
           <ImportDocumentTool udid={udid} />
           <LocationEmulationTool udid={udid} exec={execOnHost} />
           <StatusBarTool udid={udid} />

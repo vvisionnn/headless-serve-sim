@@ -14,6 +14,7 @@ import { permissions } from "./permissions";
 import { statusBar } from "./status-bar";
 import { userDefaults } from "./user-defaults";
 import { appActions } from "./app-actions";
+import { screenshot } from "./screenshot";
 import { debugCli, debugHelper, debugState } from "./debug";
 
 // `import.meta.dir` is Bun-only; resolve once via fileURLToPath so the bundled
@@ -2034,6 +2035,17 @@ program
   // The parser consumes -q/--quiet itself; forward the root flag like `document`.
   .action((args: string[]) =>
     appActions(program.opts().quiet ? [...args, "--quiet"] : args),
+  );
+
+program
+  .command("screenshot")
+  .description("Capture the simulator display to an image (see `screenshot` with no args for usage)")
+  .allowUnknownOption(true)
+  .helpOption(false)
+  .argument("[args...]")
+  // The parser consumes -q/--quiet itself; forward the root flag like `document`.
+  .action((args: string[]) =>
+    screenshot(program.opts().quiet ? [...args, "--quiet"] : args),
   );
 
 await program.parseAsync(process.argv);
