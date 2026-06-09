@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, existsSync, unlinkSync, watch, type FSWatcher } from "fs";
 import { execSync, spawn, exec, execFile, type ChildProcess, type ExecException } from "child_process";
+import { sampleAppMetrics } from "./app-metrics";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createServer as createNetServer } from "net";
@@ -852,6 +853,23 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         "Cache-Control": "no-store",
       });
       res.end(JSON.stringify(buildMemoryReport()));
+      return;
+    }
+
+    // Live per-app metrics: CPU% + RSS for the foreground app's host PID
+    // (supplied by the client from the /appstate feed). Simulator apps are
+    // ordinary host processes, so a plain `ps` reads them directly.
+    if (url === base + "/api/metrics") {
+      const query = qIndex === -1 ? "" : rawUrl.slice(qIndex + 1);
+      const pid = Number(new URLSearchParams(query).get("pid"));
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      });
+      const result = Number.isInteger(pid) && pid > 0
+        ? sampleAppMetrics(pid, Date.now())
+        : { pid: 0, alive: false, rssBytes: null, cpuPercent: null };
+      res.end(JSON.stringify(result));
       return;
     }
 

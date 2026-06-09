@@ -21,13 +21,14 @@ import {
   type StreamConfig,
 } from "headless-serve-sim-client/simulator";
 
-import { ReloadIcon } from "./icons";
+import { AppearanceIcon, ReloadIcon } from "./icons";
 import { AxDomOverlay } from "./components/ax-dom-overlay";
 import { AxStateProvider } from "./components/ax-state-provider";
 import { AxToolbarButton } from "./components/ax-toolbar-button";
 import { BootEmptyState } from "./components/boot-empty-state";
 import { DevicePicker } from "./components/device-picker";
 import { GridPanel } from "./components/grid-panel";
+import { MetricsHud } from "./components/metrics-hud";
 import { ResizeHandle } from "./components/resize-handle";
 import { SimulatorResizeCornerHandle } from "./components/simulator-resize-corner-handle";
 import { SimulatorResizeSizeBadge } from "./components/simulator-resize-size-badge";
@@ -457,6 +458,18 @@ function AppWithConfig({
     [canRotate, currentOrientation, rotateDevice],
   );
 
+  // Flip the simulator between light and dark appearance. Reads the current
+  // mode and sets the opposite, so every invocation is a real toggle — shared
+  // by the toolbar button and the ⇧⌘A shortcut.
+  const toggleAppearance = useCallback(() => {
+    execOnHost(`xcrun simctl ui ${config.device} appearance`)
+      .then((r) => {
+        const next = r.stdout.trim() === "dark" ? "light" : "dark";
+        return execOnHost(`xcrun simctl ui ${config.device} appearance ${next}`);
+      })
+      .catch(() => {});
+  }, [config.device]);
+
   useEffect(() => {
     setLiveStreamConfig(null);
     setWsStreamConfig(null);
@@ -579,6 +592,23 @@ function AppWithConfig({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent, type: "down" | "up") => {
+      // Appearance toggle (⇧⌘A) is a global UI command, not a keystroke
+      // forwarded to the guest, so it must fire whenever the page is focused —
+      // not only while the simulator canvas was the last thing clicked. Suppress
+      // it only when the user is typing into a form field.
+      if (e.code === "KeyA" && e.metaKey && e.shiftKey) {
+        const target = e.target as HTMLElement | null;
+        const typing =
+          !!target &&
+          (target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.isContentEditable);
+        if (!typing) {
+          e.preventDefault();
+          if (type === "down" && !e.repeat) toggleAppearance();
+          return;
+        }
+      }
       if (!simFocusedRef.current) return;
       if (e.code === "KeyH" && e.metaKey && e.shiftKey) {
         e.preventDefault();
@@ -589,16 +619,6 @@ function AppWithConfig({
         e.preventDefault();
         if (type === "down" && !e.repeat) {
           rotateBy(e.code === "ArrowLeft" ? "left" : "right");
-        }
-        return;
-      }
-      if (e.code === "KeyA" && e.metaKey && e.shiftKey) {
-        e.preventDefault();
-        if (type === "down" && !e.repeat) {
-          execOnHost(`xcrun simctl ui ${config.device} appearance`).then((r) => {
-            const next = r.stdout.trim() === "dark" ? "light" : "dark";
-            return execOnHost(`xcrun simctl ui ${config.device} appearance ${next}`);
-          }).catch(() => {});
         }
         return;
       }
@@ -617,7 +637,7 @@ function AppWithConfig({
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [sendWs, config.device, rotateBy]);
+  }, [sendWs, config.device, rotateBy, toggleAppearance]);
 
   const switchToDevice = useCallback(async (d: SimDevice) => {
     if (switching || d.udid === config.device) return;
@@ -754,6 +774,13 @@ function AppWithConfig({
             <SimulatorToolbar.HomeButton
               onClick={(e) => { e.preventDefault(); onStreamButton("home"); }}
             />
+            <SimulatorToolbar.Button
+              aria-label="Toggle light / dark appearance"
+              title="Toggle light / dark (⇧⌘A)"
+              onClick={() => toggleAppearance()}
+            >
+              <AppearanceIcon />
+            </SimulatorToolbar.Button>
             <AxToolbarButton
               overlayEnabled={axOverlayEnabled}
               streaming={streaming}
@@ -841,6 +868,7 @@ function AppWithConfig({
             }
             visible={simulatorResize.isResizing || simulatorResize.isInertia}
           />
+          <MetricsHud pid={currentApp?.pid} enabled={streaming} />
         </div>
       </div>
 
