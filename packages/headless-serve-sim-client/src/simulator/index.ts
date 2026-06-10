@@ -49,3 +49,11 @@ export type {
   UseSimStreamOptions,
   UseSimStreamResult,
 } from "./useSimStream.js";
+export { ConnectionStatsAccumulator, summarize } from "../connection-stats.js";
+export type {
+  FrameSample,
+  ConnectionStatsSnapshot,
+  ConnectionStats,
+  MetricSummary,
+} from "../connection-stats.js";
+export type { AvccFrameInfo } from "./use-avcc-stream.js";

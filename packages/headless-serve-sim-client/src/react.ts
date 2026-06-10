@@ -28,8 +28,9 @@ export interface StreamAPI {
   sendButton: (button: string) => void;
   sendDigitalCrown?: (delta: number) => void;
   /** Subscribe to frame updates (bypasses React state for performance). Returns unsubscribe fn.
-   * Callback receives a blob URL (object URL) pointing to the JPEG frame. */
-  subscribeFrame: (cb: (blobUrl: string) => void) => () => void;
+   * Callback receives a blob URL (object URL) pointing to the JPEG frame, plus
+   * the frame's byte size when known (used by the Connection Stats panel). */
+  subscribeFrame: (cb: (blobUrl: string, bytes?: number) => void) => () => void;
   frame: string | null;
   config: StreamConfig | null;
   /** Current adaptive FPS (may change dynamically based on network conditions). */
@@ -53,7 +54,8 @@ export function useGateway(options: UseGatewayOptions): UseGatewayResult {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const streamFrameRef = useRef<string | null>(null);
-  const frameListenersRef = useRef(new Set<(blobUrl: string) => void>());
+  const streamFrameBytesRef = useRef<number | undefined>(undefined);
+  const frameListenersRef = useRef(new Set<(blobUrl: string, bytes?: number) => void>());
   const [streamConfig, setStreamConfig] = useState<StreamConfig | null>(null);
   const [adaptiveFps, setAdaptiveFps] = useState(30);
   const [adaptiveState, setAdaptiveState] = useState<AdaptiveState>("normal");
@@ -94,10 +96,11 @@ export function useGateway(options: UseGatewayOptions): UseGatewayResult {
         shellRef.current = $;
 
         // Register stream listeners (frames bypass React state for performance)
-        $.transport.onStreamFrame((blobUrl) => {
+        $.transport.onStreamFrame((blobUrl, bytes) => {
           if (cancelled) return;
           streamFrameRef.current = blobUrl;
-          for (const cb of frameListenersRef.current) cb(blobUrl);
+          streamFrameBytesRef.current = bytes;
+          for (const cb of frameListenersRef.current) cb(blobUrl, bytes);
         });
         $.transport.onStreamConfig((config) => {
           if (!cancelled) setStreamConfig(config);
@@ -125,6 +128,7 @@ export function useGateway(options: UseGatewayOptions): UseGatewayResult {
       shellRef.current = null;
       setStatus("disconnected");
       streamFrameRef.current = null;
+      streamFrameBytesRef.current = undefined;
       setStreamConfig(null);
       setAdaptiveFps(30);
       setAdaptiveState("normal");
@@ -158,10 +162,10 @@ export function useGateway(options: UseGatewayOptions): UseGatewayResult {
     setHistory([]);
   }, []);
 
-  const subscribeFrame = useCallback((cb: (blobUrl: string) => void) => {
+  const subscribeFrame = useCallback((cb: (blobUrl: string, bytes?: number) => void) => {
     frameListenersRef.current.add(cb);
     // Send current frame immediately if available
-    if (streamFrameRef.current) cb(streamFrameRef.current);
+    if (streamFrameRef.current) cb(streamFrameRef.current, streamFrameBytesRef.current);
     return () => { frameListenersRef.current.delete(cb); };
   }, []);
 

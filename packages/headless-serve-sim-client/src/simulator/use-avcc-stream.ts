@@ -5,6 +5,18 @@ import {
   isAvccSupported,
 } from "../avcc-codec.js";
 
+/** Per-frame telemetry handed to `onFrame` for the Connection Stats panel. */
+export interface AvccFrameInfo {
+  /** Encoded byte size of the chunk that produced this frame (0 for the seed). */
+  bytes: number;
+  /** Decode duration in ms (decode() → output), or null for the JPEG seed. */
+  decodeMs: number | null;
+  /** Active codec string (e.g. "avc1.640028"), or null before configuration. */
+  codec: string | null;
+  /** Cumulative count of undecodable chunks dropped since stream start. */
+  dropped: number;
+}
+
 export interface UseAvccStreamOptions {
   /** Base server URL, e.g. "http://localhost:3100". */
   url: string;
@@ -14,8 +26,9 @@ export interface UseAvccStreamOptions {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   /** Called the first time any frame (seed or decoded) is painted. */
   onFirstFrame?: () => void;
-  /** Called on every painted frame — drives the FPS counter / staleness check. */
-  onFrame?: () => void;
+  /** Called on every painted frame with per-frame telemetry — drives the FPS
+   * counter / staleness check and the Connection Stats panel. */
+  onFrame?: (info: AvccFrameInfo) => void;
   /** Called with a human-readable message when the decode pipeline fails. */
   onError?: (message: string) => void;
 }
@@ -44,6 +57,12 @@ export function useAvccStream({
     let stopped = false;
     let painted = false;
     let timestamp = 0;
+    let currentCodec: string | null = null;
+    let dropped = 0;
+    // FIFO of in-flight decodes: outputs arrive in decode order (no B-frames in
+    // this low-latency P-frame stream), so each output pairs with the oldest
+    // pending entry to recover its encoded size + decode latency.
+    const pendingDecodes: { bytes: number; t0: number }[] = [];
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const demuxer = new AvccDemuxer();
 
@@ -51,7 +70,7 @@ export function useAvccStream({
     const EncodedVideoChunkCtor = (globalThis as any)
       .EncodedVideoChunk as typeof EncodedVideoChunk;
 
-    const paint = (source: CanvasImageSource, w: number, h: number) => {
+    const paint = (source: CanvasImageSource, w: number, h: number, info: AvccFrameInfo) => {
       if (stopped || controller.signal.aborted) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -62,7 +81,7 @@ export function useAvccStream({
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.drawImage(source, 0, 0, w, h);
-      onFrame?.();
+      onFrame?.(info);
       if (!painted) {
         painted = true;
         onFirstFrame?.();
@@ -75,7 +94,13 @@ export function useAvccStream({
         output: (frame) => {
           try {
             if (stopped || controller.signal.aborted) return;
-            paint(frame, frame.displayWidth, frame.displayHeight);
+            const pend = pendingDecodes.shift();
+            paint(frame, frame.displayWidth, frame.displayHeight, {
+              bytes: pend?.bytes ?? 0,
+              decodeMs: pend ? performance.now() - pend.t0 : null,
+              codec: currentCodec,
+              dropped,
+            });
           } finally {
             frame.close();
           }
@@ -89,10 +114,18 @@ export function useAvccStream({
     ) => {
       if (type === "seed") {
         // JPEG seed — paint immediately for instant first frame.
+        const seedBytes = payload.byteLength;
         createImageBitmap(new Blob([payload as BlobPart], { type: "image/jpeg" }))
           .then((bmp) => {
             try {
-              if (!stopped && !controller.signal.aborted) paint(bmp, bmp.width, bmp.height);
+              if (!stopped && !controller.signal.aborted) {
+                paint(bmp, bmp.width, bmp.height, {
+                  bytes: seedBytes,
+                  decodeMs: null,
+                  codec: currentCodec,
+                  dropped,
+                });
+              }
             } finally {
               bmp.close();
             }
@@ -102,9 +135,12 @@ export function useAvccStream({
       }
       if (type === "description") {
         if (!decoder || decoder.state === "closed") decoder = makeDecoder();
+        currentCodec = avcCodecString(payload);
+        // A reconfigure invalidates any in-flight decodes for the old config.
+        pendingDecodes.length = 0;
         try {
           decoder.configure({
-            codec: avcCodecString(payload),
+            codec: currentCodec,
             description: payload,
             optimizeFor: "latency",
             hardwareAcceleration: "prefer-hardware",
@@ -117,6 +153,7 @@ export function useAvccStream({
       // keyframe | delta
       if (!decoder || decoder.state !== "configured") return;
       try {
+        const t0 = performance.now();
         decoder.decode(
           new EncodedVideoChunkCtor({
             type: type === "keyframe" ? "key" : "delta",
@@ -124,9 +161,10 @@ export function useAvccStream({
             data: payload,
           }),
         );
+        pendingDecodes.push({ bytes: payload.byteLength, t0 });
         timestamp += 16667; // ~60fps tick; not displayed, just monotonic.
       } catch {
-        /* drop undecodable frame */
+        dropped++; // undecodable frame
       }
     };
 

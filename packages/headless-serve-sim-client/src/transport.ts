@@ -49,8 +49,9 @@ interface PendingFile {
 /** Default inactivity timeout for file ops. Override per-instance via GatewayTransportOptions.fileOpTimeoutMs. */
 const DEFAULT_FILE_OP_TIMEOUT_MS = 30_000;
 
-/** Listener receives a blob URL (object URL) pointing to the JPEG frame data. */
-export type StreamFrameListener = (blobUrl: string) => void;
+/** Listener receives a blob URL (object URL) pointing to the JPEG frame data,
+ * plus the frame's encoded byte size (feeds the Connection Stats bitrate). */
+export type StreamFrameListener = (blobUrl: string, bytes: number) => void;
 export type StreamConfigListener = (config: StreamConfig) => void;
 export type ConnectionQuality = "good" | "degraded" | "poor";
 export type ConnectionQualityListener = (quality: ConnectionQuality) => void;
@@ -240,7 +241,7 @@ export class GatewayTransport {
           const blobUrl = URL.createObjectURL(blob);
           this._checkAdaptiveFps();
           for (const listener of this.streamFrameListeners) {
-            listener(blobUrl);
+            listener(blobUrl, jpegData.byteLength);
           }
         }
         return;
@@ -287,7 +288,7 @@ export class GatewayTransport {
         const blob = new Blob([binary], { type: "image/jpeg" });
         const blobUrl = URL.createObjectURL(blob);
         for (const listener of this.streamFrameListeners) {
-          listener(blobUrl);
+          listener(blobUrl, binary.byteLength);
         }
         this._checkAdaptiveFps();
         return;

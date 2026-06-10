@@ -9,10 +9,10 @@ import { useCallback, useEffect, useRef } from "react";
  * arrives over the input WebSocket — so this hook only deals with frame bytes.
  */
 export function useMjpegStream(streamUrl: string | null) {
-  const subscribersRef = useRef<Set<(blobUrl: string) => void>>(new Set());
+  const subscribersRef = useRef<Set<(blobUrl: string, bytes?: number) => void>>(new Set());
 
   const subscribeFrame = useCallback(
-    (cb: (blobUrl: string) => void) => {
+    (cb: (blobUrl: string, bytes?: number) => void) => {
       subscribersRef.current.add(cb);
       return () => { subscribersRef.current.delete(cb); };
     },
@@ -94,7 +94,7 @@ export function useMjpegStream(streamUrl: string | null) {
               continue;
             }
             for (const cb of subscribersRef.current) {
-              cb(blobUrl);
+              cb(blobUrl, jpeg.byteLength);
             }
           }
         }

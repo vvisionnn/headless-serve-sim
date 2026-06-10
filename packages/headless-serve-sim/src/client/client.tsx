@@ -19,6 +19,7 @@ import {
   type DeviceType,
   type SimulatorOrientation,
   type StreamConfig,
+  type ConnectionStats,
 } from "headless-serve-sim-client/simulator";
 
 import { AppearanceIcon, ReloadIcon } from "./icons";
@@ -29,6 +30,7 @@ import { BootEmptyState } from "./components/boot-empty-state";
 import { DevicePicker } from "./components/device-picker";
 import { GridPanel } from "./components/grid-panel";
 import { MetricsHud } from "./components/metrics-hud";
+import { ConnectionStatsPanel } from "./components/connection-stats-panel";
 import { ResizeHandle } from "./components/resize-handle";
 import { SimulatorResizeCornerHandle } from "./components/simulator-resize-corner-handle";
 import { SimulatorResizeSizeBadge } from "./components/simulator-resize-size-badge";
@@ -51,6 +53,7 @@ import { fileExtension } from "./utils/drop";
 import { execOnHost } from "./utils/exec";
 import { hidUsageForCode } from "./utils/hid";
 import {
+  CONNECTION_STATS_PANEL_WIDTH,
   DEVTOOLS_PANEL_WIDTH,
   GRID_PANEL_WIDTH,
   PANEL_WIDTH,
@@ -495,6 +498,7 @@ function AppWithConfig({
   // Subscribe to app-state SSE.
   const [currentApp, setCurrentApp] = useState<{ bundleId: string; isReactNative: boolean; pid?: number } | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
   const { width: toolsPanelWidth, onPointerDown: onToolsResize } = useResizableWidth(
     "headless-serve-sim:tools-panel-width",
     PANEL_WIDTH,
@@ -513,6 +517,18 @@ function AppWithConfig({
     360,
     1400,
   );
+  const { width: connectionStatsPanelWidth, onPointerDown: onConnectionStatsResize } = useResizableWidth(
+    "headless-serve-sim:connection-stats-width",
+    CONNECTION_STATS_PANEL_WIDTH,
+    280,
+    560,
+  );
+  // SimulatorView emits Connection Stats here; the panel registers its sink so
+  // only the panel re-renders on the 1 Hz cadence, not this whole tree.
+  const statsSinkRef = useRef<((snap: ConnectionStats) => void) | null>(null);
+  const handleConnectionStats = useCallback((snap: ConnectionStats) => {
+    statsSinkRef.current?.(snap);
+  }, []);
   const [viewportWidth, setViewportWidth] = useState(
     () => (typeof window !== "undefined" ? window.innerWidth : 0),
   );
@@ -701,6 +717,8 @@ function AppWithConfig({
     ? devtoolsPanelWidth
     : gridOpen
     ? gridPanelWidth
+    : statsOpen
+    ? connectionStatsPanelWidth
     : panelOpen
     ? toolsPanelWidth
     : 0;
@@ -835,6 +853,8 @@ function AppWithConfig({
             streamConfig={activeStreamConfig}
             enableDigitalCrown={deviceType === "watch"}
             onScreenConfigChange={onScreenConfigChange}
+            statsEnabled={statsOpen}
+            onConnectionStats={handleConnectionStats}
           />
           {axOverlayEnabled && <AxDomOverlay />}
           {mediaDrop.isDragOver && (
@@ -923,12 +943,13 @@ function AppWithConfig({
 
       {/* Right-edge sidebar rail. */}
       <div
-        className={`fixed top-3 right-3 flex flex-col gap-1 p-1 bg-panel-bg border border-white/8 rounded-[10px] backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] [transition:opacity_0.18s_ease] z-40 ${(panelOpen || devtoolsOpen || gridOpen) ? "opacity-0 pointer-events-none" : "opacity-100 pointer-events-auto"}`}
+        className={`fixed top-3 right-3 flex flex-col gap-1 p-1 bg-panel-bg border border-white/8 rounded-[10px] backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] [transition:opacity_0.18s_ease] z-40 ${(panelOpen || devtoolsOpen || gridOpen || statsOpen) ? "opacity-0 pointer-events-none" : "opacity-100 pointer-events-auto"}`}
       >
         <button
           onClick={() => {
             setDevtoolsOpen(false);
             setGridOpen(false);
+            setStatsOpen(false);
             setPanelOpen((o) => !o);
           }}
           className="w-[30px] h-[30px] flex items-center justify-center bg-transparent border-none rounded-md text-[#8e8e93] cursor-pointer [transition:background_0.15s_ease,color_0.15s_ease] hover:bg-white/8 hover:text-white"
@@ -945,6 +966,7 @@ function AppWithConfig({
           onClick={() => {
             setPanelOpen(false);
             setGridOpen(false);
+            setStatsOpen(false);
             setDevtoolsOpen((o) => !o);
           }}
           className="w-[30px] h-[30px] flex items-center justify-center bg-transparent border-none rounded-md text-[#8e8e93] cursor-pointer [transition:background_0.15s_ease,color_0.15s_ease] hover:bg-white/8 hover:text-white"
@@ -962,6 +984,7 @@ function AppWithConfig({
           onClick={() => {
             setPanelOpen(false);
             setDevtoolsOpen(false);
+            setStatsOpen(false);
             setGridOpen((o) => !o);
           }}
           className="w-[30px] h-[30px] flex items-center justify-center bg-transparent border-none rounded-md text-[#8e8e93] cursor-pointer [transition:background_0.15s_ease,color_0.15s_ease] hover:bg-white/8 hover:text-white"
@@ -974,6 +997,22 @@ function AppWithConfig({
             <rect x="14" y="3" width="7" height="7" rx="1.5" />
             <rect x="3" y="14" width="7" height="7" rx="1.5" />
             <rect x="14" y="14" width="7" height="7" rx="1.5" />
+          </svg>
+        </button>
+        <button
+          onClick={() => {
+            setPanelOpen(false);
+            setDevtoolsOpen(false);
+            setGridOpen(false);
+            setStatsOpen((o) => !o);
+          }}
+          className="w-[30px] h-[30px] flex items-center justify-center bg-transparent border-none rounded-md text-[#8e8e93] cursor-pointer [transition:background_0.15s_ease,color_0.15s_ease] hover:bg-white/8 hover:text-white"
+          aria-label="Open connection stats"
+          aria-pressed={statsOpen}
+          title="Connection Stats"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 12h5l3-7 4 14 3-7h5" />
           </svg>
         </button>
       </div>
@@ -1024,6 +1063,22 @@ function AppWithConfig({
         visible={devtoolsOpen}
         onPointerDown={onDevtoolsResize}
         ariaLabel="Resize WebKit DevTools panel"
+      />
+
+      <ConnectionStatsPanel
+        open={statsOpen}
+        onClose={() => setStatsOpen(false)}
+        width={connectionStatsPanelWidth}
+        live={streaming}
+        codecMode={useAvccVideo ? "avcc" : "mjpeg"}
+        streamConfig={activeStreamConfig}
+        sinkRef={statsSinkRef}
+      />
+      <ResizeHandle
+        panelWidth={connectionStatsPanelWidth}
+        visible={statsOpen}
+        onPointerDown={onConnectionStatsResize}
+        ariaLabel="Resize connection stats panel"
       />
 
       {/* Status bar */}

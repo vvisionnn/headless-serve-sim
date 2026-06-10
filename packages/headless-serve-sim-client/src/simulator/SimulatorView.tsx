@@ -15,8 +15,9 @@ import {
   streamDisplayGeometry,
 } from "./orientation.js";
 import { digitalCrownDeltaFromWheel } from "./digitalCrown.js";
-import { useAvccStream } from "./use-avcc-stream.js";
+import { useAvccStream, type AvccFrameInfo } from "./use-avcc-stream.js";
 import { isAvccSupported } from "../avcc-codec.js";
+import { ConnectionStatsAccumulator, type ConnectionStats } from "../connection-stats.js";
 
 // Custom round cursor matching the finger dot indicator
 const FINGER_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='9' fill='rgba(255,255,255,0.45)' stroke='rgba(0,0,0,0.55)' stroke-width='1.25' filter='drop-shadow(0 1px 2px rgba(0,0,0,0.45))'/%3E%3C/svg%3E") 12 12, pointer`;
@@ -53,8 +54,9 @@ export interface SimulatorViewProps {
   /** Enables mouse-wheel/trackpad Digital Crown rotation forwarding. */
   enableDigitalCrown?: boolean;
   /** Relay mode: subscribe to frame updates (bypasses React state for performance).
-   * Callback receives a blob URL (object URL) pointing to the JPEG frame. */
-  subscribeFrame?: (cb: (blobUrl: string) => void) => () => void;
+   * Callback receives a blob URL (object URL) pointing to the JPEG frame, plus
+   * the frame's byte size when known (feeds the Connection Stats bitrate). */
+  subscribeFrame?: (cb: (blobUrl: string, bytes?: number) => void) => () => void;
   /** Relay mode: latest blob URL JPEG frame from the relay (used for initial render) */
   streamFrame?: string | null;
   /** Relay mode: screen config from relay */
@@ -78,6 +80,11 @@ export interface SimulatorViewProps {
    * `useAvcc` and `useAvccStream` only need `url` to read `/stream.avcc`.
    */
   codec?: "mjpeg" | "avcc";
+  /** When true, compute per-frame streaming metrics and emit them via
+   * `onConnectionStats` ~1×/sec. Off by default — fully inert when unset. */
+  statsEnabled?: boolean;
+  /** Receives a Connection Stats snapshot ~1×/sec while `statsEnabled` is on. */
+  onConnectionStats?: (stats: ConnectionStats) => void;
 }
 
 /**
@@ -109,6 +116,8 @@ export function SimulatorView({
   onStreamingChange,
   connectionQuality,
   codec = "avcc",
+  statsEnabled,
+  onConnectionStats,
 }: SimulatorViewProps) {
   const relayMode = !!onStreamTouch;
   // AVCC decode is independent of input relay: the H.264 pipeline only needs
@@ -128,6 +137,13 @@ export function SimulatorView({
   const screenSizeRef = useRef<StreamConfig | null>(null);
   const onScreenConfigChangeRef = useRef(onScreenConfigChange);
   onScreenConfigChangeRef.current = onScreenConfigChange;
+  // Connection Stats: the accumulator only exists while `statsEnabled`; the
+  // frame hooks below feed it, and a 1 Hz interval drains snapshots outward.
+  const statsAccRef = useRef<ConnectionStatsAccumulator | null>(null);
+  const onConnectionStatsRef = useRef(onConnectionStats);
+  onConnectionStatsRef.current = onConnectionStats;
+  const codecRef = useRef<string | null>(null);
+  const droppedRef = useRef(0);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number } | null>(null);
   useEffect(() => {
@@ -224,9 +240,14 @@ export function SimulatorView({
         setError("Stream is not producing frames. The simulator may have stopped — try reconnecting.");
       }
     }, STARTUP_MS);
-    const unsubscribe = subscribeFrame((blobUrl) => {
+    const unsubscribe = subscribeFrame((blobUrl, bytes) => {
       frameCountRef.current++;
       lastFrameAtRef.current = Date.now();
+      const acc = statsAccRef.current;
+      if (acc && bytes != null) {
+        acc.recordFrame({ tMs: performance.now(), bytes, decodeMs: null });
+        codecRef.current = null; // MJPEG carries no codec string → panel shows "MJPEG"
+      }
       const img = relayImgRef.current;
       if (img) {
         // Revoke the previous blob URL to avoid memory leaks
@@ -259,9 +280,15 @@ export function SimulatorView({
     setConnected(true);
     setError(null);
   }, []);
-  const onAvccFrame = useCallback(() => {
+  const onAvccFrame = useCallback((info: AvccFrameInfo) => {
     frameCountRef.current++;
     lastFrameAtRef.current = Date.now();
+    const acc = statsAccRef.current;
+    if (acc) {
+      acc.recordFrame({ tMs: performance.now(), bytes: info.bytes, decodeMs: info.decodeMs });
+      codecRef.current = info.codec;
+      droppedRef.current = info.dropped;
+    }
     // Re-establish "connected" if the relay staleness watchdog tripped during
     // the decoder's startup buffering gap (keyframe + several deltas can land
     // before the first frame is emitted). Mirrors the MJPEG relay path; guarded
@@ -279,6 +306,28 @@ export function SimulatorView({
     onFrame: onAvccFrame,
     onError: setError,
   });
+
+  // When the panel is open, accumulate per-frame telemetry (fed by the AVCC
+  // onFrame + MJPEG subscribe hooks above) and emit a snapshot ~1×/sec. Fully
+  // inert — no accumulator, no interval — while `statsEnabled` is off.
+  useEffect(() => {
+    if (!statsEnabled) return;
+    const acc = new ConnectionStatsAccumulator();
+    statsAccRef.current = acc;
+    codecRef.current = null;
+    droppedRef.current = 0;
+    const id = setInterval(() => {
+      onConnectionStatsRef.current?.({
+        ...acc.snapshot(performance.now()),
+        droppedFrames: droppedRef.current,
+        codec: codecRef.current,
+      });
+    }, 1000);
+    return () => {
+      clearInterval(id);
+      statsAccRef.current = null;
+    };
+  }, [statsEnabled]);
 
   const sendTouch = useCallback(
     (touch: {
@@ -435,6 +484,12 @@ export function SimulatorView({
         const reader = res.body?.getReader();
         if (!reader) return;
         const boundary = new TextEncoder().encode("--frame");
+        // Cumulative byte offset of the start of the in-progress part, so each
+        // boundary can attribute the bytes of the part that just ended to the
+        // stats accumulator (bitrate). Frames carry no codec/decode time here →
+        // recorded with decodeMs: null, matching the relay-MJPEG path.
+        let streamBytes = 0;
+        let partStartByte = 0;
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -449,12 +504,24 @@ export function SimulatorView({
               }
               if (match) {
                 frameCountRef.current++;
+                const boundaryByte = streamBytes + i;
+                const acc = statsAccRef.current;
+                if (acc && sawAnyFrame) {
+                  acc.recordFrame({
+                    tMs: performance.now(),
+                    bytes: boundaryByte - partStartByte,
+                    decodeMs: null,
+                  });
+                  codecRef.current = null; // MJPEG carries no codec string → panel shows "MJPEG"
+                }
+                partStartByte = boundaryByte;
                 if (!sawAnyFrame) {
                   sawAnyFrame = true;
                   if (startupWatchdog) clearTimeout(startupWatchdog);
                 }
               }
             }
+            streamBytes += value.length;
           }
         }
       } catch {

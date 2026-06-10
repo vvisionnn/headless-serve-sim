@@ -13,6 +13,15 @@ export type { GatewayTransportOptions, HeartbeatConfig } from "./transport";
 export { fetchGatewayStatus } from "./discovery";
 export type { GatewayStatus, DiscoverOptions } from "./discovery";
 
+// Streaming metrics (Connection Stats panel)
+export { ConnectionStatsAccumulator, summarize } from "./connection-stats";
+export type {
+  FrameSample,
+  ConnectionStatsSnapshot,
+  ConnectionStats,
+  MetricSummary,
+} from "./connection-stats";
+
 // Protocol types
 export type {
   ClientMessage,
