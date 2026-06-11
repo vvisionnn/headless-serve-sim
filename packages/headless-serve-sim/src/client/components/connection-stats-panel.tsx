@@ -21,6 +21,7 @@ const fmtBitrate = (bps: number) =>
   bps >= 1_000_000 ? (bps / 1_000_000).toFixed(1) : (bps / 1000).toFixed(0);
 const fmtBitrateStat = (bps: number) =>
   bps >= 1_000_000 ? `${(bps / 1_000_000).toFixed(1)}M` : `${(bps / 1000).toFixed(0)}k`;
+const fmtBitrateChip = (bps: number) => `${fmtBitrate(bps)} ${bitrateUnit(bps)}`;
 
 const SPARK_W = 100;
 const SPARK_H = 34;
@@ -199,6 +200,81 @@ function StatusStrip({
   );
 }
 
+function ModeToggle({
+  mode,
+  onModeChange,
+}: {
+  mode: "perf" | "quality";
+  onModeChange: (mode: "perf" | "quality") => void;
+}) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">Mode</span>
+      <div className="flex flex-1 gap-0.5 rounded-[7px] border border-white/[0.08] bg-white/[0.03] p-0.5">
+        {(["perf", "quality"] as const).map((m) => {
+          const active = mode === m;
+          const accent = m === "quality" ? C_DECODE : C_FPS;
+          return (
+            <button
+              key={m}
+              type="button"
+              onClick={() => onModeChange(m)}
+              aria-pressed={active}
+              className="flex-1 rounded-[5px] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] [transition:background-color_0.15s,color_0.15s]"
+              style={
+                active
+                  ? { background: "rgba(255,255,255,0.10)", color: accent }
+                  : { color: "rgba(255,255,255,0.4)" }
+              }
+            >
+              {m === "perf" ? "Perf" : "Quality"}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function StatRow({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[10px] uppercase tracking-[0.14em] text-white/40">{label}</span>
+      <span
+        className="text-[11px] [font-variant-numeric:tabular-nums]"
+        style={{ color: accent ?? "rgba(255,255,255,0.75)" }}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+// Server-side adaptive state (target bitrate / QP / congestion) + client
+// recovery counters — what the encoder is doing in response to link conditions.
+function AdaptiveSection({ stats }: { stats: ConnectionStats | null }) {
+  const srv = stats?.server ?? null;
+  const kfMs = stats?.keyframeIntervalMs ?? null;
+  const recoveries = stats?.recoveries ?? 0;
+  return (
+    <div className="flex flex-col gap-2 rounded-[8px] border border-white/[0.06] bg-white/[0.03] px-2.5 py-2">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">Adaptive</span>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+        <StatRow
+          label="Link"
+          value={srv ? (srv.congested ? "Congested" : "Clear") : "—"}
+          accent={srv ? (srv.congested ? C_JITTER : C_FPS) : undefined}
+        />
+        <StatRow label="Target" value={srv ? fmtBitrateChip(srv.targetBitrateBps) : "—"} accent={srv ? C_BITRATE : undefined} />
+        <StatRow label="Enc fps" value={srv ? String(srv.serverFps) : "—"} />
+        <StatRow label="Max QP" value={srv ? String(srv.maxQP) : "—"} />
+        <StatRow label="Keyframe" value={kfMs != null ? `${(kfMs / 1000).toFixed(1)}s` : "—"} />
+        <StatRow label="Recover" value={String(recoveries)} accent={recoveries > 0 ? C_JITTER : undefined} />
+      </div>
+    </div>
+  );
+}
+
 export function ConnectionStatsPanel({
   open,
   onClose,
@@ -207,6 +283,8 @@ export function ConnectionStatsPanel({
   codecMode,
   streamConfig,
   sinkRef,
+  mode,
+  onModeChange,
 }: {
   open: boolean;
   onClose: () => void;
@@ -217,6 +295,9 @@ export function ConnectionStatsPanel({
   /** SimulatorView's onConnectionStats is routed here so only this panel — not
    * the whole app tree — re-renders on the 1 Hz emit. */
   sinkRef: { current: ((snap: ConnectionStats) => void) | null };
+  /** Current perf/quality streaming mode + setter (H.264 only). */
+  mode: "perf" | "quality";
+  onModeChange: (mode: "perf" | "quality") => void;
 }) {
   const { latest, history, record } = useConnectionStats(open);
 
@@ -247,6 +328,8 @@ export function ConnectionStatsPanel({
             resolution={resolution}
             dropped={latest?.droppedFrames ?? 0}
           />
+
+          {codecMode === "avcc" && <ModeToggle mode={mode} onModeChange={onModeChange} />}
 
           {hasData ? (
             <div className="flex flex-col gap-3">
@@ -296,6 +379,8 @@ export function ConnectionStatsPanel({
               Waiting for stream…
             </div>
           )}
+
+          {codecMode === "avcc" && hasData && <AdaptiveSection stats={latest} />}
         </div>
       )}
     </Panel>

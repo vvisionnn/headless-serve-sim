@@ -17,7 +17,12 @@ import {
 import { digitalCrownDeltaFromWheel } from "./digitalCrown.js";
 import { useAvccStream, type AvccFrameInfo } from "./use-avcc-stream.js";
 import { isAvccSupported } from "../avcc-codec.js";
-import { ConnectionStatsAccumulator, type ConnectionStats } from "../connection-stats.js";
+import {
+  ConnectionStatsAccumulator,
+  parseServerStreamStats,
+  type ConnectionStats,
+  type ServerStreamStats,
+} from "../connection-stats.js";
 
 // Custom round cursor matching the finger dot indicator
 const FINGER_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='9' fill='rgba(255,255,255,0.45)' stroke='rgba(0,0,0,0.55)' stroke-width='1.25' filter='drop-shadow(0 1px 2px rgba(0,0,0,0.45))'/%3E%3C/svg%3E") 12 12, pointer`;
@@ -31,6 +36,9 @@ const WS_MSG_TOUCH = 0x03;
 const WS_MSG_BUTTON = 0x04;
 const WS_MSG_MULTI_TOUCH = 0x05;
 const WS_MSG_DIGITAL_CROWN = 0x0a;
+const WS_MSG_REQUEST_KEYFRAME = 0x0b; // client → server: force a fresh IDR (recovery)
+const WS_MSG_SET_MODE = 0x0c; // client → server: {mode:"perf"|"quality"}
+const WS_MSG_STREAM_STATS = 0x83; // server → client: adaptive stream-stats push
 
 export interface SimulatorViewProps {
   /** Base URL of the headless-serve-sim server, e.g. "http://localhost:3100" */
@@ -51,6 +59,9 @@ export interface SimulatorViewProps {
   onStreamButton?: (button: string) => void;
   /** Relay mode: callback for Digital Crown rotation events */
   onStreamDigitalCrown?: (delta: number) => void;
+  /** Relay mode: callback to request a fresh keyframe (decode recovery). The
+   * parent forwards it to the server over its own WebSocket. */
+  onStreamRequestKeyframe?: () => void;
   /** Enables mouse-wheel/trackpad Digital Crown rotation forwarding. */
   enableDigitalCrown?: boolean;
   /** Relay mode: subscribe to frame updates (bypasses React state for performance).
@@ -85,6 +96,9 @@ export interface SimulatorViewProps {
   statsEnabled?: boolean;
   /** Receives a Connection Stats snapshot ~1×/sec while `statsEnabled` is on. */
   onConnectionStats?: (stats: ConnectionStats) => void;
+  /** Perf/quality streaming mode. When set (direct mode), pushed to the server
+   * over /ws so it switches adaptive bounds live. */
+  streamMode?: "perf" | "quality";
 }
 
 /**
@@ -107,6 +121,7 @@ export function SimulatorView({
   onStreamMultiTouch,
   onStreamButton,
   onStreamDigitalCrown,
+  onStreamRequestKeyframe,
   enableDigitalCrown,
   subscribeFrame,
   streamFrame: _streamFrame,
@@ -118,6 +133,7 @@ export function SimulatorView({
   codec = "avcc",
   statsEnabled,
   onConnectionStats,
+  streamMode,
 }: SimulatorViewProps) {
   const relayMode = !!onStreamTouch;
   // AVCC decode is independent of input relay: the H.264 pipeline only needs
@@ -144,6 +160,10 @@ export function SimulatorView({
   onConnectionStatsRef.current = onConnectionStats;
   const codecRef = useRef<string | null>(null);
   const droppedRef = useRef(0);
+  const recoveriesRef = useRef(0);
+  const keyframeIntervalRef = useRef<number | null>(null);
+  const lastKeyframeAtRef = useRef<number | null>(null);
+  const serverStatsRef = useRef<ServerStreamStats | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number } | null>(null);
   useEffect(() => {
@@ -288,6 +308,13 @@ export function SimulatorView({
       acc.recordFrame({ tMs: performance.now(), bytes: info.bytes, decodeMs: info.decodeMs });
       codecRef.current = info.codec;
       droppedRef.current = info.dropped;
+      recoveriesRef.current = info.recoveries;
+      if (info.keyframe) {
+        const now = performance.now();
+        const last = lastKeyframeAtRef.current;
+        if (last != null) keyframeIntervalRef.current = now - last;
+        lastKeyframeAtRef.current = now;
+      }
     }
     // Re-establish "connected" if the relay staleness watchdog tripped during
     // the decoder's startup buffering gap (keyframe + several deltas can land
@@ -298,6 +325,17 @@ export function SimulatorView({
       setError(null);
     }
   }, []);
+  // Debounced keyframe request travels over the input WS (direct mode); the
+  // relay path requests keyframes server-side.
+  const requestKeyframe = useCallback(() => {
+    if (relayMode) {
+      onStreamRequestKeyframe?.();
+      return;
+    }
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(new Uint8Array([WS_MSG_REQUEST_KEYFRAME]));
+  }, [relayMode, onStreamRequestKeyframe]);
   useAvccStream({
     url,
     enabled: useAvcc,
@@ -305,6 +343,7 @@ export function SimulatorView({
     onFirstFrame: onAvccFirstFrame,
     onFrame: onAvccFrame,
     onError: setError,
+    onRequestKeyframe: requestKeyframe,
   });
 
   // When the panel is open, accumulate per-frame telemetry (fed by the AVCC
@@ -316,11 +355,17 @@ export function SimulatorView({
     statsAccRef.current = acc;
     codecRef.current = null;
     droppedRef.current = 0;
+    recoveriesRef.current = 0;
+    keyframeIntervalRef.current = null;
+    lastKeyframeAtRef.current = null;
     const id = setInterval(() => {
       onConnectionStatsRef.current?.({
         ...acc.snapshot(performance.now()),
         droppedFrames: droppedRef.current,
         codec: codecRef.current,
+        keyframeIntervalMs: keyframeIntervalRef.current,
+        recoveries: recoveriesRef.current,
+        server: serverStatsRef.current,
       });
     }, 1000);
     return () => {
@@ -328,6 +373,19 @@ export function SimulatorView({
       statsAccRef.current = null;
     };
   }, [statsEnabled]);
+
+  // Push perf/quality mode to the server when it changes (direct mode). The
+  // server retains it across reconnects, so a one-shot send on change suffices.
+  useEffect(() => {
+    if (relayMode || !streamMode) return;
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const json = new TextEncoder().encode(JSON.stringify({ mode: streamMode }));
+    const msg = new Uint8Array(1 + json.length);
+    msg[0] = WS_MSG_SET_MODE;
+    msg.set(json, 1);
+    ws.send(msg);
+  }, [streamMode, relayMode]);
 
   const sendTouch = useCallback(
     (touch: {
@@ -438,10 +496,15 @@ export function SimulatorView({
     ws.onmessage = (ev) => {
       if (!(ev.data instanceof ArrayBuffer)) return;
       const bytes = new Uint8Array(ev.data);
-      if (bytes.length < 1 || bytes[0] !== 0x82) return;
-      try {
-        updateScreenConfig(JSON.parse(new TextDecoder().decode(bytes.subarray(1))) as StreamConfig);
-      } catch {}
+      if (bytes.length < 1) return;
+      if (bytes[0] === 0x82) {
+        try {
+          updateScreenConfig(JSON.parse(new TextDecoder().decode(bytes.subarray(1))) as StreamConfig);
+        } catch {}
+      } else if (bytes[0] === WS_MSG_STREAM_STATS) {
+        const s = parseServerStreamStats(bytes.subarray(1));
+        if (s) serverStatsRef.current = s;
+      }
     };
 
     ws.onopen = () => {

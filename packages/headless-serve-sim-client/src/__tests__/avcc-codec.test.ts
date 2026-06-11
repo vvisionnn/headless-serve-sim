@@ -116,6 +116,26 @@ describe("AvccDemuxer", () => {
     expect(chunks).toHaveLength(1);
     expect(chunks[0]!.type).toBe("keyframe");
   });
+
+  test("resyncs past a zero-length header instead of consuming the stream", () => {
+    const d = new AvccDemuxer();
+    // A length of 0 is invalid (must cover at least the tag byte). The demuxer
+    // should skip the 4-byte header and recover the following valid chunk.
+    const bogus = new Uint8Array([0, 0, 0, 0]);
+    const chunks = d.push(concat(bogus, frame(AVCC_TAG_KEYFRAME, [5])));
+    expect(chunks.map((c) => c.type)).toEqual(["keyframe"]);
+  });
+
+  test("resyncs past a bogus oversized length instead of stalling forever", () => {
+    const d = new AvccDemuxer();
+    // 0xFFFFFFFF exceeds the sane cap; the old code would `break` and wait for
+    // ~4 GB of bytes that never arrive (a frozen stream). The hardened demuxer
+    // skips the header and parses the real chunk right behind it.
+    const bogus = new Uint8Array([0xff, 0xff, 0xff, 0xff]);
+    const chunks = d.push(concat(bogus, frame(AVCC_TAG_KEYFRAME, [7, 8])));
+    expect(chunks.map((c) => c.type)).toEqual(["keyframe"]);
+    expect(Array.from(chunks[0]!.payload)).toEqual([7, 8]);
+  });
 });
 
 describe("avcCodecString", () => {

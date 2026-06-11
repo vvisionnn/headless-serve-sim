@@ -1,6 +1,6 @@
 {
   "name": "headless-serve-sim",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "type": "module",
   "author": {
     "name": "Evan Bacon",
@@ -56,6 +56,7 @@
   "scripts": {
     "build": "bun run build.ts",
     "build:swift": "./build.sh",
+    "test:adaptive": "DEVELOPER_DIR=$(xcode-select -p) swiftc Sources/SimStreamHelper/AdaptiveController.swift scripts/adaptive-controller-selftest.swift -o /tmp/adaptive-selftest && /tmp/adaptive-selftest",
     "dev": "bun run dev.ts"
   },
   "devDependencies": {

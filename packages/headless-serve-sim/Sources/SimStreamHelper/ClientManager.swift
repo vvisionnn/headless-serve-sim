@@ -24,6 +24,13 @@ final class ClientManager {
     /// Fired when an AVCC client connects so the owner can force a keyframe —
     /// the new decoder needs an IDR before any delta will decode.
     var onAvccClientConnect: (() -> Void)?
+    /// Fired when a viewer's send queue overflows and needs a fresh IDR to
+    /// resync, or when the client explicitly requests a keyframe over /ws.
+    var onNeedKeyframe: (() -> Void)?
+    /// Fired when the client switches streaming mode (perf/quality) over /ws.
+    var onSetMode: ((String) -> Void)?
+    /// Per-client send-queue overflow threshold (congestion trigger).
+    var avccHighWaterBytes = 512 * 1024
 
     var onTouch: ((TouchEventPayload) -> Void)?
     var onButton: ((String) -> Void)?
@@ -67,6 +74,8 @@ final class ClientManager {
     /// client->server input tags (0x03–0x0A); the frame layout mirrors input:
     /// `[tag][JSON payload]`.
     private static let wsMsgConfig: UInt8 = 0x82
+    /// Tag for a server->client stream-stats push (adaptive bitrate/mode/...).
+    private static let wsMsgStreamStats: UInt8 = 0x83
 
     private func configFrame() -> [UInt8]? {
         guard let json = try? JSONSerialization.data(withJSONObject: screenConfig()) else { return nil }
@@ -77,8 +86,17 @@ final class ClientManager {
     /// replaces the browser's old 1s `/config` poll — clients now receive
     /// dimensions/orientation over the socket they already hold open for input.
     func broadcastConfig() {
-        guard let frame = configFrame() else { return }
+        broadcastWsJson(ClientManager.wsMsgConfig, screenConfig())
+    }
+
+    /// Serialize `obj` to a `[tag][JSON]` frame and push it to every input
+    /// WebSocket. Serialization runs on `queue` after an emptiness check, so
+    /// nothing is built when no input socket is listening.
+    private func broadcastWsJson(_ tag: UInt8, _ obj: [String: Any]) {
         queue.async {
+            guard !self.wsSessions.isEmpty,
+                  let json = try? JSONSerialization.data(withJSONObject: obj) else { return }
+            let frame = [tag] + [UInt8](json)
             for (_, session) in self.wsSessions {
                 session.writeBinary(frame)
             }
@@ -128,7 +146,8 @@ final class ClientManager {
     private var avccClientCount = 0
 
     func addAvccClient() -> AVCCClient {
-        let client = AVCCClient(id: nextClientId)
+        let client = AVCCClient(id: nextClientId, highWaterBytes: avccHighWaterBytes)
+        client.onNeedKeyframe = { [weak self] in self?.onNeedKeyframe?() }
         nextClientId += 1
         let key = ObjectIdentifier(client)
         configLock.lock(); avccClientCount += 1; configLock.unlock()
@@ -145,10 +164,10 @@ final class ClientManager {
     func sendInitialAvcc(to client: AVCCClient) {
         queue.async {
             if let jpeg = self.latestFrame {
-                client.send(AVCCEnvelope.seed(jpeg: jpeg))
+                client.enqueue(AVCCEnvelope.seed(jpeg: jpeg), kind: .seed)
             }
             if let desc = self.cachedAvccDescription {
-                client.send(desc)
+                client.enqueue(desc, kind: .description)
             }
         }
         onAvccClientConnect?()
@@ -165,13 +184,29 @@ final class ClientManager {
 
     /// Broadcast one enveloped AVCC chunk. Caches the description so it can be
     /// replayed to clients that connect after it was first emitted.
-    func broadcastAvcc(_ envelope: Data, isDescription: Bool = false) {
+    func broadcastAvcc(_ envelope: Data, kind: AVCCChunkKind) {
         queue.async {
-            if isDescription { self.cachedAvccDescription = envelope }
+            if kind == .description { self.cachedAvccDescription = envelope }
             for (_, client) in self.avccClients {
-                client.send(envelope)
+                client.enqueue(envelope, kind: kind)
             }
         }
+    }
+
+    /// Max high-water backlog across AVCC clients since the last sample — the
+    /// adaptive controller's congestion signal.
+    func sampleAvccCongestion() -> Int {
+        var maxHW = 0
+        queue.sync {
+            for (_, client) in self.avccClients { maxHW = max(maxHW, client.sampleHighWater()) }
+        }
+        return maxHW
+    }
+
+    /// Push an adaptive stream-stats snapshot to every input WebSocket (tag
+    /// 0x83) so the Connection Stats panel can show server-side state.
+    func broadcastStreamStats(_ stats: [String: Any]) {
+        broadcastWsJson(ClientManager.wsMsgStreamStats, stats)
     }
 
     // MARK: - WebSocket Client Management (input only)
@@ -239,6 +274,11 @@ final class ClientManager {
         } else if type == 0x0A { // WS_MSG_DIGITAL_CROWN
             guard let json = try? JSONDecoder().decode(DigitalCrownEventPayload.self, from: data[1...]) else { return }
             onDigitalCrown?(json)
+        } else if type == 0x0B { // WS_MSG_REQUEST_KEYFRAME
+            onNeedKeyframe?()
+        } else if type == 0x0C { // WS_MSG_SET_MODE
+            guard let json = try? JSONDecoder().decode(SetModePayload.self, from: data[1...]) else { return }
+            onSetMode?(json.mode)
         }
     }
 
@@ -270,25 +310,119 @@ final class ClientManager {
     }
 }
 
-/// A single AVCC streaming client. Unlike `MJPEGClient`, chunks already carry
-/// their own length-prefixed envelope, so the writer just forwards raw bytes.
+/// Kind of an AVCC chunk — lets the client's coalescing queue decide what is
+/// safe to drop when the link falls behind.
+enum AVCCChunkKind {
+    case description  // SPS/PPS; must keep — precedes a keyframe
+    case keyframe     // IDR; a resync point that makes pending deltas obsolete
+    case delta        // P-frame; droppable (dropping any forces a resync)
+    case seed         // one-shot JPEG; droppable
+}
+
+/// A single AVCC streaming client with a bounded, coalescing outbound queue.
+///
+/// The previous design wrote each chunk inline on the shared client-manager
+/// queue, so one slow socket (e.g. a remote tunnel) blocked *every* client and
+/// let encoded frames pile up without bound — latency grew until the stream
+/// felt "stuck." Now each client owns a small pending buffer drained by its own
+/// connection thread. When the buffer backs up past `highWaterBytes`, new delta
+/// frames are dropped and a keyframe is requested: the viewer briefly holds the
+/// last good frame, then snaps to the fresh IDR. Memory is bounded and the
+/// stream always converges — it can fall behind in *quality*, never in
+/// *liveness*.
 final class AVCCClient {
     let id: Int
-    private var writer: ((Data) -> Bool)?
+    private let cond = NSCondition()
+    private var pending: [Data] = []
+    private var queuedBytes = 0
     private var closed = false
+    private var needKeyframe = false
+    /// High-water mark of `queuedBytes` since the last sample — the congestion
+    /// signal the adaptive controller reads.
+    private var highWater = 0
+    private let highWaterBytes: Int
+    /// Fired (off the producer path) when the queue overflows and a fresh IDR
+    /// is needed to resync after dropping deltas.
+    var onNeedKeyframe: (() -> Void)?
 
-    init(id: Int) { self.id = id }
+    init(id: Int, highWaterBytes: Int = 512 * 1024) {
+        self.id = id
+        self.highWaterBytes = highWaterBytes
+    }
 
-    func setWriter(_ writer: @escaping (Data) -> Bool) { self.writer = writer }
+    /// Producer side: enqueue a chunk for delivery, applying the drop policy.
+    func enqueue(_ chunk: Data, kind: AVCCChunkKind) {
+        cond.lock()
+        guard !closed else { cond.unlock(); return }
+        switch kind {
+        case .keyframe:
+            // Resync point: anything still queued is now obsolete.
+            pending.removeAll()
+            queuedBytes = 0
+            needKeyframe = false
+            append(chunk)
+            cond.unlock()
+        case .description:
+            append(chunk)
+            cond.unlock()
+        case .delta, .seed:
+            if queuedBytes >= highWaterBytes {
+                // Behind: drop this frame rather than grow an unplayable
+                // backlog, and ask for a keyframe to resync cleanly.
+                let fire = !needKeyframe
+                needKeyframe = true
+                let cb = onNeedKeyframe
+                cond.unlock()
+                if fire, let cb { DispatchQueue.global(qos: .userInteractive).async { cb() } }
+            } else {
+                append(chunk)
+                cond.unlock()
+            }
+        }
+    }
 
-    func send(_ chunk: Data) {
-        guard !closed, let writer = writer else { return }
-        if !writer(chunk) { closed = true }
+    /// Caller must hold `cond`.
+    private func append(_ chunk: Data) {
+        pending.append(chunk)
+        queuedBytes += chunk.count
+        if queuedBytes > highWater { highWater = queuedBytes }
+        cond.signal()
+    }
+
+    /// Consumer side: block-drains the queue via `write` until closed or a write
+    /// fails. Runs on the HTTP connection thread, so a slow socket only blocks
+    /// *this* client.
+    func drain(write: (Data) -> Bool) {
+        while true {
+            cond.lock()
+            while pending.isEmpty && !closed { cond.wait() }
+            if closed { cond.unlock(); return }
+            let batch = pending
+            pending = []
+            queuedBytes = 0
+            cond.unlock()
+            for data in batch {
+                if !write(data) { close(); return }
+            }
+        }
+    }
+
+    /// Read and reset the high-water backlog since the last call (congestion
+    /// signal for the adaptive controller).
+    func sampleHighWater() -> Int {
+        cond.lock(); defer { cond.unlock() }
+        let hw = highWater
+        highWater = queuedBytes
+        return hw
     }
 
     func close() {
+        cond.lock()
         closed = true
-        writer = nil
+        pending.removeAll()
+        queuedBytes = 0
+        cond.signal()
+        cond.unlock()
     }
 }
 

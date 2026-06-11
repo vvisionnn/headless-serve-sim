@@ -14,12 +14,14 @@ import {
   screenBorderRadius,
   SimulatorToolbar,
   getDeviceType,
+  parseServerStreamStats,
   simulatorAspectRatio,
   simulatorMaxWidth,
   type DeviceType,
   type SimulatorOrientation,
   type StreamConfig,
   type ConnectionStats,
+  type ServerStreamStats,
 } from "headless-serve-sim-client/simulator";
 
 import { AppearanceIcon, ReloadIcon } from "./icons";
@@ -386,22 +388,28 @@ function AppWithConfig({
       currentWs = ws;
       wsRef.current = ws;
       ws.onmessage = (ev) => {
-        // Server -> client screen-config push (tag 0x82): [tag][JSON].
+        // Server -> client pushes: [tag][JSON]. 0x82 = screen-config,
+        // 0x83 = adaptive stream-stats (mode/target-bitrate/congestion).
         if (!(ev.data instanceof ArrayBuffer)) return;
         const bytes = new Uint8Array(ev.data);
-        if (bytes.length < 1 || bytes[0] !== 0x82) return;
-        try {
-          const cfg = JSON.parse(new TextDecoder().decode(bytes.subarray(1))) as StreamConfig;
-          if (cfg.width <= 0 || cfg.height <= 0) return;
-          setWsStreamConfig((prev) =>
-            prev &&
-            prev.width === cfg.width &&
-            prev.height === cfg.height &&
-            prev.orientation === cfg.orientation
-              ? prev
-              : cfg,
-          );
-        } catch {}
+        if (bytes.length < 1) return;
+        if (bytes[0] === 0x82) {
+          try {
+            const cfg = JSON.parse(new TextDecoder().decode(bytes.subarray(1))) as StreamConfig;
+            if (cfg.width <= 0 || cfg.height <= 0) return;
+            setWsStreamConfig((prev) =>
+              prev &&
+              prev.width === cfg.width &&
+              prev.height === cfg.height &&
+              prev.orientation === cfg.orientation
+                ? prev
+                : cfg,
+            );
+          } catch {}
+        } else if (bytes[0] === 0x83) {
+          const s = parseServerStreamStats(bytes.subarray(1));
+          if (s) serverStatsRef.current = s;
+        }
       };
       ws.onclose = () => {
         if (wsRef.current === ws) wsRef.current = null;
@@ -436,6 +444,14 @@ function AppWithConfig({
   const onStreamMultiTouch = useCallback((data: any) => sendWs(0x05, data), [sendWs]);
   const onStreamButton = useCallback((button: string) => sendWs(0x04, { button }), [sendWs]);
   const onStreamDigitalCrown = useCallback((delta: number) => sendWs(0x0a, { delta }), [sendWs]);
+  const onStreamRequestKeyframe = useCallback(() => sendWs(0x0b, {}), [sendWs]);
+  const onModeChange = useCallback(
+    (mode: "perf" | "quality") => {
+      setStreamMode(mode);
+      sendWs(0x0c, { mode });
+    },
+    [sendWs],
+  );
   const onScreenConfigChange = useCallback((next: StreamConfig) => {
     setLiveStreamConfig((prev) =>
       prev &&
@@ -499,6 +515,7 @@ function AppWithConfig({
   const [currentApp, setCurrentApp] = useState<{ bundleId: string; isReactNative: boolean; pid?: number } | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [streamMode, setStreamMode] = useState<"perf" | "quality">("perf");
   const { width: toolsPanelWidth, onPointerDown: onToolsResize } = useResizableWidth(
     "headless-serve-sim:tools-panel-width",
     PANEL_WIDTH,
@@ -525,9 +542,12 @@ function AppWithConfig({
   );
   // SimulatorView emits Connection Stats here; the panel registers its sink so
   // only the panel re-renders on the 1 Hz cadence, not this whole tree.
+  const serverStatsRef = useRef<ServerStreamStats | null>(null);
   const statsSinkRef = useRef<((snap: ConnectionStats) => void) | null>(null);
   const handleConnectionStats = useCallback((snap: ConnectionStats) => {
-    statsSinkRef.current?.(snap);
+    // Merge server-pushed adaptive state (arrives on this WS, tag 0x83) into the
+    // snapshot SimulatorView emits — in relay mode its own `server` is null.
+    statsSinkRef.current?.({ ...snap, server: snap.server ?? serverStatsRef.current });
   }, []);
   const [viewportWidth, setViewportWidth] = useState(
     () => (typeof window !== "undefined" ? window.innerWidth : 0),
@@ -847,6 +867,7 @@ function AppWithConfig({
             onStreamMultiTouch={onStreamMultiTouch}
             onStreamButton={onStreamButton}
             onStreamDigitalCrown={onStreamDigitalCrown}
+            onStreamRequestKeyframe={onStreamRequestKeyframe}
             codec={useAvccVideo ? "avcc" : "mjpeg"}
             subscribeFrame={useAvccVideo ? undefined : mjpeg.subscribeFrame}
             streamFrame={useAvccVideo ? undefined : mjpeg.frame}
@@ -1073,6 +1094,8 @@ function AppWithConfig({
         codecMode={useAvccVideo ? "avcc" : "mjpeg"}
         streamConfig={activeStreamConfig}
         sinkRef={statsSinkRef}
+        mode={streamMode}
+        onModeChange={onModeChange}
       />
       <ResizeHandle
         panelWidth={connectionStatsPanelWidth}

@@ -29,10 +29,57 @@ export interface ConnectionStatsSnapshot {
   frames: number;
 }
 
-/** Emitted outward by SimulatorView — the pure snapshot plus the live codec. */
+/** Server-pushed adaptive state (over the input WebSocket, tag 0x83). Lets the
+ * panel show what the encoder is doing in response to link conditions. */
+export interface ServerStreamStats {
+  /** "perf" | "quality" — current server streaming mode. */
+  mode: string;
+  /** Adaptive target bitrate the encoder is currently set to (bits/sec). */
+  targetBitrateBps: number;
+  /** Current max-QP cap (sharpness ceiling, 1–51; lower = sharper). */
+  maxQP: number;
+  /** True when the viewer's send queue is backing up (link can't keep up). */
+  congested: boolean;
+  /** Server-side encode rate (frames/sec). */
+  serverFps: number;
+}
+
+/** Emitted outward by SimulatorView — the pure snapshot plus live codec, client
+ * recovery counters, and the latest server adaptive state. */
 export interface ConnectionStats extends ConnectionStatsSnapshot {
   /** Active video codec string (e.g. "avc1.640028"), or null for MJPEG/unknown. */
   codec: string | null;
+  /** ms between the last two keyframes, or null until ≥2 keyframes are seen. */
+  keyframeIntervalMs: number | null;
+  /** Cumulative pipeline recoveries (decoder recreated/reconnected). */
+  recoveries: number;
+  /** Latest server-pushed adaptive state, or null if none received. */
+  server: ServerStreamStats | null;
+}
+
+/** Parse a 0x83 stream-stats WebSocket payload (the JSON after the tag byte)
+ * into `ServerStreamStats`, mapping the wire field names. Returns null if the
+ * payload is malformed. Shared by the relay (app) and direct (library) WS
+ * owners so the wire contract lives in one place. */
+export function parseServerStreamStats(payload: Uint8Array): ServerStreamStats | null {
+  try {
+    const s = JSON.parse(new TextDecoder().decode(payload)) as {
+      mode: string;
+      targetBitrate: number;
+      maxQP: number;
+      congested: boolean;
+      serverFps: number;
+    };
+    return {
+      mode: s.mode,
+      targetBitrateBps: s.targetBitrate,
+      maxQP: s.maxQP,
+      congested: s.congested,
+      serverFps: s.serverFps,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export interface MetricSummary {

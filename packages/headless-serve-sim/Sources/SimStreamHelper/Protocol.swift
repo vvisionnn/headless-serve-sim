@@ -10,6 +10,12 @@ enum WSMessageType: UInt8 {
     case caDebug = 0x08        // client → server: JSON CoreAnimation debug toggle
     case memoryWarning = 0x09  // client → server: empty body, triggers [SimDevice simulateMemoryWarning]
     case digitalCrown = 0x0A   // client → server: JSON Digital Crown rotation event
+    case requestKeyframe = 0x0B // client → server: empty body, forces an H.264 IDR (decode recovery)
+    case setMode = 0x0C        // client → server: JSON {mode:"perf"|"quality"} streaming-mode switch
+}
+
+struct SetModePayload: Codable {
+    let mode: String  // "perf" | "quality"
 }
 
 struct TouchEventPayload: Codable {

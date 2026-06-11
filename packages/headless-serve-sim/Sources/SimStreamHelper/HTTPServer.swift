@@ -76,19 +76,20 @@ final class HTTPServer {
                 "Connection": "keep-alive",
                 "Access-Control-Allow-Origin": "*",
             ]) { writer in
-                let semaphore = DispatchSemaphore(value: 0)
-                client.setWriter { data in
+                // Seed + cached description, then force an IDR — buffered into the
+                // client's queue; the drain loop below flushes them in order.
+                self.clientManager.sendInitialAvcc(to: client)
+                // Block this connection thread draining the client's coalescing
+                // queue. A slow socket now stalls only *this* client, never the
+                // shared broadcast queue.
+                client.drain { data in
                     do {
                         try writer.write(data)
                         return true
                     } catch {
-                        semaphore.signal()
                         return false
                     }
                 }
-                // Writer attached: seed + cached description, then force an IDR.
-                self.clientManager.sendInitialAvcc(to: client)
-                semaphore.wait()
                 self.clientManager.removeAvccClient(client)
             }
         }

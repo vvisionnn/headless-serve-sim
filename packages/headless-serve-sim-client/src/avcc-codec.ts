@@ -37,6 +37,11 @@ const TAG_TO_TYPE: Record<number, AvccChunkType | undefined> = {
   [AVCC_TAG_SEED]: "seed",
 };
 
+// Upper bound on a single chunk. A full-resolution IDR is well under this; a
+// declared length above it means we've lost framing, so we resync instead of
+// blocking forever waiting for bytes that will never arrive.
+const MAX_CHUNK_BYTES = 64 * 1024 * 1024;
+
 /**
  * Stateful demuxer that turns a byte stream into whole AVCC chunks. Feed it
  * each `Uint8Array` from the reader; it returns the chunks now fully buffered
@@ -58,15 +63,17 @@ export class AvccDemuxer {
     while (this.buffer.length - offset >= 4) {
       const view = new DataView(this.buffer.buffer, this.buffer.byteOffset + offset, 4);
       const length = view.getUint32(0, false);
-      // length covers the tag byte + payload; need that many bytes after the
-      // 4-byte header before the chunk is complete.
-      if (this.buffer.length - offset - 4 < length) break;
-      if (length < 1) {
-        // Malformed (length must include the tag byte). Skip the header and
-        // resync rather than spinning forever.
+      // length covers the tag byte + payload. Below 1 or above the sane cap
+      // means framing is lost (corrupt/torn stream): skip the 4-byte header and
+      // resync rather than waiting forever for bytes that never arrive — or
+      // spinning. Checked before the availability test so a bogus huge length
+      // can't freeze the demuxer.
+      if (length < 1 || length > MAX_CHUNK_BYTES) {
         offset += 4;
         continue;
       }
+      // Need the whole chunk buffered before we can emit it.
+      if (this.buffer.length - offset - 4 < length) break;
       const tag = this.buffer[offset + 4]!;
       const payload = this.buffer.slice(offset + 5, offset + 4 + length);
       const type = TAG_TO_TYPE[tag];

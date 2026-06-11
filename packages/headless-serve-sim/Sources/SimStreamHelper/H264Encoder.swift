@@ -30,13 +30,17 @@ final class H264Encoder {
     private var height: Int32 = 0
     private let fps: Int32
     private var bitrate: Int
+    private var maxQP: Int
+    private let keyframeIntervalSeconds: Int
     private let stateQueue = DispatchQueue(label: "H264Encoder.state")
     private var emittedDescription = false
     private var frameCount: Int64 = 0
 
-    init(fps: Int = 60, bitrate: Int = 6_000_000) {
+    init(fps: Int = 60, bitrate: Int = 8_000_000, maxQP: Int = 48, keyframeIntervalSeconds: Int = 2) {
         self.fps = Int32(fps)
         self.bitrate = bitrate
+        self.maxQP = maxQP
+        self.keyframeIntervalSeconds = keyframeIntervalSeconds
     }
 
     deinit {
@@ -93,7 +97,45 @@ final class H264Encoder {
         pool = nil
     }
 
+    /// Live-update the target bitrate (and its peak cap). Called by the adaptive
+    /// controller as link conditions change. Safe to call between frames.
+    func setBitrate(_ bps: Int) {
+        lock.lock(); defer { lock.unlock() }
+        let clamped = max(80_000, bps)
+        // No-op when unchanged — the adaptive controller calls this ~3×/sec and
+        // pins at the ceiling on a healthy link, so skip the redundant VT writes.
+        guard clamped != bitrate else { return }
+        bitrate = clamped
+        guard let session else { return }
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: clamped))
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: dataRateLimits(for: clamped))
+    }
+
+    /// Live-update the max frame QP (sharpness ceiling, 1–51). Lower = sharper
+    /// but larger; the controller raises it under congestion to keep frame rate.
+    func setMaxQP(_ qp: Int) {
+        lock.lock(); defer { lock.unlock() }
+        let clamped = min(51, max(1, qp))
+        guard clamped != maxQP else { return }
+        maxQP = clamped
+        guard let session else { return }
+        applyMaxQP(clamped, to: session)
+    }
+
     // MARK: - private
+
+    private func dataRateLimits(for bps: Int) -> CFArray {
+        // ~1.5x average over a 1s window: headroom for an IDR without letting it
+        // balloon unbounded on a constrained link.
+        let bytesPerWindow = Double(bps) / 8.0 * 1.5
+        return [NSNumber(value: bytesPerWindow), NSNumber(value: 1.0)] as CFArray
+    }
+
+    private func applyMaxQP(_ qp: Int, to session: VTCompressionSession) {
+        if #available(macOS 12.0, *) {
+            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxAllowedFrameQP, value: NSNumber(value: qp))
+        }
+    }
 
     /// Deep-copy `source` (which wraps the recycled framebuffer IOSurface)
     /// into a private pooled buffer that VT can hold past this call.
@@ -151,11 +193,16 @@ final class H264Encoder {
             )
         }
         var status = create(spec: lowLatencySpec)
+        var lowLatency = true
         if status != noErr || sess == nil {
+            lowLatency = false
             sess = nil
             status = create(spec: nil)
         }
         guard status == noErr, let sess else { return }
+        if !lowLatency {
+            print("[h264] WARNING: low-latency rate control unavailable; using default spec")
+        }
 
         let props: [(CFString, Any)] = [
             (kVTCompressionPropertyKey_RealTime, kCFBooleanTrue!),
@@ -163,14 +210,21 @@ final class H264Encoder {
             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse!),
             (kVTCompressionPropertyKey_AverageBitRate, NSNumber(value: bitrate)),
             (kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: fps)),
-            // 5s keyframe interval: IDRs are far larger than P-frames, so
-            // spacing them out keeps scroll/animation smooth. Late joiners
-            // don't wait for the natural IDR — we force one on connect.
-            (kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: fps * 5)),
+            // Hard cap on a 1s sliding window tames the IDR burst (far larger
+            // than a P-frame) so a single keyframe can't flood a slow link and
+            // stall the stream. Paired with AverageBitRate per Apple QA1958.
+            (kVTCompressionPropertyKey_DataRateLimits, dataRateLimits(for: bitrate)),
+            // Shorter keyframe interval bounds how long a lost reference can
+            // ghost before the next self-healing IDR (we also force one on
+            // demand from the client now).
+            (kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: Int(fps) * keyframeIntervalSeconds)),
         ]
         for (key, value) in props {
             VTSessionSetProperty(sess, key: key, value: value as CFTypeRef)
         }
+        // Sharpness ceiling for screen-content text; the adaptive controller
+        // relaxes this under congestion to protect frame rate over sharpness.
+        applyMaxQP(maxQP, to: sess)
         VTCompressionSessionPrepareToEncodeFrames(sess)
         session = sess
         stateQueue.sync {

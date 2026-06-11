@@ -14,11 +14,12 @@ export { fetchGatewayStatus } from "./discovery";
 export type { GatewayStatus, DiscoverOptions } from "./discovery";
 
 // Streaming metrics (Connection Stats panel)
-export { ConnectionStatsAccumulator, summarize } from "./connection-stats";
+export { ConnectionStatsAccumulator, summarize, parseServerStreamStats } from "./connection-stats";
 export type {
   FrameSample,
   ConnectionStatsSnapshot,
   ConnectionStats,
+  ServerStreamStats,
   MetricSummary,
 } from "./connection-stats";
 

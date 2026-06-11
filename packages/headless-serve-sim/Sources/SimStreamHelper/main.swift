@@ -27,17 +27,39 @@ if let portIdx = args.firstIndex(of: "--port"), portIdx + 1 < args.count,
     port = p
 }
 
+// Streaming quality mode: perf (default) favors smoothness on weak links;
+// quality spends more bits. Set via env or --mode; also switchable live over /ws.
+var streamMode: StreamMode = .perf
+if let envMode = ProcessInfo.processInfo.environment["SERVE_SIM_STREAM_MODE"],
+   let m = StreamMode(rawValue: envMode) {
+    streamMode = m
+}
+if let modeIdx = args.firstIndex(of: "--mode"), modeIdx + 1 < args.count,
+   let m = StreamMode(rawValue: args[modeIdx + 1]) {
+    streamMode = m
+}
+
 print("[main] Starting headless-serve-sim-bin")
 print("[main] Device UDID: \(deviceUDID)")
 print("[main] Port: \(port)")
+print("[main] Stream mode: \(streamMode.rawValue)")
 
+let avccHighWaterBytes = 512 * 1024
 let httpServer = HTTPServer(deviceUDID: deviceUDID, port: port)
 let frameCapture = FrameCapture()
 let videoEncoder = VideoEncoder(quality: 0.7)
-let h264Encoder = H264Encoder(fps: 60)
+let h264Encoder = H264Encoder(fps: 60, maxQP: streamMode == .quality ? 40 : 48)
 let hidInjector = HIDInjector()
 let encodeQueue = DispatchQueue(label: "encode", qos: .userInteractive)
 let h264Queue = DispatchQueue(label: "encode.h264", qos: .userInteractive)
+
+httpServer.clientManager.avccHighWaterBytes = avccHighWaterBytes
+let adaptiveDriver = AdaptiveDriver(
+    encoder: h264Encoder,
+    clientManager: httpServer.clientManager,
+    mode: streamMode,
+    highWaterBytes: avccHighWaterBytes
+)
 
 var screenWidth = 0
 var screenHeight = 0
@@ -50,18 +72,31 @@ var forceKeyframe = false
 
 // H.264 output → AVCC envelope → broadcast to /stream.avcc clients.
 h264Encoder.onEncoded = { encoded in
+    adaptiveDriver.noteEncoded()
     if let description = encoded.description {
-        httpServer.clientManager.broadcastAvcc(AVCCEnvelope.description(avcc: description), isDescription: true)
+        httpServer.clientManager.broadcastAvcc(AVCCEnvelope.description(avcc: description), kind: .description)
     }
     switch encoded.kind {
-    case .keyframe: httpServer.clientManager.broadcastAvcc(AVCCEnvelope.keyframe(avcc: encoded.avcc))
-    case .delta: httpServer.clientManager.broadcastAvcc(AVCCEnvelope.delta(avcc: encoded.avcc))
+    case .keyframe: httpServer.clientManager.broadcastAvcc(AVCCEnvelope.keyframe(avcc: encoded.avcc), kind: .keyframe)
+    case .delta: httpServer.clientManager.broadcastAvcc(AVCCEnvelope.delta(avcc: encoded.avcc), kind: .delta)
     }
 }
 httpServer.clientManager.onAvccClientConnect = {
     h264Queue.async {
         forceKeyframe = true
     }
+}
+// A viewer's send queue overflowed (or it explicitly asked over /ws) — force a
+// fresh IDR so it can resync after we dropped deltas.
+httpServer.clientManager.onNeedKeyframe = {
+    h264Queue.async {
+        forceKeyframe = true
+    }
+}
+// Live perf/quality switch from the panel (/ws 0x0C).
+httpServer.clientManager.onSetMode = { modeStr in
+    guard let m = StreamMode(rawValue: modeStr) else { return }
+    adaptiveDriver.setMode(m, width: screenWidth, height: screenHeight)
 }
 
 // Setup HID injector
@@ -110,6 +145,9 @@ do {
     exit(1)
 }
 
+// Begin adaptive bitrate/QP control (no-op until a viewer connects).
+adaptiveDriver.start()
+
 // Start frame capture — encoder is initialized lazily on first frame.
 // The framebuffer surface may not be available immediately after boot,
 // so retry a few times with backoff before giving up.
@@ -136,6 +174,7 @@ let frameHandler: (CVPixelBuffer, CMTime) -> Void = { pixelBuffer, timestamp in
 
         // Update client manager config
         httpServer.clientManager.setScreenSize(width: w, height: h)
+        adaptiveDriver.updateResolution(width: w, height: h)
     }
 
     if encoderReady, !encoding {
@@ -181,6 +220,7 @@ signal(SIGINT) { _ in
     frameCapture.stop()
     videoEncoder.stop()
     h264Encoder.stop()
+    adaptiveDriver.stop()
     httpServer.stop()
     exit(0)
 }
@@ -189,6 +229,7 @@ signal(SIGTERM) { _ in
     frameCapture.stop()
     videoEncoder.stop()
     h264Encoder.stop()
+    adaptiveDriver.stop()
     httpServer.stop()
     exit(0)
 }
