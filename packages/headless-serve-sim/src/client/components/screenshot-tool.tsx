@@ -1,13 +1,16 @@
 import { useCallback, useState } from "react";
 import { Chevron } from "../icons";
-import { execOnHost, shellEscape } from "../utils/exec";
+import {
+  captureScreenshot,
+  b64ToBlob,
+  type Screenshot,
+  type ScreenshotDisplay,
+  type ScreenshotMask,
+} from "../utils/screenshot";
 
-// Drives `xcrun simctl io <udid> screenshot` directly (the io primitive needs
-// no privileged store, so the card calls simctl rather than a passthrough).
-// Capture stages a PNG to /tmp, reads it back over /exec as base64, previews
-// it, then removes the temp file. The CLI verb exposes the full --type enum;
-// the card pins type=png so the in-browser Blob/ClipboardItem MIME and the
-// data-URL preview match the bytes exactly (jpeg/tiff/bmp would break that).
+// Screenshot tool card: pick display/mask options, capture via the shared
+// helper, preview the PNG, then download or copy it. Capture mechanics (simctl,
+// chunked base64 read-back) live in ../utils/screenshot.
 
 const HOVER_CSS = `
 .lem-toggle:hover { color: #fff; }
@@ -22,27 +25,9 @@ const HOVER_CSS = `
 `;
 
 type Pending = "capture" | null;
-type Display = "" | "internal" | "external";
-type Mask = "" | "ignored" | "alpha" | "black";
-
-// Raw-byte slice size for the chunked base64 read-back. Must be a multiple of
-// 3 so each chunk's base64 is unpadded and the concatenation stays valid; its
-// base64 (bytes / 3 * 4) is comfortably under the /exec route's 16 MB cap.
-const READ_CHUNK_BYTES = 6 * 1024 * 1024;
-const READ_CHUNK_B64_LEN = (READ_CHUNK_BYTES / 3) * 4;
-
-interface Shot {
-  dataUrl: string;
-  bytesB64: string;
-}
-
-// Decode a base64 PNG payload to a Blob for clipboard writes.
-function b64ToBlob(b64: string, mime: string): Blob {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
-}
+type Display = ScreenshotDisplay;
+type Mask = ScreenshotMask;
+type Shot = Screenshot;
 
 // clipboard.write / ClipboardItem only exist in a secure context, but this UI is
 // also served to LAN clients over plain HTTP (see capture's note). Gate the Copy
@@ -65,46 +50,11 @@ export function ScreenshotTool({ udid }: { udid: string }) {
     setPending("capture");
     setError(null);
     setCopied(false);
-    // Build the temp name inside try: crypto.randomUUID() is gated to secure
-    // contexts, but middleware serves this UI to LAN clients over plain HTTP,
-    // where it's undefined. A throw before try would never reset pending; the
-    // Date+random suffix is collision-resistant without the secure-context gate.
-    let tmp = "";
     try {
-      tmp = `/tmp/headless-serve-sim-shot-${Date.now()}-${Math.random().toString(36).slice(2)}.png`;
-      let cmd = `xcrun simctl io ${udid} screenshot --type png`;
-      if (display !== "") cmd += ` --display ${display}`;
-      if (mask !== "") cmd += ` --mask ${mask}`;
-      cmd += ` ${shellEscape(tmp)}`;
-      const cap = await execOnHost(cmd);
-      if (cap.exitCode !== 0) {
-        setError(cap.stderr.trim() || `screenshot failed (exit ${cap.exitCode})`);
-        return;
-      }
-      // Read the PNG back as base64 in raw-byte chunks. A single `base64 -i`
-      // over a large file (External display / hi-res iPad) can exceed the
-      // /exec route's 16 MB maxBuffer once base64 inflates the bytes ~1.37x,
-      // truncating stdout and failing an otherwise-valid capture. Slicing with
-      // `dd` at a multiple-of-3 block size keeps each call well under the cap
-      // and the concatenated base64 byte-identical to one-shot encoding.
-      let bytesB64 = "";
-      for (let skip = 0; ; skip++) {
-        const read = await execOnHost(
-          `dd if=${shellEscape(tmp)} bs=${READ_CHUNK_BYTES} skip=${skip} count=1 2>/dev/null | base64`,
-        );
-        if (read.exitCode !== 0) {
-          setError(read.stderr.trim() || `read-back failed (exit ${read.exitCode})`);
-          return;
-        }
-        const part = read.stdout.replace(/\s/g, "");
-        bytesB64 += part;
-        // A short (or empty) chunk means dd hit EOF — base64 of a full
-        // READ_CHUNK_BYTES block is a fixed length, so anything less is the tail.
-        if (part.length < READ_CHUNK_B64_LEN) break;
-      }
-      setShot({ dataUrl: `data:image/png;base64,${bytesB64}`, bytesB64 });
+      setShot(await captureScreenshot(udid, { display, mask }));
+    } catch (e: any) {
+      setError(e?.message ?? "screenshot failed");
     } finally {
-      execOnHost(`bash -c 'rm -f ${shellEscape(tmp)}'`).catch(() => {});
       setPending(null);
     }
   }, [udid, display, mask]);

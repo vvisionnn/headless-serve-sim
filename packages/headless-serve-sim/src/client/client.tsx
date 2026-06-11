@@ -60,6 +60,7 @@ import {
   GRID_PANEL_WIDTH,
   PANEL_WIDTH,
 } from "./utils/panel-widths";
+import { captureScreenshot, downloadScreenshot, screenshotFilename } from "./utils/screenshot";
 import { simEndpoint } from "./utils/sim-endpoint";
 import {
   SIMULATOR_RESIZE_DRAG_TRANSITION,
@@ -489,6 +490,18 @@ function AppWithConfig({
       .catch(() => {});
   }, [config.device]);
 
+  // Capture the simulator screen and download it immediately — shared by the
+  // ⌘S shortcut. No preview or panel: the PNG lands straight in the browser's
+  // downloads. Failures are non-fatal (the Screenshot card surfaces errors).
+  const captureAndDownloadScreenshot = useCallback(async () => {
+    try {
+      const shot = await captureScreenshot(config.device);
+      downloadScreenshot(shot, screenshotFilename(new Date()));
+    } catch (e) {
+      console.warn("Screenshot (⌘S) failed:", e);
+    }
+  }, [config.device]);
+
   useEffect(() => {
     setLiveStreamConfig(null);
     setWsStreamConfig(null);
@@ -645,6 +658,22 @@ function AppWithConfig({
           return;
         }
       }
+      // ⌘S captures + instantly downloads a screenshot. Like ⇧⌘A it's a global
+      // UI command (fires whenever the page is focused, not only over the
+      // canvas); intercepting it here also suppresses the browser's "Save Page".
+      if (e.code === "KeyS" && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
+        const target = e.target as HTMLElement | null;
+        const typing =
+          !!target &&
+          (target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.isContentEditable);
+        if (!typing) {
+          e.preventDefault();
+          if (type === "down" && !e.repeat) captureAndDownloadScreenshot();
+          return;
+        }
+      }
       if (!simFocusedRef.current) return;
       if (e.code === "KeyH" && e.metaKey && e.shiftKey) {
         e.preventDefault();
@@ -673,7 +702,7 @@ function AppWithConfig({
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [sendWs, config.device, rotateBy, toggleAppearance]);
+  }, [sendWs, config.device, rotateBy, toggleAppearance, captureAndDownloadScreenshot]);
 
   const switchToDevice = useCallback(async (d: SimDevice) => {
     if (switching || d.udid === config.device) return;
