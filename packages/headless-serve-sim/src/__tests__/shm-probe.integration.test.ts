@@ -392,31 +392,25 @@ describeIf("SimCameraHelper shm probe", () => {
     const exited = new Promise<number | null>((resolve) => {
       helper!.once("exit", (code) => resolve(code ?? null));
     });
-    try {
-      await sendHelperCommand(SOCKET_PATH, { action: "shutdown" });
-    } catch {}
-    const exitCode = await Promise.race([
-      exited,
-      new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 3000)),
-    ]);
-    expect(exitCode).not.toBe("timeout");
-    helper = null;
+    // The helper unlinks the shm while *handling* this command, before it writes
+    // the reply — so once the reply arrives the segment is already gone, with no
+    // dependence on process-exit timing (the run-loop teardown unlink could lose
+    // a race with exit on a loaded CI runner, which red-flaked this assertion).
+    const reply = await sendHelperCommand(SOCKET_PATH, { action: "shutdown" });
+    expect(reply?.shutdown).toBe(true);
 
     const sys = await loadFfi();
     const name = Buffer.from(`${SHM_NAME}\0`);
-    // The helper unlinks the shm in its shutdown path, but its `exit` event can
-    // fire a beat before shm_unlink propagates — so poll briefly instead of
-    // sampling once (an intermittent CI failure otherwise: shm_open returned a
-    // valid fd right after exit). A genuine leak still fails the assertion: the
-    // segment never disappears within the window.
-    let fd = -1;
-    for (let attempt = 0; attempt < 40; attempt++) {
-      fd = sys.shm_open(name, 0, 0);
-      if (fd < 0) break;
+    const fd = sys.shm_open(name, 0, 0);
+    if (fd >= 0) {
       sys.close(fd);
-      await new Promise((r) => setTimeout(r, 50));
+      sys.shm_unlink(name);
     }
-    if (fd >= 0) sys.shm_unlink(name); // leaked — unlink so reruns aren't poisoned
     expect(fd).toBeLessThan(0);
+
+    // It also exits cleanly after draining the run loop (event-driven, no timer).
+    const exitCode = await exited;
+    expect(exitCode).toBe(0);
+    helper = null;
   });
 });

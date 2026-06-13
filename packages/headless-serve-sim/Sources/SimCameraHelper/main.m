@@ -688,6 +688,11 @@ static void HandleControlLine(int fd, NSString *line) {
         return;
     }
     if ([action isEqualToString:@"shutdown"]) {
+        // Release the shm name as part of *handling* shutdown, before the reply,
+        // so a client that has received this reply can deterministically observe
+        // the segment gone. The run-loop teardown below also unlinks (idempotent),
+        // but that path can lose a race with process exit on a loaded machine.
+        if (gShmName) shm_unlink(gShmName);
         NSData *r = EncodeReply(@{ @"ok": @YES, @"shutdown": @YES });
         write(fd, r.bytes, r.length);
         gShouldExit = 1;
