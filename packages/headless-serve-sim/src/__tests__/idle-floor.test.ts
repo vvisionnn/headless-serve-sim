@@ -190,7 +190,11 @@ describeWithSim(`headless-serve-sim idle frame floor (booted sim ${bootedUdid ??
     }
 
     clearTimeout(timer);
-    try { reader.cancel(); } catch {}
+    // Await the cancel and swallow its rejection: when the budget timer already
+    // fired, the stream is in an aborted state and reader.cancel() returns a
+    // promise rejected with that AbortError — fire-and-forget would surface it as
+    // an unhandled rejection "between tests" and fail the run.
+    await reader.cancel().catch(() => {});
 
     expect(firstFrameAt).not.toBeNull();
     expect(firstFrameAt).toBeLessThanOrEqual(FIRST_FRAME_BUDGET_MS);
@@ -229,7 +233,11 @@ describeWithSim(`headless-serve-sim idle frame floor (booted sim ${bootedUdid ??
     }
 
     clearTimeout(timer);
-    try { reader.cancel(); } catch {}
+    // Await the cancel and swallow its rejection: when the budget timer already
+    // fired, the stream is in an aborted state and reader.cancel() returns a
+    // promise rejected with that AbortError — fire-and-forget would surface it as
+    // an unhandled rejection "between tests" and fail the run.
+    await reader.cancel().catch(() => {});
 
     expect(frameCount).toBeGreaterThanOrEqual(MIN_FRAMES_IN_IDLE_WINDOW);
     // Every frame should have a reasonable size — headless-serve-sim emits a real
