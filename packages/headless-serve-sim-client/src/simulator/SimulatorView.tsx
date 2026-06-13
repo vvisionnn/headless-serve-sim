@@ -511,12 +511,20 @@ export function SimulatorView({
       if (!useAvcc) setConnected(true);
       setError(null);
     };
+    // In AVCC mode the video stream (useAvccStream) owns `connected`/`error`;
+    // this socket is input-only and reconnects on its own, so a transient
+    // input-WS close/error must not flip the preview back to "Connecting…" or
+    // surface a stream error (mirrors the `!useAvcc` guard in onopen). Without
+    // this, a WS blip before/around the first decoded frame strands the cold
+    // preview on "Connecting…" even though video frames are flowing.
     ws.onclose = () => {
-      setConnected(false);
+      if (!useAvcc) setConnected(false);
     };
     ws.onerror = () => {
-      setError("WebSocket connection failed");
-      setConnected(false);
+      if (!useAvcc) {
+        setError("WebSocket connection failed");
+        setConnected(false);
+      }
     };
 
     // FPS counter: read MJPEG boundary markers
@@ -601,13 +609,16 @@ export function SimulatorView({
     };
   }, [url, streamUrl, relayMode, updateScreenConfig, wsUrlProp, useAvcc]);
 
-  // FPS counter + stale-frame detection for relay mode.
-  // Unlike non-relay mode (where WS close flips connected=false), relay mode
-  // only knows the stream is alive when frames arrive. Without this, killing
-  // the upstream helper leaves the UI stuck on "live" forever.
+  // Stale-frame detection for frame-driven liveness modes.
+  // Relay mode has no input WS, and AVCC direct mode intentionally ignores the
+  // input WS for liveness (video frames own `connected`), so neither can use
+  // WS-close to flag a dead stream — detect it by frame absence instead. Without
+  // this, killing the upstream helper leaves the UI stuck on "live" forever.
+  // MJPEG direct mode still flags death via WS close (in the socket effect), so
+  // it's excluded here.
   const lastFrameAtRef = useRef(0);
   useEffect(() => {
-    if (!relayMode) return;
+    if (!relayMode && !useAvcc) return;
     const STALE_MS = 2000;
     const checkStaleness = () => {
       const last = lastFrameAtRef.current;
@@ -615,8 +626,12 @@ export function SimulatorView({
       if (Date.now() - last > STALE_MS) setConnected(false);
     };
     const interval = setInterval(() => {
-      setFps(frameCountRef.current);
-      frameCountRef.current = 0;
+      // FPS is drained by the socket effect in direct mode (AVCC + MJPEG); only
+      // own it here in relay mode, where that effect doesn't run.
+      if (relayMode) {
+        setFps(frameCountRef.current);
+        frameCountRef.current = 0;
+      }
       checkStaleness();
     }, 1000);
     // Also run when the tab becomes visible again — background tabs throttle
@@ -628,7 +643,7 @@ export function SimulatorView({
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [relayMode]);
+  }, [relayMode, useAvcc]);
 
   const getViewElement = useCallback(() => {
     if (useAvcc) return canvasRef.current;
