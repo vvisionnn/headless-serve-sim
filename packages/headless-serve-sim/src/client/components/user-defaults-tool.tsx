@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Chevron, ReloadIcon } from "../icons";
+import { Select } from "./select";
 import { execOnHost, shellEscape } from "../utils/exec";
 
 // Drives the `headless-serve-sim defaults` passthrough: Load runs `defaults read`
@@ -447,16 +448,13 @@ function TypeSelect({
 }) {
   return (
     <div className="relative block">
-      <select
+      <Select
+        label="New value type"
         value={value}
-        onChange={(e) => onChange((e.target as HTMLSelectElement).value as DefaultsType)}
-        className="lem-select appearance-none [-webkit-appearance:none] bg-white/[0.04] border border-white/8 rounded-md text-white/90 text-[12px] py-1.5 pr-[26px] pl-2 font-[inherit] cursor-pointer [transition:background_0.12s,border-color_0.12s]"
-        aria-label="New value type"
-      >
-        {SCALAR_TYPES.map((t) => (
-          <option key={t} value={t}>{t}</option>
-        ))}
-      </select>
+        options={SCALAR_TYPES.map((t) => ({ value: t, label: t }))}
+        onChange={(v) => onChange(v as DefaultsType)}
+        className="bg-white/[0.04] border border-white/8 rounded-md text-white/90 text-[12px] py-1.5 pr-[26px] pl-2 [transition:background_0.12s,border-color_0.12s]"
+      />
       <span className="absolute right-[9px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center" aria-hidden="true">
         <Chevron open={false} />
       </span>

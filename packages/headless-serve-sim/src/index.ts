@@ -13,6 +13,7 @@ import { document } from "./document-import";
 import { permissions } from "./permissions";
 import { statusBar } from "./status-bar";
 import { userDefaults } from "./user-defaults";
+import { uiSettings } from "./ui-settings";
 import { appActions } from "./app-actions";
 import { screenshot } from "./screenshot";
 import { debugCli, debugHelper, debugState } from "./debug";
@@ -2055,5 +2056,13 @@ program
   .action((args: string[]) =>
     screenshot(program.opts().quiet ? [...args, "--quiet"] : args),
   );
+
+program
+  .command("ui")
+  .description("Get/set simulator-wide UI settings: appearance, color filter, text size, motion… (see `ui` with no args for usage)")
+  .allowUnknownOption(true)
+  .helpOption(false)
+  .argument("[args...]")
+  .action((args: string[]) => uiSettings(args));
 
 await program.parseAsync(process.argv);

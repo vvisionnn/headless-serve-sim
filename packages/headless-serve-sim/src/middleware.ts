@@ -8,6 +8,8 @@ import { randomBytes, timingSafeEqual } from "crypto";
 import type { IncomingMessage, ServerResponse } from "http";
 import { createAxStreamerCache } from "./ax";
 import { debugMw } from "./debug";
+import { createExecUpgradeHandler, type UiRequestHandler } from "./exec-ws";
+import { UI_OPTIONS, getUiStatus, normalizeUiValue, setUiOption } from "./ui-settings";
 
 type SimReq = IncomingMessage;
 type SimRes = ServerResponse;
@@ -773,7 +775,25 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
   // Resolved once per process: the command the in-page tools shell out to.
   const serveSimBin = options?.serveSimBin ?? serveSimBinPath();
 
-  return (req: SimReq, res: SimRes, next?: SimNext) => {
+  // Simulator-settings requests run in-process (just the underlying simctl /
+  // ax-tool spawn) instead of round-tripping a full `node <cli>` exec per
+  // sidebar interaction.
+  const handleUiRequest: UiRequestHandler = async (payload) => {
+    const p = (payload ?? {}) as { device?: string; option?: string; value?: string };
+    if (typeof p.device !== "string" || !/^[0-9A-Za-z-]+$/.test(p.device)) {
+      throw new Error("missing or invalid device udid");
+    }
+    if (p.option === undefined) {
+      return { status: await getUiStatus(p.device) };
+    }
+    if (!UI_OPTIONS[p.option]) throw new Error(`unknown option: ${p.option}`);
+    const value = typeof p.value === "string" ? normalizeUiValue(p.option, p.value) : null;
+    if (value === null) throw new Error(`invalid value for ${p.option}: ${p.value}`);
+    await setUiOption(p.device, p.option, value);
+    return { ok: true };
+  };
+
+  const middleware = (req: SimReq, res: SimRes, next?: SimNext) => {
     const rawUrl: string = req.url ?? "";
     const qIndex = rawUrl.indexOf("?");
     const url = qIndex === -1 ? rawUrl : rawUrl.slice(0, qIndex);
@@ -1474,4 +1494,17 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
     // Not ours — pass through
     if (next) next();
   };
+
+  // WebSocket exec channel — same auth/origin policy as POST /exec, but off
+  // the browser's per-origin HTTP connection pool so multiple preview tabs
+  // (each holding MJPEG + SSE streams) can't starve actions. The built-in
+  // preview server forwards `upgrade` events here. Existing in-page tools keep
+  // using POST /exec; only the simulator-settings panel rides this channel.
+  return Object.assign(middleware, {
+    handleUpgrade: createExecUpgradeHandler({
+      path: `${base}/exec-ws`,
+      execToken,
+      onUiRequest: handleUiRequest,
+    }),
+  });
 }

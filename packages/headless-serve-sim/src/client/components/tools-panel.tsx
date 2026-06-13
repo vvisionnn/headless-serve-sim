@@ -8,6 +8,7 @@ import { AxTreeTool } from "./ax-tree-tool";
 import { CameraTool } from "./camera-tool";
 import { ImportDocumentTool } from "./import-document-tool";
 import { ScreenshotTool } from "./screenshot-tool";
+import { SimulatorSettingsTool } from "./simulator-settings-tool";
 import { StatusBarTool } from "./status-bar-tool";
 import { UserDefaultsTool } from "./user-defaults-tool";
 
@@ -38,6 +39,7 @@ export function ToolsPanel({
       {open && (
         <div className="p-3.5 overflow-y-auto flex-1 flex flex-col gap-3">
           <AppDetectionTool udid={udid} currentApp={currentApp} />
+          <SimulatorSettingsTool udid={udid} />
           <AxTreeTool
             overlayEnabled={axOverlayEnabled}
             onToggleOverlay={onToggleAxOverlay}

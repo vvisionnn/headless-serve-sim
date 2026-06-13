@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { Chevron } from "../icons";
+import { Select as SelectMenu } from "./select";
 import { execOnHost, shellEscape } from "../utils/exec";
 
 // Mirrors the simctl status_bar enum sets (see `xcrun simctl help status_bar`).
@@ -279,17 +280,13 @@ function Select({
 }) {
   return (
     <div className="relative block">
-      <select
+      <SelectMenu
+        label={ariaLabel}
         value={value}
-        onChange={(e) => onChange((e.target as HTMLSelectElement).value)}
-        className="lem-select appearance-none [-webkit-appearance:none] bg-white/[0.04] border border-white/8 rounded-md text-white/90 text-[12px] py-1.5 pr-[26px] pl-2 font-[inherit] cursor-pointer w-full [transition:background_0.12s,border-color_0.12s]"
-        aria-label={ariaLabel}
-      >
-        <option value="">unset</option>
-        {options.map((o) => (
-          <option key={o} value={o}>{o}</option>
-        ))}
-      </select>
+        options={[{ value: "", label: "unset" }, ...options.map((o) => ({ value: o, label: o }))]}
+        onChange={onChange}
+        className="bg-white/[0.04] border border-white/8 rounded-md text-white/90 text-[12px] py-1.5 pr-[26px] pl-2 w-full [transition:background_0.12s,border-color_0.12s]"
+      />
       <span className="absolute right-[9px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center" aria-hidden="true">
         <Chevron open={false} />
       </span>
