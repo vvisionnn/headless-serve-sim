@@ -334,6 +334,16 @@ final class AVCCClient {
     let id: Int
     private let cond = NSCondition()
     private var pending: [Data] = []
+    /// Latest decoder config (avcC SPS/PPS) awaiting delivery, held OUTSIDE the
+    /// droppable `pending` queue. A keyframe resync clears `pending`, but the
+    /// config is a sticky preamble — a keyframe is undecodable without it — so it
+    /// must survive that drop and always flush before the IDR it configures. On
+    /// the first connection after launch the encoder emits the description and
+    /// the forced IDR back-to-back, so without this slot the keyframe's
+    /// `removeAll()` races the config out before the drain thread sends it, and
+    /// the viewer's WebCodecs decoder never configures — stranding the preview on
+    /// "Connecting…" until the stream is reopened.
+    private var pendingDescription: Data?
     private var queuedBytes = 0
     private var closed = false
     private var needKeyframe = false
@@ -363,7 +373,10 @@ final class AVCCClient {
             append(chunk)
             cond.unlock()
         case .description:
-            append(chunk)
+            // Sticky preamble: park it in the dedicated slot (latest config
+            // wins) so a following keyframe's resync drop can't discard it.
+            pendingDescription = chunk
+            cond.signal()
             cond.unlock()
         case .delta, .seed:
             if queuedBytes >= highWaterBytes {
@@ -395,12 +408,17 @@ final class AVCCClient {
     func drain(write: (Data) -> Bool) {
         while true {
             cond.lock()
-            while pending.isEmpty && !closed { cond.wait() }
+            while pending.isEmpty && pendingDescription == nil && !closed { cond.wait() }
             if closed { cond.unlock(); return }
+            // Flush the decoder config ahead of the batch so it always precedes
+            // the keyframe it configures.
+            let desc = pendingDescription
+            pendingDescription = nil
             let batch = pending
             pending = []
             queuedBytes = 0
             cond.unlock()
+            if let desc, !write(desc) { close(); return }
             for data in batch {
                 if !write(data) { close(); return }
             }
@@ -420,6 +438,7 @@ final class AVCCClient {
         cond.lock()
         closed = true
         pending.removeAll()
+        pendingDescription = nil
         queuedBytes = 0
         cond.signal()
         cond.unlock()
