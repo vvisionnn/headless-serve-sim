@@ -403,11 +403,20 @@ describeIf("SimCameraHelper shm probe", () => {
     helper = null;
 
     const sys = await loadFfi();
-    const fd = sys.shm_open(Buffer.from(`${SHM_NAME}\0`), 0, 0);
-    if (fd >= 0) {
+    const name = Buffer.from(`${SHM_NAME}\0`);
+    // The helper unlinks the shm in its shutdown path, but its `exit` event can
+    // fire a beat before shm_unlink propagates — so poll briefly instead of
+    // sampling once (an intermittent CI failure otherwise: shm_open returned a
+    // valid fd right after exit). A genuine leak still fails the assertion: the
+    // segment never disappears within the window.
+    let fd = -1;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      fd = sys.shm_open(name, 0, 0);
+      if (fd < 0) break;
       sys.close(fd);
-      sys.shm_unlink(Buffer.from(`${SHM_NAME}\0`));
+      await new Promise((r) => setTimeout(r, 50));
     }
+    if (fd >= 0) sys.shm_unlink(name); // leaked — unlink so reruns aren't poisoned
     expect(fd).toBeLessThan(0);
   });
 });
