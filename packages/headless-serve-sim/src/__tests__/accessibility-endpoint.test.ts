@@ -63,11 +63,11 @@ describeWithSim(`headless-serve-sim accessibility endpoint (booted sim ${bootedU
 
     const state = JSON.parse(detach.stdout.trim()) as { url: string };
     axUrl = `${state.url}/ax`;
-  }, 60_000);
+  }, 120_000);
 
   afterAll(() => {
-    try { execSync(`bun run ${CLI_PATH} --kill ${bootedUdid}`, { stdio: "pipe" }); } catch {}
-  });
+    try { execSync(`bun run ${CLI_PATH} --kill ${bootedUdid}`, { stdio: "pipe", timeout: 30_000 }); } catch {}
+  }, 60_000);
 
   test("returns a bounded accessibility tree without crashing the helper", async () => {
     const deadline = Date.now() + AX_READY_BUDGET_MS;
@@ -87,6 +87,10 @@ describeWithSim(`headless-serve-sim accessibility endpoint (booted sim ${bootedU
           expect(typeof tree[0]?.type).toBe("string");
           return;
         }
+        // Drain the body we're not going to read so the per-request abort timer
+        // can't reject an open body stream after the loop/test has moved on
+        // (a fire-and-forget body → unhandled AbortError between tests).
+        await res.body?.cancel().catch(() => {});
         // 503 = helper alive but AX not yet ready (sim still warming up).
         // Anything else is a hard failure.
         if (res.status !== 503) break;

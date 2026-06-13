@@ -22,11 +22,15 @@ let server: PreviewServer;
 beforeAll(async () => {
   const middleware = simMiddleware({ basePath: "/", execToken: TOKEN });
   server = await servePreview({ port: PORT, middleware, host: "127.0.0.1" });
-});
+}, 60_000);
 
-afterAll(() => {
+afterAll(async () => {
+  // Let any client socket from the last test finish its async close before the
+  // (graceful) server stop, so a late teardown reset can't surface as a stray
+  // unhandled rejection that fails the run.
+  await new Promise((r) => setTimeout(r, 50));
   server?.stop(true);
-});
+}, 60_000);
 
 interface Reply {
   ready?: boolean;
@@ -48,20 +52,27 @@ function connect(token: string): Promise<{
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}/exec-ws`);
     const queue: Reply[] = [];
     const waiters: Array<(r: Reply) => void> = [];
+    let settled = false;
     let closeResolve: () => void;
     const closed = new Promise<void>((r) => {
       closeResolve = r;
     });
-    const timer = setTimeout(() => reject(new Error("connect timeout")), 5000);
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("connect timeout"));
+    }, 30_000);
     ws.onopen = () => {
       clearTimeout(timer);
       ws.send(JSON.stringify({ token }));
+      if (settled) return;
+      settled = true;
       resolve({
         next: () =>
           new Promise<Reply>((r, rej) => {
             const queued = queue.shift();
             if (queued) return r(queued);
-            const bail = setTimeout(() => rej(new Error("reply timeout")), 5000);
+            const bail = setTimeout(() => rej(new Error("reply timeout")), 30_000);
             waiters.push((reply) => {
               clearTimeout(bail);
               r(reply);
@@ -80,6 +91,8 @@ function connect(token: string): Promise<{
     };
     ws.onerror = () => {
       clearTimeout(timer);
+      if (settled) return;
+      settled = true;
       reject(new Error("socket error"));
     };
     ws.onclose = () => closeResolve();

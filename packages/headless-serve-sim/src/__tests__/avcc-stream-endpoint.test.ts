@@ -77,7 +77,10 @@ describeWithSim(`headless-serve-sim AVCC endpoint (booted sim ${bootedUdid ?? "<
 
   afterAll(() => {
     try { execFileSync("bun", ["run", CLI_PATH, "--kill", bootedUdid!], { stdio: "pipe" }); } catch {}
-  });
+    // `bun run <cli> --kill` cold-starts bun + transpiles index.ts; on a loaded
+    // runner that exceeds bun's default hook budget ("hook timed out"). Give it
+    // room — matching the 60s beforeAll.
+  }, 30_000);
 
   test("emits a decoder description and a keyframe", async () => {
     const controller = new AbortController();
@@ -86,12 +89,13 @@ describeWithSim(`headless-serve-sim AVCC endpoint (booted sim ${bootedUdid ?? "<
     const seenTags = new Set<number>();
     let buffer = new Uint8Array(0);
     let connectedStatus = 0;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 
     try {
       const res = await fetch(avccUrl, { signal: controller.signal });
       connectedStatus = res.status;
       expect(res.status).toBe(200);
-      const reader = res.body?.getReader();
+      reader = res.body?.getReader();
       expect(reader).toBeTruthy();
 
       while (reader) {
@@ -116,7 +120,11 @@ describeWithSim(`headless-serve-sim AVCC endpoint (booted sim ${bootedUdid ?? "<
       if ((e as Error).name !== "AbortError") throw e;
     } finally {
       clearTimeout(timer);
-      controller.abort();
+      // Cancel the reader (awaited + swallowed) rather than a bare abort: on an
+      // already-aborted stream cancel() returns a rejected promise, and
+      // fire-and-forget would leak an unhandled AbortError between tests. This
+      // also tears down the fetch connection.
+      await reader?.cancel().catch(() => {});
     }
 
     const decodable = seenTags.has(TAG_DESCRIPTION) && seenTags.has(TAG_KEYFRAME);

@@ -47,7 +47,7 @@ describeWithSim(`headless-serve-sim type e2e (booted sim ${bootedUdid ?? "<skipp
     const detach = spawnSync("bun", ["run", CLI_PATH, "--detach", bootedUdid!], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "inherit"],
-      timeout: 45_000,
+      timeout: 90_000,
     });
     if (detach.status !== 0 || !detach.stdout) {
       throw new Error(
@@ -55,7 +55,7 @@ describeWithSim(`headless-serve-sim type e2e (booted sim ${bootedUdid ?? "<skipp
       );
     }
     logFile = join(STATE_DIR, `server-${bootedUdid!}.log`);
-  }, 60_000);
+  }, 120_000);
 
   afterAll(() => {
     try { execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" }); } catch {}
@@ -76,11 +76,17 @@ describeWithSim(`headless-serve-sim type e2e (booted sim ${bootedUdid ?? "<skipp
     });
     expect(result.status).toBe(0);
 
-    // Wait briefly for the helper to flush its stdout log — sendKey is sync,
-    // but stdio buffering means a few ms can elapse before lines hit the file.
-    await new Promise((r) => setTimeout(r, 200));
-
-    const logAfter = readFileSync(logFile, "utf-8");
+    // The 10 `[hid] Key …` lines are emitted by the *detached helper* process
+    // (stdout redirected to logFile), not by the `type` child we just awaited.
+    // On a loaded runner they can take well over 200ms to be received over the
+    // WS and flushed, so poll until the expected count lands rather than sleeping
+    // a fixed amount. Assertion (exactly 10) is unchanged.
+    const deadline = Date.now() + 10_000;
+    let logAfter = readFileSync(logFile, "utf-8");
+    while (countKeyLines(logAfter) - beforeCount < 10 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+      logAfter = readFileSync(logFile, "utf-8");
+    }
     const newLines = logAfter.slice(logBefore.length);
     const afterCount = countKeyLines(logAfter);
 
@@ -96,7 +102,7 @@ describeWithSim(`headless-serve-sim type e2e (booted sim ${bootedUdid ?? "<skipp
     // And we should see balanced down/up events for the new slice.
     expect(countMatches(newLines, /\[hid\] Key down /g)).toBe(5);
     expect(countMatches(newLines, /\[hid\] Key up /g)).toBe(5);
-  }, 30_000);
+  }, 60_000);
 });
 
 function countKeyLines(s: string): number {

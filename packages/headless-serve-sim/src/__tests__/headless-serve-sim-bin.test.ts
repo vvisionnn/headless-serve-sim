@@ -14,12 +14,12 @@ describeIfDarwin("headless-serve-sim-bin binary", () => {
   });
 
   test("is a universal Mach-O binary (arm64 + x86_64)", () => {
-    const output = execSync(`file "${BIN_PATH}"`, { encoding: "utf8" });
+    const output = execSync(`file "${BIN_PATH}"`, { encoding: "utf8", timeout: 15_000 });
     // Matches both the fat header line and the individual slices
     expect(output).toContain("Mach-O universal binary with 2 architectures");
     expect(output).toContain("arm64");
     expect(output).toContain("x86_64");
-  });
+  }, 15_000);
 
   test("lipo reports both architectures", () => {
     const output = execSync(`lipo -info "${BIN_PATH}"`, { encoding: "utf8" });

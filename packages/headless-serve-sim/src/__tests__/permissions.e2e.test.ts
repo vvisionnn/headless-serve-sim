@@ -82,7 +82,7 @@ function sectionInfoInnerXml(): string {
   );
   if (!m?.[1]) throw new Error(`no sectionInfo entry for ${FAKE_BUNDLE}`);
   const blob = Buffer.from(m[1].replace(/\s/g, ""), "base64");
-  const tmp = join(libDir(), "..", `.headless-serve-sim-e2e-${Date.now()}.plist`);
+  const tmp = join(libDir(), "..", `.headless-serve-sim-e2e-${Date.now()}-${Math.random().toString(36).slice(2)}.plist`);
   require("fs").writeFileSync(tmp, blob);
   try {
     return execSync(`plutil -convert xml1 -o - "${tmp}"`, { encoding: "utf-8" });

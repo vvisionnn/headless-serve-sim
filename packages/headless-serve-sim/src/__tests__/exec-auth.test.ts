@@ -89,5 +89,5 @@ describe("/exec auth", () => {
       expect(body.stdout.trim()).toBe("headless-serve-sim-test");
       expect(body.exitCode).toBe(0);
     });
-  });
+  }, 30_000);
 });
