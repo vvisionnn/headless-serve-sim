@@ -38,6 +38,11 @@ export interface UseAvccStreamOptions {
   /** Called (debounced) when the decoder needs a fresh IDR to recover — wire to
    * a client→server keyframe request so the server emits one promptly. */
   onRequestKeyframe?: () => void;
+  /** Called whenever stream bytes arrive (decodable or not). A liveness signal
+   * distinct from painted frames: during keyframe recovery the stream keeps
+   * delivering bytes while painting nothing, so byte arrival — not paint — is
+   * what proves the stream is still alive. */
+  onProgress?: () => void;
 }
 
 /**
@@ -62,6 +67,7 @@ export function useAvccStream({
   onFrame,
   onError,
   onRequestKeyframe,
+  onProgress,
 }: UseAvccStreamOptions): void {
   useEffect(() => {
     if (!enabled || !isAvccSupported()) return;
@@ -262,6 +268,9 @@ export function useAvccStream({
           const { done, value } = await reader.read();
           if (done) break;
           if (!value) continue;
+          // Bytes arrived → the stream is alive even if this chunk paints
+          // nothing (e.g. a delta skipped while awaiting the next keyframe).
+          onProgress?.();
           for (const chunk of demuxer.push(value)) {
             handleChunk(chunk.type, chunk.payload);
           }
@@ -285,5 +294,5 @@ export function useAvccStream({
       }
       decoder = null;
     };
-  }, [url, enabled, canvasRef, onFirstFrame, onFrame, onError, onRequestKeyframe]);
+  }, [url, enabled, canvasRef, onFirstFrame, onFrame, onError, onRequestKeyframe, onProgress]);
 }

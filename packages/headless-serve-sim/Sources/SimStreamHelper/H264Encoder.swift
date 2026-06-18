@@ -108,7 +108,6 @@ final class H264Encoder {
         bitrate = clamped
         guard let session else { return }
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: clamped))
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: dataRateLimits(for: clamped))
     }
 
     /// Live-update the max frame QP (sharpness ceiling, 1–51). Lower = sharper
@@ -123,13 +122,6 @@ final class H264Encoder {
     }
 
     // MARK: - private
-
-    private func dataRateLimits(for bps: Int) -> CFArray {
-        // ~1.5x average over a 1s window: headroom for an IDR without letting it
-        // balloon unbounded on a constrained link.
-        let bytesPerWindow = Double(bps) / 8.0 * 1.5
-        return [NSNumber(value: bytesPerWindow), NSNumber(value: 1.0)] as CFArray
-    }
 
     private func applyMaxQP(_ qp: Int, to session: VTCompressionSession) {
         if #available(macOS 12.0, *) {
@@ -210,10 +202,13 @@ final class H264Encoder {
             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse!),
             (kVTCompressionPropertyKey_AverageBitRate, NSNumber(value: bitrate)),
             (kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: fps)),
-            // Hard cap on a 1s sliding window tames the IDR burst (far larger
-            // than a P-frame) so a single keyframe can't flood a slow link and
-            // stall the stream. Paired with AverageBitRate per Apple QA1958.
-            (kVTCompressionPropertyKey_DataRateLimits, dataRateLimits(for: bitrate)),
+            // NOTE: deliberately NO kVTCompressionPropertyKey_DataRateLimits. It
+            // is a HARD cap over a 1s window; a fast/erratic scroll produces a
+            // burst of large frames that blow past it, and VideoToolbox obeys the
+            // cap by DELAYING encodes — collapsing the frame rate to single
+            // digits. AverageBitRate (soft) lets VT instead raise QP to fit, so a
+            // burst stays at 60fps (briefly softer). Bandwidth is bounded by the
+            // adaptive AverageBitRate + the per-client send-queue drop policy.
             // Shorter keyframe interval bounds how long a lost reference can
             // ghost before the next self-healing IDR (we also force one on
             // demand from the client now).

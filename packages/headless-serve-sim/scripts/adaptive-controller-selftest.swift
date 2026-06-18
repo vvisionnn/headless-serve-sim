@@ -26,8 +26,8 @@ let HW = 512 * 1024 // per-client overflow threshold; congestion line = HW/2
 let b = AdaptiveController.bounds(for: .perf, width: 1206, height: 2622)
 print("perf bounds: \(b)")
 check(b.minBitrate == 150_000, "perf floor = 150 kbps")
-check(b.maxBitrate > 7_000_000 && b.maxBitrate <= 12_000_000, "perf ceiling scaled (~7.9 Mbps) & clamped")
-check(b.sharpQP == 30 && b.softQP == 48, "perf QP band 30..48")
+check(b.maxBitrate > 12_000_000 && b.maxBitrate <= 30_000_000, "perf ceiling scaled (~19 Mbps) & clamped")
+check(b.sharpQP == 46 && b.softQP == 51, "perf QP band 46..51")
 
 var c = AdaptiveController(bounds: b)
 check(c.bitrate == b.maxBitrate, "starts at the ceiling")

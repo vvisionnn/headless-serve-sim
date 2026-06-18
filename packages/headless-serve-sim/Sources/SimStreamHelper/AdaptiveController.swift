@@ -17,8 +17,8 @@ struct AdaptiveController {
     struct Bounds: Equatable {
         var minBitrate: Int
         var maxBitrate: Int
-        var sharpQP: Int   // QP cap when bandwidth is plentiful (sharper text)
-        var softQP: Int    // QP cap when congested (softer, protects frame rate)
+        var sharpQP: Int   // QP ceiling at max bitrate (kept high to hold frame rate)
+        var softQP: Int    // QP ceiling when congested (softest, sheds the most bits)
     }
 
     struct Output: Equatable {
@@ -52,13 +52,19 @@ struct AdaptiveController {
         if congested {
             // Multiplicative decrease — react fast to a shrinking pipe.
             bitrate = max(bounds.minBitrate, Int(Double(bitrate) * 0.6))
-        } else if congestionBytes == 0 {
-            // Additive increase — probe back up toward the ceiling.
+        } else if congestionBytes < max(1, highWaterBytes / 8) {
+            // Additive increase — probe back up toward the ceiling. Trigger on a
+            // LOW backlog, not exactly 0: an active stream almost always has a
+            // few KB in flight, and requiring exactly 0 left the bitrate pinned
+            // wherever it landed (~2 Mbps), starving the encoder so a motion
+            // burst couldn't be fed — collapsing the frame rate.
             let step = max(150_000, bounds.maxBitrate / 16)
             bitrate = min(bounds.maxBitrate, bitrate + step)
         }
-        // QP cap tracks bitrate headroom: sharp at the ceiling, soft near the
-        // floor (so a weak link trades sharpness, not frame rate).
+        // QP cap (a CEILING, not a target) tracks bitrate headroom: it rises
+        // toward `softQP` under congestion to shed bits. Both ends are kept high
+        // enough that VideoToolbox blurs a frame to fit rather than dropping it,
+        // so the frame rate is never sacrificed for sharpness.
         let span = max(1, bounds.maxBitrate - bounds.minBitrate)
         let frac = Double(bitrate - bounds.minBitrate) / Double(span)
         let qp = Int((Double(bounds.softQP) + (Double(bounds.sharpQP) - Double(bounds.softQP)) * frac).rounded())
@@ -72,10 +78,19 @@ struct AdaptiveController {
         let mp = Double(max(1, width * height)) / 1_000_000.0
         switch mode {
         case .perf:
-            let ceil = clamp(Int(mp * 2_500_000), 4_000_000, 12_000_000)
-            return Bounds(minBitrate: 150_000, maxBitrate: ceil, sharpQP: 30, softQP: 48)
+            // Generous ceiling so a fast scroll has the bit budget to stay sharp
+            // at 60fps on a fast link (localhost is free); the adaptive loop and
+            // the send-queue throttle it down on a constrained remote link.
+            let ceil = clamp(Int(mp * 6_000_000), 12_000_000, 30_000_000)
+            // perf prioritizes frame rate: a HIGH QP ceiling lets VideoToolbox
+            // blur a too-complex frame to hold 60fps instead of dropping it. A
+            // low ceiling (the old 30) forbade that blur, so on hard-to-compress
+            // screens the encoder starved the frame rate to ~13fps even on a
+            // clear local link. Simple content still encodes sharp — the ceiling
+            // is never reached because AverageBitRate fills the budget at low QP.
+            return Bounds(minBitrate: 150_000, maxBitrate: ceil, sharpQP: 46, softQP: 51)
         case .quality:
-            let ceil = clamp(Int(mp * 5_000_000), 8_000_000, 28_000_000)
+            let ceil = clamp(Int(mp * 12_000_000), 24_000_000, 60_000_000)
             return Bounds(minBitrate: 400_000, maxBitrate: ceil, sharpQP: 22, softQP: 40)
         }
     }

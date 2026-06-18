@@ -325,6 +325,13 @@ export function SimulatorView({
       setError(null);
     }
   }, []);
+  // Liveness ping: stream bytes arrived (even if this chunk painted nothing —
+  // e.g. a delta the server dropped while the client awaits the next IDR). The
+  // AVCC staleness watchdog keys off this, not painted frames, so a brief
+  // keyframe recovery holds the last frame instead of flashing "Connecting…".
+  const onAvccProgress = useCallback(() => {
+    lastByteAtRef.current = Date.now();
+  }, []);
   // Debounced keyframe request travels over the input WS (direct mode); the
   // relay path requests keyframes server-side.
   const requestKeyframe = useCallback(() => {
@@ -344,6 +351,7 @@ export function SimulatorView({
     onFrame: onAvccFrame,
     onError: setError,
     onRequestKeyframe: requestKeyframe,
+    onProgress: onAvccProgress,
   });
 
   // When the panel is open, accumulate per-frame telemetry (fed by the AVCC
@@ -617,11 +625,18 @@ export function SimulatorView({
   // MJPEG direct mode still flags death via WS close (in the socket effect), so
   // it's excluded here.
   const lastFrameAtRef = useRef(0);
+  const lastByteAtRef = useRef(0);
   useEffect(() => {
     if (!relayMode && !useAvcc) return;
     const STALE_MS = 2000;
     const checkStaleness = () => {
-      const last = lastFrameAtRef.current;
+      // Liveness signal differs by mode. AVCC: bytes off /stream.avcc — during a
+      // keyframe recovery the server drops deltas and the client paints nothing
+      // while still receiving bytes, so paint-staleness would falsely read as a
+      // dead stream and flash "Connecting…" over the held frame. Bytes prove the
+      // stream is alive; only their absence (helper gone) is a real disconnect.
+      // Relay/MJPEG: painted frames, which have no drop-until-IDR gap.
+      const last = useAvcc ? lastByteAtRef.current : lastFrameAtRef.current;
       if (!last || !connectedRef.current) return;
       if (Date.now() - last > STALE_MS) setConnected(false);
     };
