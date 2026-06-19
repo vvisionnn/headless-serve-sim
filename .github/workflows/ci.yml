@@ -95,7 +95,7 @@ jobs:
       - name: Package release tarball
         if: startsWith(github.ref, 'refs/tags/v')
         working-directory: packages/headless-serve-sim/dist
-        run: tar -czf headless-serve-sim-darwin-arm64.tar.gz headless-serve-sim simcam
+        run: tar -czf headless-serve-sim-darwin-arm64.tar.gz headless-serve-sim simcam simax
 
       - name: Upload release artifact
         if: startsWith(github.ref, 'refs/tags/v')
