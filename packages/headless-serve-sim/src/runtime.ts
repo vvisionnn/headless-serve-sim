@@ -6,7 +6,16 @@ import { createServer as createNetServer } from "net";
 import type { Duplex } from "stream";
 
 export function dirnameOf(metaUrl: string): string {
-  return dirname(fileURLToPath(metaUrl));
+  const fromMeta = dirname(fileURLToPath(metaUrl));
+  // In a `bun build --compile` standalone, import.meta.url resolves into bun's
+  // virtual embedded filesystem (confirmed: file:///$bunfs/root/<entry>), not
+  // the real install dir. The side helpers (simcam/, simax/) are extracted next
+  // to the real executable, so resolve relative to it in that case — otherwise
+  // locating them looks inside the in-memory fs and always fails.
+  if (fromMeta.includes("$bunfs") || fromMeta.includes("~BUN")) {
+    return dirname(process.execPath);
+  }
+  return fromMeta;
 }
 
 /** Block the current thread for `ms` milliseconds without busy-waiting. */
