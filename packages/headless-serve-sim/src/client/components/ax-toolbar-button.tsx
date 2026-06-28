@@ -26,8 +26,8 @@ export function AxToolbarButton({
       style={
         active
           ? {
-              background: hovered ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.08)",
-              color: "rgba(255,255,255,0.95)",
+              background: hovered ? "#2c2c2e" : "#161617",
+              color: "#f5f5f7",
             }
           : undefined
       }

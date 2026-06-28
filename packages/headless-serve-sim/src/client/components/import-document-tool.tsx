@@ -146,14 +146,14 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
   const destLabel = folder.trim() ? `On My iPad/${folder.trim()}` : "On My iPad";
 
   return (
-    <div className="bg-panel border border-white/8 rounded-[10px] flex flex-col gap-2.5 px-3 py-2">
+    <div className="bg-panel border border-divider flex flex-col gap-2 px-2 py-1.5">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-white/90 py-2.5 px-1 -my-2 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
+        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-fg py-2 px-1 -my-1.5 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold text-white/50 uppercase tracking-[0.08em] leading-none inline-flex items-center">
+        <span className="text-[11px] font-semibold text-fg-3 uppercase tracking-[0.08em] leading-none inline-flex items-center">
           Documents
         </span>
         <DocStatusPill
@@ -171,14 +171,14 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
-          className="flex flex-col gap-2.5"
+          className="flex flex-col gap-2"
         >
-          <p className="m-0 text-[10px] leading-[1.5] text-white/45">
-            Imports files straight into the Files app under <span className="text-white/70">On My iPad</span> —
+          <p className="m-0 text-[10px] leading-[1.5] text-fg-3">
+            Imports files straight into the Files app under <span className="text-fg-2">On My iPad</span> —
             open the document picker's local tab and they're already there, no in-app prompt.
           </p>
 
-          <label className="flex items-center gap-2 bg-white/[0.04] border border-white/8 rounded-[7px] px-2.5 h-9 focus-within:border-accent/60 transition-colors">
+          <label className="flex items-center gap-2 bg-surface-2 border border-divider px-2 h-9 focus-within:border-accent transition-colors">
             <svg
               width="15"
               height="15"
@@ -188,7 +188,7 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="shrink-0 text-white/55"
+              className="shrink-0 text-fg-2"
             >
               <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
             </svg>
@@ -198,7 +198,7 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
               onChange={(e) => setFolder((e.target as HTMLInputElement).value)}
               placeholder="On My iPad (top level)"
               spellCheck={false}
-              className="flex-1 min-w-0 bg-transparent border-none outline-none text-[12px] text-white/90 font-mono placeholder:text-white/35"
+              className="flex-1 min-w-0 bg-transparent border-none outline-none text-[12px] text-fg font-mono placeholder:text-fg-3"
               aria-label="Destination folder under On My iPad"
             />
           </label>
@@ -215,10 +215,10 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
             type="button"
             onClick={openFilePicker}
             className={[
-              "relative min-h-[64px] flex flex-col items-center justify-center gap-1 px-3.5 py-3 rounded-[8px] cursor-pointer text-center transition-[border-color,background] duration-150",
-              "bg-white/[0.04] border border-dashed border-white/15 hover:border-white/25",
+              "relative min-h-[64px] flex flex-col items-center justify-center gap-1 px-2 py-3 cursor-pointer text-center transition-[border-color,background] duration-150",
+              "bg-surface-2 border border-dashed border-divider hover:border-fg-3",
               isDragOver
-                ? "!bg-[rgba(10,132,255,0.1)] !border-[rgba(10,132,255,0.65)] !border-solid"
+                ? "!bg-accent-tint !border-accent !border-solid"
                 : "",
             ].join(" ")}
           >
@@ -231,17 +231,17 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
               strokeWidth="1.8"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className={isDragOver ? "text-[#4aa3ff]" : "text-white/70"}
+              className={isDragOver ? "text-accent" : "text-fg-2"}
             >
               <path d="M14 3v4a1 1 0 0 0 1 1h4" />
               <path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z" />
               <path d="M12 18v-6" />
               <path d="m9.5 14.5 2.5-2.5 2.5 2.5" />
             </svg>
-            <span className="text-[12px] text-white/85 font-medium">
+            <span className="text-[12px] text-fg font-medium">
               {isDragOver ? "Drop to import" : "Select or drop documents"}
             </span>
-            <span className="text-[10px] text-white/45">
+            <span className="text-[10px] text-fg-3">
               {destLabel}
             </span>
           </button>
@@ -259,7 +259,7 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
               <button
                 type="button"
                 onClick={() => setEntries([])}
-                className="bg-transparent border border-white/12 text-white/70 text-[10px] px-2 py-[3px] rounded-[5px] cursor-pointer uppercase tracking-[0.04em] hover:text-white/90"
+                className="bg-transparent border border-divider text-fg-2 text-[10px] px-2 py-[3px] cursor-pointer uppercase tracking-[0.04em] hover:text-fg hover:bg-hover"
               >
                 Clear
               </button>
@@ -267,7 +267,7 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
           )}
 
           {error && (
-            <div className="bg-danger/10 border border-danger/20 text-danger-soft text-[11px] px-2 py-1.5 rounded-md break-words" role="alert">
+            <div className="bg-surface-2 border border-divider text-danger-soft text-[11px] px-2 py-1.5 break-words" role="alert">
               {error}
             </div>
           )}
@@ -290,8 +290,8 @@ function DocStatusPill({
 }) {
   if (active > 0) {
     return (
-      <span className="text-[11px] text-white/55 font-mono inline-flex items-center gap-1.5 justify-self-end leading-none">
-        <span className="size-1.5 rounded-full bg-accent [box-shadow:0_0_6px_rgba(165,180,252,0.7)]" />
+      <span className="text-[11px] text-fg-2 font-mono inline-flex items-center gap-1.5 justify-self-end leading-none">
+        <span className="size-1.5 bg-accent" />
         Importing {active}…
       </span>
     );
@@ -311,7 +311,7 @@ function DocStatusPill({
     );
   }
   return (
-    <span className="text-[11px] text-white/45 font-mono justify-self-end leading-none truncate max-w-[160px]">
+    <span className="text-[11px] text-fg-3 font-mono justify-self-end leading-none truncate max-w-[160px]">
       {destLabel}
     </span>
   );
@@ -320,19 +320,19 @@ function DocStatusPill({
 function DocRow({ entry }: { entry: DocEntry }) {
   const uploading = entry.status === "queued" || entry.status === "uploading";
   return (
-    <div className="doc-row-in flex flex-col gap-1 bg-white/[0.03] border border-white/8 rounded-[7px] px-2.5 py-2">
+    <div className="doc-row-in flex flex-col gap-1 bg-surface-2 border border-divider px-2 py-1.5">
       <div className="flex items-center gap-2">
-        <span className="shrink-0 text-[9px] tracking-[0.08em] uppercase text-white/55 bg-white/[0.06] border border-white/8 px-[6px] py-[2px] rounded-full font-mono">
+        <span className="shrink-0 text-[9px] tracking-[0.08em] uppercase text-fg-2 bg-surface-3 border border-divider px-[6px] py-[2px] font-mono">
           {entry.ext || "file"}
         </span>
-        <span className="flex-1 min-w-0 truncate text-[12px] text-white/90 font-mono">
+        <span className="flex-1 min-w-0 truncate text-[12px] text-fg font-mono">
           {entry.name}
         </span>
         <DocRowStatusIcon status={entry.status} />
       </div>
       {uploading && (
-        <div className="h-[2px] w-full overflow-hidden rounded-full bg-white/[0.06]">
-          <div className="headless-serve-sim-toast-indeterminate h-full w-1/3 bg-accent rounded-full" />
+        <div className="h-[2px] w-full overflow-hidden bg-surface-3">
+          <div className="headless-serve-sim-toast-indeterminate h-full w-1/3 bg-accent" />
         </div>
       )}
       {entry.status === "error" && entry.error && (
@@ -383,7 +383,7 @@ function DocRowStatusIcon({ status }: { status: DocStatus }) {
     );
   }
   return (
-    <span className="shrink-0 text-[10px] text-white/45 font-mono">
+    <span className="shrink-0 text-[10px] text-fg-3 font-mono">
       {status === "queued" ? "queued" : "…"}
     </span>
   );

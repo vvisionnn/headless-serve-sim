@@ -44,7 +44,7 @@ export function WebKitDevtoolsPanel({
             onRefresh={onRefresh}
           />
         ) : (
-          <span className="text-[12px] text-white/[0.48] overflow-hidden text-ellipsis whitespace-nowrap">
+          <span className="text-[12px] text-fg-3 overflow-hidden text-ellipsis whitespace-nowrap">
             {loading ? "Looking for Safari and inspectable webviews..." : "No inspectable Safari or WKWebView targets"}
           </span>
         )}
@@ -56,9 +56,9 @@ export function WebKitDevtoolsPanel({
         />
       </PanelHeader>
 
-      <div className="flex-1 min-h-0 bg-white relative">
+      <div className="flex-1 min-h-0 bg-panel-deep relative">
         {error ? (
-          <div className="h-full flex items-center justify-center p-6 bg-panel-deep text-white/[0.58] text-center text-[13px]">{error}</div>
+          <div className="h-full flex items-center justify-center p-2 bg-panel-deep text-fg-2 text-center text-[13px]">{error}</div>
         ) : selected && open ? (
           // Mount the iframe only while the panel is visible. Unmounting tears
           // down the WebSocket so WIR releases the page; otherwise we'd hold
@@ -68,11 +68,11 @@ export function WebKitDevtoolsPanel({
             key={selected.id}
             src={selected.devtoolsFrontendUrl}
             title={`WebKit DevTools - ${selected.title || selected.url || selected.id}`}
-            className="w-full h-full border-none block bg-white"
+            className="w-full h-full border-none block bg-panel-deep"
             onLoad={(event) => collapseScreencastPane(event.currentTarget)}
           />
         ) : (
-          <div className="h-full flex items-center justify-center p-6 bg-panel-deep text-white/[0.58] text-center text-[13px]">
+          <div className="h-full flex items-center justify-center p-2 bg-panel-deep text-fg-2 text-center text-[13px]">
             {selected
               ? "DevTools paused — open the panel to reattach."
               : "Open Safari or an inspectable WKWebView in the simulator."}

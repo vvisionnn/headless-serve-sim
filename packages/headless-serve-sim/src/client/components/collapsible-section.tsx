@@ -30,11 +30,11 @@ export function CollapsibleSection({
     <details
       open={open}
       onToggle={(e) => onOpenChange((e.currentTarget as HTMLDetailsElement).open)}
-      className={`lem-section bg-panel border border-white/8 rounded-[10px] px-3 py-2 ${className}`}
+      className={`lem-section bg-panel border border-divider px-2 py-1.5 ${className}`}
       {...dataProps}
     >
       <summary
-        className={`lem-toggle cursor-pointer select-none text-white/90 min-h-[36px] leading-none py-2.5 px-1 -my-2 -mx-1 w-[calc(100%+8px)] ${summaryClassName}`}
+        className={`lem-toggle cursor-pointer select-none text-fg min-h-[36px] leading-none py-2.5 px-1 -my-2 -mx-1 w-[calc(100%+8px)] ${summaryClassName}`}
       >
         {summary}
         <Chevron open={open} />

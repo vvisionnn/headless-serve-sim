@@ -7,12 +7,12 @@ import {
 import { Panel, PanelCloseButton, PanelHeader, PanelTitle } from "../Panel";
 import { useConnectionStats } from "../hooks/use-connection-stats";
 
-// Per-metric phosphor accents — identity colors, not health thresholds, so each
-// trace reads at a glance.
-const C_FPS = "#34d399"; // emerald
-const C_BITRATE = "#a5b4fc"; // indigo
-const C_JITTER = "#fbbf24"; // amber
-const C_DECODE = "#38bdf8"; // sky
+// Per-metric trace colors — identity colors mapped to the design-system status
+// tokens so each trace reads at a glance.
+const C_FPS = "var(--color-success)"; // green
+const C_BITRATE = "var(--color-accent)"; // blue
+const C_JITTER = "var(--color-warning)"; // amber
+const C_DECODE = "var(--color-accent)"; // blue
 
 const fmt1 = (n: number) => n.toFixed(1);
 const fmt0 = (n: number) => n.toFixed(0);
@@ -83,8 +83,8 @@ function Sparkline({ values, color, gradId }: { values: number[]; color: string;
         </linearGradient>
       </defs>
       {/* Scope baseline + midline */}
-      <line x1="0" y1={SPARK_H - 0.5} x2={SPARK_W} y2={SPARK_H - 0.5} stroke="rgba(255,255,255,0.08)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-      <line x1="0" y1={SPARK_H / 2} x2={SPARK_W} y2={SPARK_H / 2} stroke="rgba(255,255,255,0.04)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+      <line x1="0" y1={SPARK_H - 0.5} x2={SPARK_W} y2={SPARK_H - 0.5} stroke="var(--color-divider)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+      <line x1="0" y1={SPARK_H / 2} x2={SPARK_W} y2={SPARK_H / 2} stroke="var(--color-divider)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
       {paths && (
         <>
           <path d={paths.area} fill={`url(#${gradId})`} />
@@ -96,7 +96,6 @@ function Sparkline({ values, color, gradId }: { values: number[]; color: string;
             strokeLinejoin="round"
             strokeLinecap="round"
             vectorEffect="non-scaling-stroke"
-            style={{ filter: `drop-shadow(0 0 3px ${color}aa)` }}
           />
         </>
       )}
@@ -126,15 +125,15 @@ function MetricCard({
   const s = summarize(values);
   const hasData = values.length > 0 && current != null;
   return (
-    <div className="flex flex-col gap-1.5 border-b border-white/[0.06] pb-3 last:border-b-0 last:pb-0">
+    <div className="flex flex-col gap-1.5 border-b border-divider pb-2 last:border-b-0 last:pb-0">
       <div className="flex items-baseline justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">{label}</span>
-        <span className="text-[9px] uppercase tracking-wider text-white/30">{unit}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fg-3">{label}</span>
+        <span className="text-[9px] uppercase tracking-wider text-fg-3">{unit}</span>
       </div>
       <div className="flex items-end gap-2.5">
         <span
           className="shrink-0 text-[27px] leading-none [font-variant-numeric:tabular-nums]"
-          style={{ color, textShadow: `0 0 12px ${color}40` }}
+          style={{ color }}
         >
           {hasData ? fmtValue(current) : "—"}
         </span>
@@ -142,7 +141,7 @@ function MetricCard({
           <Sparkline values={values} color={color} gradId={gradId} />
         </div>
       </div>
-      <div className="flex items-center gap-3 text-[9px] text-white/30 [font-variant-numeric:tabular-nums]">
+      <div className="flex items-center gap-3 text-[9px] text-fg-3 [font-variant-numeric:tabular-nums]">
         <span>min {hasData ? fmtStat(s.min) : "—"}</span>
         <span>avg {hasData ? fmtStat(s.avg) : "—"}</span>
         <span>max {hasData ? fmtStat(s.max) : "—"}</span>
@@ -163,29 +162,28 @@ function StatusStrip({
   dropped: number;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-[8px] border border-white/[0.06] bg-white/[0.03] px-2.5 py-2">
+    <div className="flex flex-col gap-1.5 border border-divider bg-surface-2 px-2 py-1.5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span
-            className="size-1.5 shrink-0 rounded-full"
+            className="size-1.5 shrink-0"
             style={{
-              background: live ? C_FPS : "#6e6e72",
-              boxShadow: live ? `0 0 6px ${C_FPS}` : "none",
+              background: live ? C_FPS : "var(--color-fg-3)",
               animation: live ? "hud-pulse 1.6s ease-in-out infinite" : "none",
             }}
           />
           <span
             className="text-[10px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: live ? C_FPS : "#8e8e93" }}
+            style={{ color: live ? C_FPS : "var(--color-fg-3)" }}
           >
             {live ? "Live" : "Offline"}
           </span>
         </div>
-        <div className="flex items-center gap-1.5 text-[10px] text-white/45 [font-variant-numeric:tabular-nums]">
+        <div className="flex items-center gap-1.5 text-[10px] text-fg-2 [font-variant-numeric:tabular-nums]">
           <span>{codecLabel}</span>
           {resolution && (
             <>
-              <span className="text-white/20">·</span>
+              <span className="text-fg-3">·</span>
               <span>{resolution}</span>
             </>
           )}
@@ -209,8 +207,8 @@ function ModeToggle({
 }) {
   return (
     <div className="flex items-center gap-2.5">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">Mode</span>
-      <div className="flex flex-1 gap-0.5 rounded-[7px] border border-white/[0.08] bg-white/[0.03] p-0.5">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fg-3">Mode</span>
+      <div className="flex flex-1 gap-0.5 border border-divider bg-surface-2 p-0.5">
         {(["perf", "quality"] as const).map((m) => {
           const active = mode === m;
           const accent = m === "quality" ? C_DECODE : C_FPS;
@@ -220,11 +218,11 @@ function ModeToggle({
               type="button"
               onClick={() => onModeChange(m)}
               aria-pressed={active}
-              className="flex-1 rounded-[5px] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] [transition:background-color_0.15s,color_0.15s]"
+              className="flex-1 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] [transition:background-color_0.15s,color_0.15s]"
               style={
                 active
-                  ? { background: "rgba(255,255,255,0.10)", color: accent }
-                  : { color: "rgba(255,255,255,0.4)" }
+                  ? { background: "var(--color-hover)", color: accent }
+                  : { color: "var(--color-fg-3)" }
               }
             >
               {m === "perf" ? "Perf" : "Quality"}
@@ -239,10 +237,10 @@ function ModeToggle({
 function StatRow({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="text-[10px] uppercase tracking-[0.14em] text-white/40">{label}</span>
+      <span className="text-[10px] uppercase tracking-[0.14em] text-fg-3">{label}</span>
       <span
         className="text-[11px] [font-variant-numeric:tabular-nums]"
-        style={{ color: accent ?? "rgba(255,255,255,0.75)" }}
+        style={{ color: accent ?? "var(--color-fg)" }}
       >
         {value}
       </span>
@@ -257,8 +255,8 @@ function AdaptiveSection({ stats }: { stats: ConnectionStats | null }) {
   const kfMs = stats?.keyframeIntervalMs ?? null;
   const recoveries = stats?.recoveries ?? 0;
   return (
-    <div className="flex flex-col gap-2 rounded-[8px] border border-white/[0.06] bg-white/[0.03] px-2.5 py-2">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">Adaptive</span>
+    <div className="flex flex-col gap-2 border border-divider bg-surface-2 px-2 py-1.5">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fg-3">Adaptive</span>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
         <StatRow
           label="Link"
@@ -321,7 +319,7 @@ export function ConnectionStatsPanel({
       </PanelHeader>
 
       {open && (
-        <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-3.5 py-3 font-mono select-none">
+        <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-2 py-2 font-mono select-none">
           <StatusStrip
             live={live}
             codecLabel={codecLabel}
@@ -375,7 +373,7 @@ export function ConnectionStatsPanel({
               />
             </div>
           ) : (
-            <div className="flex flex-1 items-center justify-center py-10 text-center text-[11px] text-white/30">
+            <div className="flex flex-1 items-center justify-center py-10 text-center text-[11px] text-fg-3">
               Waiting for stream…
             </div>
           )}

@@ -52,18 +52,18 @@ export const AxTarget = memo(function AxTarget({
       onClick={() => onSelect(key)}
       onMouseEnter={() => onHighlight(key)}
       onMouseLeave={() => onHighlight(null)}
-      className="absolute box-border min-w-px min-h-px p-0 rounded-[3px] border cursor-pointer pointer-events-auto"
+      className="absolute box-border min-w-px min-h-px p-0 border cursor-pointer pointer-events-auto"
       style={{
         left: `${(visibleFrame.x / screen.width) * 100}%`,
         top: `${(visibleFrame.y / screen.height) * 100}%`,
         width: `${(visibleFrame.width / screen.width) * 100}%`,
         height: `${(visibleFrame.height / screen.height) * 100}%`,
-        borderColor: selected ? "#60a5fa" : highlighted ? "#fbbf24" : "#34d399",
+        borderColor: selected ? "#2997ff" : highlighted ? "#ffd60a" : "#30d158",
         background: selected
-          ? "rgba(96,165,250,0.24)"
+          ? "rgba(41,151,255,0.24)"
           : highlighted
-          ? "rgba(245,158,11,0.28)"
-          : "rgba(16,185,129,0.12)",
+          ? "rgba(255,214,10,0.28)"
+          : "rgba(48,209,88,0.12)",
       }}
     />
   );

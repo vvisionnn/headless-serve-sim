@@ -11,9 +11,9 @@ import {
   isAxeUnavailable,
 } from "../utils/ax";
 
-const SECTION = "bg-panel border border-white/8 rounded-[10px]";
-const SECTION_TITLE = "text-[11px] font-semibold text-white/50 uppercase tracking-[0.08em] m-0";
-const EMPTY_BLOCK = "bg-panel border border-dashed border-white/10 rounded-[10px] p-3 text-white/50 text-[12px] text-center";
+const SECTION = "bg-panel border border-divider";
+const SECTION_TITLE = "text-[11px] font-semibold text-fg-3 uppercase tracking-[0.08em] m-0";
+const EMPTY_BLOCK = "bg-panel-deep border border-divider p-2 text-fg-3 text-[12px] text-center";
 
 export function AxTreeTool({
   overlayEnabled,
@@ -28,14 +28,14 @@ export function AxTreeTool({
   const axeUnavailable = isAxeUnavailable(snapshot);
   const error = snapshot?.errors?.[0] ?? null;
   return (
-    <div className={`${SECTION} px-3 py-2`}>
+    <div className={`${SECTION} px-2 py-1.5`}>
       <div className="flex items-center justify-between gap-2">
         <span className={SECTION_TITLE}>AX Tree</span>
         <button
           type="button"
           onClick={onToggleOverlay}
           aria-pressed={overlayEnabled}
-          className="border border-white/12 rounded-[5px] bg-transparent text-white/70 cursor-pointer text-[10px] px-[7px] py-[3px]"
+          className="border border-divider bg-transparent text-fg-2 cursor-pointer text-[10px] px-[7px] py-[3px] hover:bg-hover"
         >
           {overlayEnabled ? "Overlay on" : "Enable overlay"}
         </button>
@@ -52,7 +52,7 @@ export function AxTreeTool({
         </div>
       ) : (
         <div
-          className="flex flex-col gap-1 mt-2 py-2 max-h-[260px] overflow-y-auto [scrollbar-width:thin]"
+          className="flex flex-col mt-1.5 max-h-[260px] overflow-y-auto [scrollbar-width:thin]"
           role="list"
         >
           {elements.map((element, index) => {
@@ -103,13 +103,13 @@ const AxTreeItem = memo(function AxTreeItem({
       onMouseLeave={() => onHighlight(null)}
       onFocus={() => onHighlight(key)}
       onBlur={() => onHighlight(null)}
-      className={`flex items-center justify-between gap-2 rounded-md py-1 px-0.5 min-w-0 ${active ? "bg-white/[0.06]" : ""}`}
+      className={`flex items-center justify-between gap-2 py-1 px-0.5 min-w-0 border-b border-divider hover:bg-hover ${active ? "bg-accent-tint" : ""}`}
     >
       <span className="flex flex-col gap-0.5 flex-1 min-w-0">
-        <span className="overflow-hidden text-ellipsis whitespace-nowrap text-white/90 text-[12px] font-medium">{element.label || element.role || "Unlabeled"}</span>
-        <span className="overflow-hidden text-ellipsis whitespace-nowrap text-white/45 font-mono text-[10px]">{element.role || element.type || "element"}</span>
+        <span className="overflow-hidden text-ellipsis whitespace-nowrap text-fg text-[12px] font-medium">{element.label || element.role || "Unlabeled"}</span>
+        <span className="overflow-hidden text-ellipsis whitespace-nowrap text-fg-3 font-mono text-[10px]">{element.role || element.type || "element"}</span>
       </span>
-      <code className="shrink-0 bg-white/[0.04] border border-white/8 rounded-md text-white/55 font-mono text-[10px] px-1.5 py-[3px]">{size}</code>
+      <code className="shrink-0 bg-surface-2 border border-divider text-fg-2 font-mono text-[10px] px-1.5 py-[3px]">{size}</code>
     </div>
   );
 }, (prev, next) =>

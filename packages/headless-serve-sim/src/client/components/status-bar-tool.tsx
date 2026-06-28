@@ -15,15 +15,15 @@ const BATTERY_STATE = ["charging", "charged", "discharging"] as const;
 // so emit a small sheet keyed off the shared lem-* classnames. Mirrors
 // location-emulation-tool.tsx so the look stays consistent.
 const HOVER_CSS = `
-.lem-toggle:hover { color: #fff; }
-.lem-toggle:hover .lem-chevron { color: rgba(255,255,255,0.85) !important; }
-.lem-select:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.16); }
-.lem-select:focus { outline: none; border-color: rgba(255,255,255,0.24); background: rgba(255,255,255,0.08); }
-.lem-input:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.16); }
-.lem-input:focus { outline: none; border-color: rgba(255,255,255,0.24); background: rgba(255,255,255,0.08); }
+.lem-toggle:hover { color: #f5f5f7; }
+.lem-toggle:hover .lem-chevron { color: #f5f5f7 !important; }
+.lem-select:hover { background: #2c2c2e; border-color: #424245; }
+.lem-select:focus { outline: none; border-color: #2997ff; background: #2c2c2e; }
+.lem-input:hover { background: #2c2c2e; border-color: #424245; }
+.lem-input:focus { outline: none; border-color: #2997ff; background: #2c2c2e; }
 .lem-primary:hover:not(:disabled) { filter: brightness(1.08); }
 .lem-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.lem-ghost:hover:not(:disabled) { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.2); color: #fff; }
+.lem-ghost:hover:not(:disabled) { background: #2c2c2e; border-color: #424245; color: #f5f5f7; }
 .lem-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
 `;
 
@@ -138,22 +138,22 @@ export function StatusBarTool({ udid }: { udid: string }) {
   }, [cliPrefix, udid]);
 
   return (
-    <div className="bg-panel border border-white/8 rounded-[10px] flex flex-col gap-2.5 px-3 py-2">
+    <div className="bg-panel border border-divider flex flex-col gap-2 px-2 py-1.5">
       <style>{HOVER_CSS}</style>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-white/90 py-2.5 px-1 -my-2 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
+        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-fg py-2.5 px-1 -my-2 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold text-white/50 uppercase tracking-[0.08em] leading-none inline-flex items-center">Status Bar</span>
+        <span className="text-[11px] font-semibold text-fg-3 uppercase tracking-[0.08em] leading-none inline-flex items-center">Status Bar</span>
         <span />
         <Chevron open={open} />
       </button>
 
       {open && (
         <>
-          <p className="m-0 text-[10px] leading-[1.5] text-white/45">
+          <p className="m-0 text-[10px] leading-[1.5] text-fg-3">
             Overrides only affect apps using the standard status bar and reset on reboot.
           </p>
 
@@ -165,7 +165,7 @@ export function StatusBarTool({ udid }: { udid: string }) {
                 value={fields.time}
                 onChange={(e) => set("time", e.target.value)}
                 placeholder="9:41"
-                className="lem-input appearance-none bg-white/[0.04] border border-white/8 rounded-md text-white/90 text-[12px] font-mono py-1.5 px-2 font-[inherit] w-full [transition:background_0.12s,border-color_0.12s]"
+                className="lem-input appearance-none bg-panel-deep border border-divider text-fg text-[12px] font-mono py-1.5 px-2 font-[inherit] w-full [transition:background_0.12s,border-color_0.12s]"
                 aria-label="Time"
               />
             </Field>
@@ -199,7 +199,7 @@ export function StatusBarTool({ udid }: { udid: string }) {
                 onChange={(e) => set("operatorName", e.target.value)}
                 placeholder="Carrier"
                 maxLength={32}
-                className="lem-input appearance-none bg-white/[0.04] border border-white/8 rounded-md text-white/90 text-[12px] py-1.5 px-2 font-[inherit] w-full [transition:background_0.12s,border-color_0.12s]"
+                className="lem-input appearance-none bg-panel-deep border border-divider text-fg text-[12px] py-1.5 px-2 font-[inherit] w-full [transition:background_0.12s,border-color_0.12s]"
                 aria-label="Operator name"
               />
             </Field>
@@ -218,7 +218,7 @@ export function StatusBarTool({ udid }: { udid: string }) {
             <button
               type="button"
               onClick={applyPreset}
-              className="lem-ghost bg-transparent border border-white/12 text-white/70 text-[10px] px-2 py-[3px] rounded-[5px] cursor-pointer uppercase tracking-[0.04em] [transition:background_0.12s,border-color_0.12s,color_0.12s]"
+              className="lem-ghost bg-transparent border border-divider text-fg-2 text-[10px] px-2 py-[3px] cursor-pointer uppercase tracking-[0.04em] [transition:background_0.12s,border-color_0.12s,color_0.12s]"
               title="Fill the form with the 9:41 keynote preset"
             >
               9:41 keynote
@@ -230,7 +230,7 @@ export function StatusBarTool({ udid }: { udid: string }) {
               type="button"
               onClick={apply}
               disabled={pending !== null}
-              className="lem-primary flex-1 flex items-center justify-center py-2 px-2.5 border-none rounded-[7px] text-[12px] font-semibold cursor-pointer font-[inherit] bg-success-emerald text-[#062018]"
+              className="lem-primary flex-1 flex items-center justify-center py-2 px-2.5 border-none text-[12px] font-semibold cursor-pointer font-[inherit] bg-accent-solid text-white"
             >
               {pending === "override" ? "…" : "Apply"}
             </button>
@@ -238,7 +238,7 @@ export function StatusBarTool({ udid }: { udid: string }) {
               type="button"
               onClick={reset}
               disabled={pending !== null}
-              className="lem-ghost flex items-center justify-center py-2 px-3 border border-white/12 rounded-[7px] text-[12px] font-medium bg-transparent text-white/85 cursor-pointer font-[inherit] [transition:background_0.12s,border-color_0.12s,color_0.12s]"
+              className="lem-ghost flex items-center justify-center py-2 px-3 border border-divider text-[12px] font-medium bg-transparent text-fg cursor-pointer font-[inherit] [transition:background_0.12s,border-color_0.12s,color_0.12s]"
               title="Clear all status bar overrides"
             >
               {pending === "clear" ? "…" : "Reset"}
@@ -246,7 +246,7 @@ export function StatusBarTool({ udid }: { udid: string }) {
           </div>
 
           {error && (
-            <div className="bg-danger/10 border border-danger/20 text-danger-soft text-[11px] px-2 py-1.5 rounded-md">
+            <div className="bg-panel-deep border border-divider text-danger text-[11px] px-2 py-1.5">
               {error}
             </div>
           )}
@@ -261,7 +261,7 @@ export function StatusBarTool({ udid }: { udid: string }) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1 min-w-0">
-      <span className="text-[9px] uppercase tracking-[0.06em] text-white/45">{label}</span>
+      <span className="text-[9px] uppercase tracking-[0.06em] text-fg-3">{label}</span>
       {children}
     </label>
   );
@@ -285,7 +285,7 @@ function Select({
         value={value}
         options={[{ value: "", label: "unset" }, ...options.map((o) => ({ value: o, label: o }))]}
         onChange={onChange}
-        className="bg-white/[0.04] border border-white/8 rounded-md text-white/90 text-[12px] py-1.5 pr-[26px] pl-2 w-full [transition:background_0.12s,border-color_0.12s]"
+        className="bg-panel-deep border border-divider text-fg text-[12px] py-1.5 pr-[26px] pl-2 w-full [transition:background_0.12s,border-color_0.12s]"
       />
       <span className="absolute right-[9px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center" aria-hidden="true">
         <Chevron open={false} />
@@ -315,7 +315,7 @@ function NumberInput({
       min={min}
       max={max}
       placeholder={`${min}–${max}`}
-      className="lem-input appearance-none bg-white/[0.04] border border-white/8 rounded-md text-white/90 text-[12px] font-mono py-1.5 px-2 font-[inherit] w-full [transition:background_0.12s,border-color_0.12s]"
+      className="lem-input appearance-none bg-panel-deep border border-divider text-fg text-[12px] font-mono py-1.5 px-2 font-[inherit] w-full [transition:background_0.12s,border-color_0.12s]"
       aria-label={ariaLabel}
     />
   );

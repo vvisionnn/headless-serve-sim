@@ -85,8 +85,8 @@ function SettingRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-2 min-h-[30px]" data-setting-row={label}>
-      <span className="flex shrink-0 items-center gap-2 text-[12px] text-white/90 whitespace-nowrap">
-        <span className="flex size-[18px] items-center justify-center text-white">{icon}</span>
+      <span className="flex shrink-0 items-center gap-2 text-[12px] text-fg whitespace-nowrap">
+        <span className="flex size-[18px] items-center justify-center text-fg">{icon}</span>
         {label}
       </span>
       {/* min-w-0 lets the control shrink instead of overflowing the panel
@@ -144,21 +144,21 @@ function TextSizeSlider({
   const max = TEXT_SIZE_CATEGORIES.length - 1;
   const shown = drag ?? value;
   const fill = `${(shown / max) * 100}%`;
-  // Filled portion goes gray while disabled so the control doesn't read as
+  // Filled portion goes muted while disabled so the control doesn't read as
   // live during hydration.
-  const fillColor = disabled ? "rgba(255,255,255,0.3)" : "#0a84ff";
+  const fillColor = disabled ? "#86868b" : "#2997ff";
 
   const trackClasses =
-    "[&::-webkit-slider-runnable-track]:h-[4px] [&::-webkit-slider-runnable-track]:rounded-full " +
-    "[&::-webkit-slider-runnable-track]:[background:linear-gradient(to_right,var(--slider-fill-color)_var(--slider-fill),rgba(255,255,255,0.22)_var(--slider-fill))] " +
-    "[&::-moz-range-track]:h-[4px] [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-white/20 " +
-    "[&::-moz-range-progress]:h-[4px] [&::-moz-range-progress]:rounded-full [&::-moz-range-progress]:bg-[var(--slider-fill-color)]";
+    "[&::-webkit-slider-runnable-track]:h-[4px] " +
+    "[&::-webkit-slider-runnable-track]:[background:linear-gradient(to_right,var(--slider-fill-color)_var(--slider-fill),var(--color-divider)_var(--slider-fill))] " +
+    "[&::-moz-range-track]:h-[4px] [&::-moz-range-track]:bg-divider " +
+    "[&::-moz-range-progress]:h-[4px] [&::-moz-range-progress]:bg-[var(--slider-fill-color)]";
   const thumbClasses =
-    "[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:size-[13px] [&::-webkit-slider-thumb]:rounded-full " +
-    "[&::-webkit-slider-thumb]:bg-white [&:disabled::-webkit-slider-thumb]:bg-white/50 " +
-    "[&::-webkit-slider-thumb]:shadow-[0_1px_3px_rgba(0,0,0,0.45)] [&::-webkit-slider-thumb]:-mt-[4.5px] " +
-    "[&::-moz-range-thumb]:size-[13px] [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-none " +
-    "[&::-moz-range-thumb]:bg-white [&:disabled::-moz-range-thumb]:bg-white/50";
+    "[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:size-[13px] " +
+    "[&::-webkit-slider-thumb]:bg-fg [&:disabled::-webkit-slider-thumb]:bg-fg-3 " +
+    "[&::-webkit-slider-thumb]:-mt-[4.5px] " +
+    "[&::-moz-range-thumb]:size-[13px] [&::-moz-range-thumb]:border-none " +
+    "[&::-moz-range-thumb]:bg-fg [&:disabled::-moz-range-thumb]:bg-fg-3";
 
   return (
     <span className="flex w-[120px] min-w-0 flex-col">
@@ -175,11 +175,11 @@ function TextSizeSlider({
         onKeyUp={flush}
         onBlur={flush}
         style={{ "--slider-fill": fill, "--slider-fill-color": fillColor } as CSSProperties}
-        className={`h-[13px] w-full appearance-none rounded-full bg-transparent outline-none focus-visible:[outline:1.5px_solid_rgba(10,132,255,0.55)] focus-visible:outline-offset-4 ${disabled ? "cursor-default" : "cursor-pointer"} ${trackClasses} ${thumbClasses}`}
+        className={`h-[13px] w-full appearance-none bg-transparent outline-none focus-visible:[outline:1.5px_solid_var(--color-accent)] focus-visible:outline-offset-4 ${disabled ? "cursor-default" : "cursor-pointer"} ${trackClasses} ${thumbClasses}`}
       />
       <span aria-hidden className="pointer-events-none mt-[3px] flex justify-between px-[5.5px]">
         {TEXT_SIZE_CATEGORIES.map((category) => (
-          <span key={category} className="size-[2px] rounded-full bg-white/40" />
+          <span key={category} className="size-[2px] bg-fg-3" />
         ))}
       </span>
     </span>
@@ -206,7 +206,7 @@ function SettingSelect({
       options={options}
       disabled={disabled}
       onChange={onChange}
-      className="bg-white/[0.06] border border-white/10 rounded-md text-white/90 text-[12px] py-0.5 px-2 min-w-0 max-w-[150px] disabled:text-white/40"
+      className="bg-panel-deep border border-divider text-fg text-[12px] py-0.5 px-2 min-w-0 max-w-[150px] disabled:text-fg-3"
     />
   );
 }
@@ -375,7 +375,7 @@ export function SimulatorSettingsTool({ udid }: { udid: string }) {
       summaryClassName="grid [grid-template-columns:auto_1fr_auto] items-center gap-2 text-left"
       summary={
         <>
-          <span className="text-[11px] font-semibold text-white/50 uppercase tracking-[0.08em] leading-none inline-flex items-center">
+          <span className="text-[11px] font-semibold text-fg-3 uppercase tracking-[0.08em] leading-none inline-flex items-center">
             Simulator
           </span>
           <span />
@@ -383,12 +383,12 @@ export function SimulatorSettingsTool({ udid }: { udid: string }) {
       }
     >
       {error && (
-        <div className="bg-danger/10 border border-danger/20 text-danger-soft text-[11px] px-2 py-1.5 rounded-md flex items-center justify-between gap-2">
+        <div className="bg-panel-deep border border-divider text-danger-soft text-[11px] px-2 py-1.5 flex items-center justify-between gap-2">
           <span className="min-w-0">{error}</span>
           <button
             type="button"
             onClick={() => void refresh()}
-            className="shrink-0 cursor-pointer rounded border border-danger/30 bg-transparent px-1.5 py-0.5 text-[11px] text-danger-soft"
+            className="shrink-0 cursor-pointer border border-divider bg-transparent px-1.5 py-0.5 text-[11px] text-danger-soft hover:bg-hover"
           >
             Retry
           </button>

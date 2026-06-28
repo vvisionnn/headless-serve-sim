@@ -103,13 +103,13 @@ export function CameraStatusPill({ state }: { state: CameraPillState }) {
     state === "active" ? "Active" : state === "disconnected" ? "Disconnected" : "Ready";
   const dotClass =
     state === "active"
-      ? "size-1.5 rounded-full bg-success-emerald [box-shadow:0_0_6px_rgba(74,222,128,0.7)]"
+      ? "size-1.5 bg-success"
       : state === "disconnected"
-        ? "size-1.5 rounded-full bg-danger-soft [box-shadow:0_0_6px_rgba(248,113,113,0.55)]"
+        ? "size-1.5 bg-danger"
         : null;
   return (
     <span
-      className="text-[11px] text-white/55 font-mono inline-flex items-center gap-1.5 justify-self-end leading-none"
+      className="text-[11px] text-fg-2 font-mono inline-flex items-center gap-1.5 justify-self-end leading-none"
       data-camera-pill-state={state}
     >
       {dotClass && <span className={dotClass} />}
@@ -121,7 +121,7 @@ export function CameraStatusPill({ state }: { state: CameraPillState }) {
 export function CameraTestPatternHint() {
   return (
     <p
-      className="m-0 text-center text-[10px] leading-[1.5] text-white/45"
+      className="m-0 text-center text-[10px] leading-[1.5] text-fg-3"
       data-camera-test-pattern-hint
     >
       Test-pattern feed
@@ -143,15 +143,15 @@ export function CameraMediaPreview({
   sourceKind,
 }: CameraMediaPreviewProps) {
   if (mode === "uploading") {
-    return <span className="text-[11px] text-white/55">Uploading…</span>;
+    return <span className="text-[11px] text-fg-2">Uploading…</span>;
   }
   if (mode === "file") {
     return (
       <>
-        <div className="shrink-0 text-[9px] tracking-[0.1em] uppercase text-white/55 bg-white/[0.06] border border-white/8 px-[7px] py-[2px] rounded-full">
+        <div className="shrink-0 text-[9px] tracking-[0.1em] uppercase text-fg-2 bg-surface-2 border border-divider px-[7px] py-[2px]">
           {sourceKind === "video" ? "Video" : "Image"}
         </div>
-        <span className="flex-1 min-w-0 truncate text-[12px] text-white/90 font-mono">
+        <span className="flex-1 min-w-0 truncate text-[12px] text-fg font-mono">
           {fileName ?? ""}
         </span>
       </>
@@ -160,16 +160,16 @@ export function CameraMediaPreview({
   if (mode === "webcam") {
     return (
       <>
-        <div className="shrink-0 text-[9px] tracking-[0.1em] uppercase text-white/55 bg-white/[0.06] border border-white/8 px-[7px] py-[2px] rounded-full">
+        <div className="shrink-0 text-[9px] tracking-[0.1em] uppercase text-fg-2 bg-surface-2 border border-divider px-[7px] py-[2px]">
           Webcam
         </div>
-        <span className="flex-1 min-w-0 truncate text-[12px] text-white/90 font-mono">
+        <span className="flex-1 min-w-0 truncate text-[12px] text-fg font-mono">
           {webcamName ?? ""}
         </span>
       </>
     );
   }
-  return <span className="text-[12px] text-white/85 font-medium">Select or drop media</span>;
+  return <span className="text-[12px] text-fg font-medium">Select or drop media</span>;
 }
 
 export function CameraInlineBanner({
@@ -181,8 +181,8 @@ export function CameraInlineBanner({
 }) {
   const classes =
     kind === "warning"
-      ? "bg-warning/10 border border-warning/25 text-warning-soft text-[11px] px-2 py-1.5 rounded-md break-words"
-      : "bg-danger/10 border border-danger/20 text-danger-soft text-[11px] px-2 py-1.5 rounded-md break-words";
+      ? "bg-surface-2 border border-divider text-warning text-[11px] px-2 py-1.5 break-words"
+      : "bg-surface-2 border border-divider text-danger text-[11px] px-2 py-1.5 break-words";
   return (
     <div className={classes} data-camera-banner-kind={kind} role={kind === "error" ? "alert" : "status"}>
       {message}
@@ -693,14 +693,14 @@ export function CameraTool({
         : "placeholder";
 
   return (
-    <div className="bg-panel border border-white/8 rounded-[10px] flex flex-col gap-2.5 px-3 py-2">
+    <div className="bg-panel border border-divider flex flex-col gap-2 px-2 py-1.5">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-white/90 py-2.5 px-1 -my-2 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
+        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-fg py-2.5 px-1 -my-2 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold text-white/50 uppercase tracking-[0.08em] leading-none inline-flex items-center">Camera</span>
+        <span className="text-[11px] font-semibold text-fg-3 uppercase tracking-[0.08em] leading-none inline-flex items-center">Camera</span>
         <CameraStatusPill state={pillState} />
         <Chevron open={open} />
       </button>
@@ -711,9 +711,9 @@ export function CameraTool({
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
-          className="flex flex-col gap-2.5"
+          className="flex flex-col gap-2"
         >
-          <p className="m-0 text-[10px] leading-[1.5] text-white/45">
+          <p className="m-0 text-[10px] leading-[1.5] text-fg-3">
             Replaces the simulator's camera feed by injecting a dylib at app launch
             and streaming frames into shared memory. Pick media or a webcam,
             then Play to inject into the foreground app.
@@ -741,11 +741,11 @@ export function CameraTool({
                   : `Source: ${droppedFileName ?? source}`
             }
             className={[
-              "relative min-h-[44px] flex flex-row items-center justify-center gap-2.5 px-3.5 py-2.5 rounded-[7px] text-center transition-[border-color,background] duration-150",
+              "relative min-h-[44px] flex flex-row items-center justify-center gap-2 px-2 py-2 text-center transition-[border-color,background] duration-150",
               isPlaceholder
-                ? "bg-white/[0.04] border border-dashed border-white/12"
-                : "bg-white/[0.04] border border-white/8",
-              isDragOver ? "!bg-[rgba(10,132,255,0.08)] !border-[rgba(10,132,255,0.6)]" : "",
+                ? "bg-surface-2 border border-dashed border-divider"
+                : "bg-surface-2 border border-divider",
+              isDragOver ? "!bg-accent-tint !border-accent" : "",
               uploading ? "cursor-progress" : isPlaceholder ? "cursor-pointer" : "cursor-default",
             ].join(" ")}
           >
@@ -760,7 +760,7 @@ export function CameraTool({
               <button
                 data-clear-media
                 onClick={(e) => { e.stopPropagation(); clearMedia(); }}
-                className="shrink-0 w-5 h-5 flex items-center justify-center bg-transparent border-none text-white/55 hover:text-white/90 cursor-pointer p-0"
+                className="shrink-0 w-5 h-5 flex items-center justify-center bg-transparent border-none text-fg-2 hover:text-fg cursor-pointer p-0"
                 aria-label="Clear source"
                 title="Clear → placeholder"
               >
@@ -778,7 +778,7 @@ export function CameraTool({
             <div className="relative" data-camera-source-menu>
               <button
                 onClick={() => setSourceMenuOpen((o) => !o)}
-                className="lem-ghost h-full min-h-[36px] w-10 flex items-center justify-center bg-transparent border border-white/12 text-white/85 rounded-[7px] cursor-pointer p-0"
+                className="lem-ghost h-full min-h-[36px] w-10 flex items-center justify-center bg-transparent border border-divider text-fg hover:bg-hover cursor-pointer p-0"
                 aria-haspopup="menu"
                 aria-expanded={sourceMenuOpen}
                 title={
@@ -799,25 +799,25 @@ export function CameraTool({
               {sourceMenuOpen && (
                 <div
                   role="menu"
-                  className="absolute top-[calc(100%+6px)] left-0 z-10 min-w-[200px] flex flex-col gap-px p-1 bg-panel border border-white/8 rounded-[7px] shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
+                  className="absolute top-[calc(100%+6px)] left-0 z-10 min-w-[200px] flex flex-col gap-px p-1 bg-panel border border-divider shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
                 >
                   <button
                     role="menuitem"
-                    className="text-left bg-transparent border-none text-white/85 text-[12px] px-2.5 py-[7px] rounded-md cursor-pointer hover:bg-white/[0.06]"
+                    className="text-left bg-transparent border-none text-fg text-[12px] px-2.5 py-[7px] cursor-pointer hover:bg-hover"
                     onClick={() => { setSourceMenuOpen(false); openFilePicker(); }}
                     title="Pick an image or video from disk"
                   >
                     Browse media…
                   </button>
-                  <div className="h-px bg-white/8 my-1" />
+                  <div className="h-px bg-divider my-1" />
                   <div className="flex items-center justify-between pl-2.5 pr-2 pt-1 pb-[2px]">
-                    <span className="text-[10px] text-white/45 uppercase tracking-[0.08em]">
+                    <span className="text-[10px] text-fg-3 uppercase tracking-[0.08em]">
                       {webcamLoading ? "Cameras (loading…)" : webcams.length === 0 ? "No cameras" : "Cameras"}
                     </span>
                     <button
                       onClick={(e) => { e.stopPropagation(); void refreshWebcams(); }}
                       disabled={webcamLoading}
-                      className="flex items-center justify-center w-[22px] h-[22px] bg-transparent border-none rounded-[5px] text-white/55 hover:text-white/90 cursor-pointer p-0 disabled:opacity-50"
+                      className="flex items-center justify-center w-[22px] h-[22px] bg-transparent border-none text-fg-2 hover:text-fg cursor-pointer p-0 disabled:opacity-50"
                       aria-label="Refresh cameras"
                       title="Refresh cameras"
                     >
@@ -831,8 +831,8 @@ export function CameraTool({
                         key={w.id}
                         role="menuitem"
                         className={[
-                          "text-left bg-transparent border-none text-[12px] px-2.5 py-[7px] rounded-md cursor-pointer hover:bg-white/[0.06]",
-                          active ? "!bg-white/[0.12] !text-white" : "text-white/85",
+                          "text-left bg-transparent border-none text-[12px] px-2.5 py-[7px] cursor-pointer hover:bg-hover",
+                          active ? "!bg-accent-tint !text-accent" : "text-fg",
                         ].join(" ")}
                         onClick={() => selectWebcam(w)}
                         title={w.name}
@@ -849,10 +849,10 @@ export function CameraTool({
               onClick={primary.onClick}
               disabled={primaryDisabled}
               className={[
-                "flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 border-none rounded-[7px] text-[12px] font-semibold cursor-pointer disabled:opacity-50 min-h-[36px]",
+                "flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 text-[12px] font-semibold cursor-pointer disabled:opacity-50 min-h-[36px]",
                 primary.kind === "stop"
-                  ? "lem-primary lem-primary-on bg-white/[0.16] text-white"
-                  : "lem-primary bg-success-emerald text-[#062018]",
+                  ? "lem-primary lem-primary-on bg-surface-3 border border-divider text-fg hover:bg-hover"
+                  : "lem-primary bg-accent-solid border border-accent-solid text-white",
               ].join(" ")}
               title={
                 primary.kind === "stop" ? "Stop the camera helper and terminate injected apps" :
@@ -871,10 +871,10 @@ export function CameraTool({
               type="button"
               onClick={toggleMirror}
               disabled={mirrorDisabled}
-              className={`flex items-center justify-center w-10 min-h-[36px] border rounded-[7px] font-[inherit] disabled:opacity-50 disabled:cursor-not-allowed ${
+              className={`flex items-center justify-center w-10 min-h-[36px] border font-[inherit] disabled:opacity-50 disabled:cursor-not-allowed ${
                 mirror === "on"
-                  ? "lem-speed lem-speed-on bg-white border-white text-[#0a0a0c] cursor-pointer"
-                  : "lem-speed bg-white/[0.04] border-white/8 text-white/85 cursor-pointer"
+                  ? "lem-speed lem-speed-on bg-accent-tint border-accent text-accent cursor-pointer"
+                  : "lem-speed bg-surface-2 border-divider text-fg hover:bg-hover cursor-pointer"
               }`}
               aria-label={`Mirror: ${mirror} — tap to toggle`}
               title={

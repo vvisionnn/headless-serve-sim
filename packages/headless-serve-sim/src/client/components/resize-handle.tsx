@@ -38,19 +38,15 @@ export function ResizeHandle({
       className={`fixed top-3 bottom-3 w-4 z-36 cursor-col-resize touch-none transition-opacity duration-200 ${visible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
       style={{ right: handleRight }}
     >
-      {/* Subtle hairline accent that brightens the panel's existing border
-          while the edge is hot. Tapers at top/bottom. */}
+      {/* Hairline that brightens the panel's existing border while the edge
+          is hot — a single 1px #424245 divider rule. */}
       <div
-        className={`absolute top-0 bottom-0 left-1/2 w-px pointer-events-none transition-opacity duration-150 ${hot ? "opacity-100" : "opacity-0"}`}
-        style={{
-          transform: "translateX(-0.5px)",
-          background:
-            "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.28) 30%, rgba(255,255,255,0.28) 70%, rgba(255,255,255,0) 100%)",
-        }}
+        className={`absolute top-0 bottom-0 left-1/2 w-px bg-divider pointer-events-none transition-opacity duration-150 ${hot ? "opacity-100" : "opacity-0"}`}
+        style={{ transform: "translateX(-0.5px)" }}
       />
       {/* Centered pill grabber, straddling the panel's left border. */}
       <div
-        className={`absolute top-1/2 left-1/2 w-1 h-7 rounded-xs -translate-x-1/2 -translate-y-1/2 z-1 pointer-events-none [transition:opacity_0.15s_ease,background_0.15s_ease] ${hot ? "opacity-100" : "opacity-0"} ${active ? "bg-[#9a9a9e]" : "bg-[#6e6e72]"}`}
+        className={`absolute top-1/2 left-1/2 w-1 h-7 -translate-x-1/2 -translate-y-1/2 z-1 pointer-events-none [transition:opacity_0.15s_ease,background_0.15s_ease] ${hot ? "opacity-100" : "opacity-0"} ${active ? "bg-fg-2" : "bg-fg-3"}`}
       />
     </div>
   );

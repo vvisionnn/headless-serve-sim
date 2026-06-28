@@ -92,28 +92,28 @@ export function BootEmptyState({
   );
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-page p-6 gap-3 font-system box-border">
+    <div className="flex flex-col items-center justify-center h-screen bg-page p-2 gap-3 font-system box-border">
       <div className="flex flex-col items-center gap-3 text-center">
-        <h1 className="text-[18px] m-0 text-white/90">No headless-serve-sim stream running</h1>
-        <p className="text-white/55 text-[14px] max-w-120">
+        <h1 className="text-[18px] m-0 text-fg">No headless-serve-sim stream running</h1>
+        <p className="text-fg-2 text-[14px] max-w-120">
           Pick a simulator to boot, or start one yourself with{" "}
-          <code className="bg-[#222] px-1.5 py-0.5 rounded text-[13px]">bunx headless-serve-sim --detach</code>.
+          <code className="bg-surface-2 px-1.5 py-0.5 text-[13px]">bunx headless-serve-sim --detach</code>.
         </p>
-        <div className="w-full max-w-90 mt-2 bg-panel border border-white/12 rounded-[10px] p-1 font-mono text-[13px] text-white/90 text-left max-h-[70vh] overflow-y-auto min-h-0">
-          <div className="flex items-center justify-between px-2.5 py-1.5 text-[11px] text-white/65">
+        <div className="w-full max-w-90 mt-2 bg-panel border border-divider font-mono text-[13px] text-fg text-left max-h-[70vh] overflow-y-auto min-h-0">
+          <div className="flex items-center justify-between px-2 py-1.5 text-[11px] text-fg-2 border-b border-divider">
             <span className="font-semibold">Simulators</span>
             <button onClick={onRefresh} disabled={loading} className="bg-transparent border-none text-accent text-[11px] cursor-pointer p-0">
               {loading ? "..." : "Refresh"}
             </button>
           </div>
-          {error && <div className="px-2.5 py-1.5 text-danger text-[11px]">{error}</div>}
-          {startError && <div className="px-2.5 py-1.5 text-danger text-[11px]">{startError}</div>}
+          {error && <div className="px-2 py-1.5 text-danger text-[11px] border-b border-divider">{error}</div>}
+          {startError && <div className="px-2 py-1.5 text-danger text-[11px] border-b border-divider">{startError}</div>}
           {!loading && !error && devices.length === 0 && (
-            <div className="p-3 text-white/40 text-[11px] text-center">No available simulators found</div>
+            <div className="p-2 text-fg-3 text-[11px] text-center">No available simulators found</div>
           )}
           {sortedGroups.map(([runtime, devs]) => (
-            <div key={runtime}>
-              <div className="px-2.5 pt-1.5 pb-0.5 text-[10px] font-semibold text-white/40 uppercase tracking-[0.08em]">{runtime}</div>
+            <div key={runtime} className="border-b border-divider last:border-b-0">
+              <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold text-fg-3 uppercase tracking-[0.08em]">{runtime}</div>
               {devs.map((d) => {
                 const isStarting = startingUdid === d.udid;
                 const disabled = startingUdid !== null && !isStarting;
@@ -121,15 +121,15 @@ export function BootEmptyState({
                 return (
                   <div
                     key={d.udid}
-                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md transition-colors ${disabled ? "cursor-default opacity-50" : "cursor-pointer hover:bg-white/8"}`}
+                    className={`flex items-center gap-2 px-2 py-1.5 transition-colors ${disabled ? "cursor-default opacity-50" : "cursor-pointer hover:bg-hover"}`}
                     onClick={() => { if (!disabled) start(d); }}
                   >
                     <span
-                      className="size-1.5 rounded-full shrink-0"
-                      style={{ background: isBooted ? "#4ade80" : "#444" }}
+                      className="size-1.5 shrink-0"
+                      style={{ background: isBooted ? "var(--color-success)" : "var(--color-fg-3)" }}
                     />
                     <span className="flex-1 text-left">{d.name}</span>
-                    <span className={`text-[10px] ${isStarting ? "text-accent" : "text-white/55"}`}>
+                    <span className={`text-[10px] ${isStarting ? "text-accent" : "text-fg-2"}`}>
                       {isStarting
                         ? (isBooted ? "Starting..." : "Booting...")
                         : (isBooted ? "Start stream" : "Boot & stream")}

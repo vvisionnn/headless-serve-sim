@@ -13,15 +13,15 @@ import {
 // chunked base64 read-back) live in ../utils/screenshot.
 
 const HOVER_CSS = `
-.lem-toggle:hover { color: #fff; }
-.lem-toggle:hover .lem-chevron { color: rgba(255,255,255,0.85) !important; }
+.lem-toggle:hover { color: #f5f5f7; }
+.lem-toggle:hover .lem-chevron { color: #f5f5f7 !important; }
 .lem-primary:hover:not(:disabled) { filter: brightness(1.08); }
 .lem-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.lem-ghost:hover:not(:disabled) { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.2); color: #fff; }
+.lem-ghost:hover:not(:disabled) { background: #2c2c2e; border-color: #424245; color: #f5f5f7; }
 .lem-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
-.lem-chip { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.55); }
-.lem-chip:hover:not([data-active="true"]) { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.8); }
-.lem-chip[data-active="true"] { background: rgba(165,180,252,0.18); color: #a5b4fc; }
+.lem-chip { background: #161617; color: #a1a1a6; }
+.lem-chip:hover:not([data-active="true"]) { background: #2c2c2e; color: #f5f5f7; }
+.lem-chip[data-active="true"] { background: rgba(0,113,227,0.18); color: #2997ff; }
 `;
 
 type Pending = "capture" | null;
@@ -73,15 +73,15 @@ export function ScreenshotTool({ udid }: { udid: string }) {
   }, [shot]);
 
   return (
-    <div className="bg-panel border border-white/8 rounded-[10px] flex flex-col gap-2.5 px-3 py-2">
+    <div className="bg-panel border border-divider flex flex-col gap-2 px-2 py-1.5">
       <style>{HOVER_CSS}</style>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-white/90 py-2.5 px-1 -my-2 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
+        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-fg py-2.5 px-1 -my-2 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold text-white/50 uppercase tracking-[0.08em] leading-none inline-flex items-center">
+        <span className="text-[11px] font-semibold text-fg-3 uppercase tracking-[0.08em] leading-none inline-flex items-center">
           Screenshot
         </span>
         <span />
@@ -118,11 +118,11 @@ export function ScreenshotTool({ udid }: { udid: string }) {
             type="button"
             onClick={capture}
             disabled={pending !== null}
-            className="lem-primary inline-flex items-center justify-center gap-1.5 py-2 px-3 border-none rounded-[7px] text-[12px] font-semibold cursor-pointer font-[inherit] bg-accent text-[#0b1020] w-full"
+            className="lem-primary inline-flex items-center justify-center gap-1.5 py-2 px-3 border-none text-[12px] font-semibold cursor-pointer font-[inherit] bg-accent-solid text-white w-full"
           >
             {pending === "capture" ? (
               <span className="inline-flex items-center gap-1.5">
-                <span className="size-1.5 rounded-full bg-[#0b1020]/80 animate-pulse" />
+                <span className="size-1.5 bg-fg/80 animate-pulse" />
                 Capturing…
               </span>
             ) : (
@@ -152,13 +152,13 @@ export function ScreenshotTool({ udid }: { udid: string }) {
               <img
                 src={shot.dataUrl}
                 alt="Simulator screenshot"
-                className="w-full max-h-[220px] object-contain rounded-[8px] border border-white/8 bg-black/20"
+                className="w-full max-h-[220px] object-contain border border-divider bg-surface-2"
               />
               <div className="flex gap-2">
                 <a
                   href={shot.dataUrl}
                   download="screenshot.png"
-                  className="lem-ghost flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 px-2.5 border border-white/12 rounded-[7px] text-[12px] font-medium bg-transparent text-white/85 cursor-pointer font-[inherit] no-underline [transition:background_0.12s,border-color_0.12s,color_0.12s]"
+                  className="lem-ghost flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 px-2.5 border border-divider text-[12px] font-medium bg-transparent text-fg-2 cursor-pointer font-[inherit] no-underline [transition:background_0.12s,border-color_0.12s,color_0.12s]"
                 >
                   <svg
                     width="14"
@@ -169,7 +169,7 @@ export function ScreenshotTool({ udid }: { udid: string }) {
                     strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    className="text-white/85"
+                    className="text-fg-2"
                     aria-hidden="true"
                   >
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -182,7 +182,7 @@ export function ScreenshotTool({ udid }: { udid: string }) {
                 <button
                   type="button"
                   onClick={copy}
-                  className="lem-ghost flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 px-2.5 border border-white/12 rounded-[7px] text-[12px] font-medium bg-transparent text-white/85 cursor-pointer font-[inherit] [transition:background_0.12s,border-color_0.12s,color_0.12s]"
+                  className="lem-ghost flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 px-2.5 border border-divider text-[12px] font-medium bg-transparent text-fg-2 cursor-pointer font-[inherit] [transition:background_0.12s,border-color_0.12s,color_0.12s]"
                   aria-label="Copy screenshot to clipboard"
                 >
                   {copied ? (
@@ -214,7 +214,7 @@ export function ScreenshotTool({ udid }: { udid: string }) {
                         strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        className="text-white/85"
+                        className="text-fg-2"
                         aria-hidden="true"
                       >
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
@@ -230,7 +230,7 @@ export function ScreenshotTool({ udid }: { udid: string }) {
           )}
 
           {error && (
-            <div className="bg-danger/10 border border-danger/20 text-danger-soft text-[11px] px-2 py-1.5 rounded-md break-words" role="alert">
+            <div className="bg-surface-2 border border-divider text-danger-soft text-[11px] px-2 py-1.5 break-words" role="alert">
               {error}
             </div>
           )}
@@ -255,17 +255,17 @@ function ChipGroup({
 }) {
   return (
     <div className="flex items-center gap-2" role="group" aria-label={label}>
-      <span className="text-[9px] uppercase tracking-[0.06em] text-white/45 w-[44px] shrink-0">
+      <span className="text-[9px] uppercase tracking-[0.06em] text-fg-3 w-[44px] shrink-0">
         {label}
       </span>
-      <div className="flex gap-0.5 bg-white/[0.04] border border-white/8 rounded-md p-0.5 flex-1 overflow-hidden">
+      <div className="flex gap-0.5 bg-surface-2 border border-divider p-0.5 flex-1 overflow-hidden">
         {options.map(([val, text]) => (
           <button
             key={val}
             type="button"
             data-active={value === val}
             onClick={() => onChange(val)}
-            className="lem-chip flex-1 min-w-0 truncate py-1 px-1.5 border-none rounded text-[11px] font-medium cursor-pointer font-[inherit] [transition:background_0.12s,color_0.12s]"
+            className="lem-chip flex-1 min-w-0 truncate py-1 px-1.5 border-none text-[11px] font-medium cursor-pointer font-[inherit] [transition:background_0.12s,color_0.12s]"
           >
             {text}
           </button>

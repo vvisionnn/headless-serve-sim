@@ -46,17 +46,17 @@ const TRAIL_MORPH_MS = 650;
 // emit a small style sheet keyed off classnames the components apply.
 // TODO: Convert to Tailwind
 const HOVER_CSS = `
-.lem-toggle:hover { color: #fff; }
-.lem-toggle:hover .lem-chevron { color: rgba(255,255,255,0.85) !important; }
-.lem-select:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.16); }
-.lem-select:focus { outline: none; border-color: rgba(255,255,255,0.24); background: rgba(255,255,255,0.08); }
+.lem-toggle:hover { color: #f5f5f7; }
+.lem-toggle:hover .lem-chevron { color: #f5f5f7 !important; }
+.lem-select:hover { background: #161617; border-color: #424245; }
+.lem-select:focus { outline: none; border-color: #2997ff; background: #161617; }
 .lem-primary:hover:not(:disabled) { filter: brightness(1.08); }
-.lem-primary-on:hover:not(:disabled) { background: rgba(255,255,255,0.22) !important; filter: none; }
-.lem-ghost:hover:not(:disabled) { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.2); color: #fff; }
+.lem-primary-on:hover:not(:disabled) { background: #2c2c2e !important; filter: none; }
+.lem-ghost:hover:not(:disabled) { background: #2c2c2e; border-color: #424245; color: #f5f5f7; }
 .lem-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
-.lem-seg:hover:not([aria-pressed="true"]) { color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.05) !important; }
-.lem-speed:hover { background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.18); color: #fff; }
-.lem-speed-on:hover { background: rgba(255,255,255,0.88) !important; border-color: rgba(255,255,255,0.88) !important; color: #0a0a0c !important; }
+.lem-seg:hover:not([aria-pressed="true"]) { color: #f5f5f7; background: #2c2c2e !important; }
+.lem-speed:hover { background: #2c2c2e; border-color: #424245; color: #f5f5f7; }
+.lem-speed-on:hover { background: #2997ff !important; border-color: #2997ff !important; color: #ffffff !important; }
 .lem-speed:active { transform: scale(0.97); }
 `;
 
@@ -318,21 +318,20 @@ export function LocationEmulationTool({
     : `${formatDistance(prepared.totalDistance)} total`;
 
   return (
-    <div className="bg-panel border border-white/8 rounded-[10px] flex flex-col gap-2.5 px-3 py-2">
+    <div className="bg-panel border border-divider flex flex-col gap-2 px-2 py-1.5">
       <style>{HOVER_CSS}</style>
       <button
         type="button"
         onClick={() => setOpen((v: boolean) => !v)}
-        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-white/90 py-2.5 px-1 -my-2 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
+        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-fg py-2 px-1 -my-1.5 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold text-white/50 uppercase tracking-[0.08em] leading-none inline-flex items-center">Location</span>
-        <span className="text-[11px] text-white/55 font-mono inline-flex items-center gap-1.5 justify-self-end leading-none">
+        <span className="text-[11px] font-semibold text-fg-3 uppercase tracking-[0.08em] leading-none inline-flex items-center">Location</span>
+        <span className="text-[11px] text-fg-2 font-mono inline-flex items-center gap-1.5 justify-self-end leading-none">
           <span
-            className="size-1.5 rounded-full [transition:background_0.2s,box-shadow_0.2s]"
+            className="size-1.5 [transition:background_0.2s]"
             style={{
-              background: playing ? "#4ade80" : prepared.totalDistance > 0 ? "rgba(255,255,255,0.3)" : "transparent",
-              boxShadow: playing ? "0 0 6px rgba(74,222,128,0.7)" : "none",
+              background: playing ? "var(--color-success)" : prepared.totalDistance > 0 ? "var(--color-fg-3)" : "transparent",
             }}
           />
           {headerStatus}
@@ -349,16 +348,16 @@ export function LocationEmulationTool({
                 value={trailId}
                 options={DEFAULT_TRAILS.map((t) => ({ value: t.id, label: t.name }))}
                 onChange={onTrailChange}
-                className="bg-white/[0.04] border border-white/8 rounded-md text-white/90 text-[12px] py-1.5 pr-[26px] pl-2 w-full [transition:background_0.12s,border-color_0.12s]"
+                className="bg-panel border border-divider text-fg text-[12px] py-1.5 pr-[26px] pl-2 w-full [transition:background_0.12s,border-color_0.12s]"
               />
               <span className="absolute right-[9px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center" aria-hidden="true">
                 <Chevron open={false} />
               </span>
             </div>
-            <div className="text-[10px] text-white/45">{trail.description}</div>
+            <div className="text-[10px] text-fg-3">{trail.description}</div>
           </div>
 
-          <div className="relative w-full rounded-[10px] overflow-hidden bg-[#0a0a0c] border border-white/[0.06] [aspect-ratio:16/11]">
+          <div className="relative w-full overflow-hidden bg-page border border-divider [aspect-ratio:16/11]">
             <canvas ref={canvasRef} className="w-full h-full block" />
             <ElevationBadges prepared={prepared} />
           </div>
@@ -373,7 +372,7 @@ export function LocationEmulationTool({
             <button
               type="button"
               onClick={onPlayPause}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 border-none rounded-[7px] text-[12px] font-semibold cursor-pointer font-[inherit] ${playing ? "lem-primary lem-primary-on bg-white/[0.16] text-white" : "lem-primary bg-success-emerald text-[#062018]"}`}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 border-none text-[12px] font-semibold cursor-pointer font-[inherit] ${playing ? "lem-primary lem-primary-on bg-surface-2 text-fg" : "lem-primary bg-accent-solid text-white"}`}
               aria-pressed={playing}
               title={playing ? "Pause" : "Play"}
             >
@@ -383,7 +382,7 @@ export function LocationEmulationTool({
             <button
               type="button"
               onClick={onStop}
-              className="lem-ghost flex items-center justify-center gap-1.5 py-2 px-3 border border-white/12 rounded-[7px] text-[12px] font-medium bg-transparent text-white/85 cursor-pointer font-[inherit]"
+              className="lem-ghost flex items-center justify-center gap-1.5 py-2 px-3 border border-divider text-[12px] font-medium bg-transparent text-fg cursor-pointer font-[inherit]"
               disabled={playback.status === "idle" && playback.arc === 0}
               title="Stop and clear simulated location"
             >
@@ -413,7 +412,7 @@ export function LocationEmulationTool({
                 const next = SPEED_MULTIPLIERS[(idx + 1) % SPEED_MULTIPLIERS.length]!;
                 setMultiplier(next);
               }}
-              className={`flex items-center justify-center gap-1 px-2.5 border rounded-[7px] cursor-pointer font-[inherit] text-[11px] font-semibold min-w-[56px] ${multiplier > 1 ? "lem-speed lem-speed-on bg-white border-white text-[#0a0a0c]" : "lem-speed bg-white/[0.04] border-white/8 text-white/85"}`}
+              className={`flex items-center justify-center gap-1 px-2.5 border cursor-pointer font-[inherit] text-[11px] font-semibold min-w-[56px] ${multiplier > 1 ? "lem-speed lem-speed-on bg-accent-solid border-accent text-white" : "lem-speed bg-panel border-divider text-fg"}`}
               aria-label={`Speed ${multiplier}× — tap to cycle`}
               title={`Speed ${multiplier}× — tap to cycle`}
             >
@@ -423,7 +422,7 @@ export function LocationEmulationTool({
           </div>
 
           {error && (
-            <div className="bg-danger/10 border border-danger/20 text-danger-soft text-[11px] px-2 py-1.5 rounded-md">
+            <div className="bg-panel-deep border border-divider text-danger text-[11px] px-2 py-1.5">
               {error}
             </div>
           )}
@@ -437,9 +436,9 @@ export function LocationEmulationTool({
 
 const Stat = memo(function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-col gap-0.5 bg-white/[0.03] border border-white/[0.06] rounded-md py-[5px] px-[7px] min-w-0">
-      <div className="text-[9px] uppercase tracking-[0.06em] text-white/45">{label}</div>
-      <div className="text-[12px] font-mono text-white overflow-hidden text-ellipsis whitespace-nowrap">{value}</div>
+    <div className="flex flex-col gap-0.5 bg-surface-2 border border-divider py-[5px] px-[7px] min-w-0">
+      <div className="text-[9px] uppercase tracking-[0.06em] text-fg-3">{label}</div>
+      <div className="text-[12px] font-mono text-fg overflow-hidden text-ellipsis whitespace-nowrap">{value}</div>
     </div>
   );
 });
@@ -459,7 +458,7 @@ function Segmented<T extends string>({
     <div
       role="group"
       aria-label={ariaLabel}
-      className="flex bg-white/[0.04] border border-white/8 rounded-[7px] p-0.5 gap-0.5"
+      className="flex bg-panel border border-divider p-0.5 gap-0.5"
     >
       {options.map((o) => {
         const active = o.value === value;
@@ -468,7 +467,7 @@ function Segmented<T extends string>({
             key={o.value}
             type="button"
             onClick={() => onChange(o.value)}
-            className={`flex-1 flex items-center justify-center border-none rounded-[5px] py-[5px] px-2 text-[11px] font-medium cursor-pointer font-[inherit] [transition:background_0.12s,color_0.12s] min-h-[22px] ${active ? "lem-seg lem-seg-active bg-white/[0.12] text-white" : "lem-seg bg-transparent text-white/60"}`}
+            className={`flex-1 flex items-center justify-center border-none py-[5px] px-2 text-[11px] font-medium cursor-pointer font-[inherit] [transition:background_0.12s,color_0.12s] min-h-[22px] ${active ? "lem-seg lem-seg-active bg-hover text-fg" : "lem-seg bg-transparent text-fg-2"}`}
             aria-pressed={active}
             aria-label={o.icon ? o.label : undefined}
             title={o.icon ? o.label : undefined}
@@ -485,10 +484,10 @@ function ElevationBadges({ prepared }: { prepared: PreparedTrail }) {
   if (prepared.rawMaxAlt - prepared.rawMinAlt < 5) return null;
   return (
     <>
-      <div className="absolute top-2 left-2.5 bg-panel-overlay text-white/85 text-[10px] font-mono px-1.5 py-0.5 rounded-[5px] flex items-center tracking-[0.02em] border border-white/[0.06]">
+      <div className="absolute top-2 left-2.5 bg-panel-overlay text-fg text-[10px] font-mono px-1.5 py-0.5 flex items-center tracking-[0.02em] border border-divider">
         <ArrowGlyph dir="up" /> {formatElevation(prepared.rawMaxAlt)}
       </div>
-      <div className="absolute top-2 right-2.5 bg-panel-overlay text-white/85 text-[10px] font-mono px-1.5 py-0.5 rounded-[5px] flex items-center tracking-[0.02em] border border-white/[0.06]">
+      <div className="absolute top-2 right-2.5 bg-panel-overlay text-fg text-[10px] font-mono px-1.5 py-0.5 flex items-center tracking-[0.02em] border border-divider">
         <ArrowGlyph dir="down" /> {formatElevation(prepared.rawMinAlt)}
       </div>
     </>
