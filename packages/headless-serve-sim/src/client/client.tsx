@@ -60,6 +60,7 @@ import { simEndpoint } from "./utils/sim-endpoint";
 import { SIMULATOR_RESIZE_MAX_SCALE } from "./utils/simulator-resize";
 import { fitDeviceFrame } from "./utils/frame-geometry";
 import { readPersistedFlag, writePersistedFlag } from "./utils/persisted-flag";
+import { previewConfigKey } from "./utils/preview-config";
 
 // Counter-clockwise cycle, matching Simulator.app's Cmd+Left ("Rotate Left").
 const ROTATE_LEFT_CYCLE: Record<SimulatorOrientation, SimulatorOrientation> = {
@@ -99,11 +100,6 @@ function usePersistedFlag(
 
 type PreviewConfig = NonNullable<Window["__SIM_PREVIEW__"]>;
 
-function previewConfigKey(config: PreviewConfig | null): string {
-  return config
-    ? `${config.device}:${config.pid}:${config.streamUrl}:${config.wsUrl}`
-    : "";
-}
 
 function App() {
   const [config, setConfig] = useState<PreviewConfig | null>(() => window.__SIM_PREVIEW__ ?? null);
@@ -965,6 +961,7 @@ function AppWithConfig({
         frameHeight={frameGeom.height}
         openOverlay={statsOpen ? "stats" : gridOpen ? "grid" : devtoolsOpen ? "devtools" : null}
         udid={config.device}
+        execToken={config.execToken}
         currentApp={currentApp}
         axOverlayEnabled={axOverlayEnabled}
         onToggleAxOverlay={() => setAxOverlayEnabled((enabled) => !enabled)}

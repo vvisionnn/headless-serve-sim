@@ -1423,21 +1423,36 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
       // `proc_pidpath`+Info.plist resolution and emit it before tailing.
       let lastBundle = "";
       void (async () => {
-        try {
-          const ctrl = new AbortController();
-          const timer = setTimeout(() => ctrl.abort(), 1500);
-          const r = await fetch(`http://127.0.0.1:${state.port}/foreground`, { signal: ctrl.signal });
-          clearTimeout(timer);
-          if (!r.ok) return;
-          const info = await r.json() as { bundleId?: string; pid?: number };
-          if (!info.bundleId || !isUserFacingBundle(info.bundleId)) return;
-          if (res.writableEnded) return;
-          lastBundle = info.bundleId;
-          const isReactNative = await detectReactNative(udid, info.bundleId);
-          if (res.writableEnded) return;
-          res.write("data: " + JSON.stringify({ bundleId: info.bundleId, pid: info.pid, isReactNative }) + "\n\n");
-        } catch {
-          // Helper may be coming up — log tail will fill in once anything moves.
+        // The bootstrap is the ONLY way to surface an already-foreground app
+        // (page opened/reconnected after the app launched — the SpringBoard
+        // feed is edge-triggered and emits nothing until the next switch). A
+        // single shot was fragile: the helper may still be coming up, or its AX
+        // bridge briefly busy under a heavy RN app, and the 1.5s probe aborts —
+        // stranding the UI on "waiting for an app to come to the foreground"
+        // (and, downstream, leaving the Activity charts without a pid). Retry a
+        // few times with backoff; stop once we emit or the log tail beats us.
+        for (let attempt = 0; attempt < 6; attempt++) {
+          if (res.writableEnded || lastBundle) return;
+          try {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 1500);
+            const r = await fetch(`http://127.0.0.1:${state.port}/foreground`, { signal: ctrl.signal });
+            clearTimeout(timer);
+            if (r.ok) {
+              const info = await r.json() as { bundleId?: string; pid?: number };
+              if (info.bundleId && isUserFacingBundle(info.bundleId)) {
+                if (res.writableEnded || lastBundle) return;
+                lastBundle = info.bundleId;
+                const isReactNative = await detectReactNative(udid, info.bundleId);
+                if (res.writableEnded) return;
+                res.write("data: " + JSON.stringify({ bundleId: info.bundleId, pid: info.pid, isReactNative }) + "\n\n");
+                return;
+              }
+            }
+          } catch {
+            // Helper not ready yet — fall through to the backoff and retry.
+          }
+          await new Promise((resolve) => setTimeout(resolve, 700));
         }
       })();
 

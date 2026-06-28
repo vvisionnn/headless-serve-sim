@@ -276,7 +276,7 @@ const I = {
   ),
 };
 
-export function SimulatorSettingsTool({ udid }: { udid: string }) {
+export function SimulatorSettingsTool({ udid, execToken }: { udid: string; execToken?: string }) {
   const [open, setOpen] = useState(true);
   const [state, setState] = useState<SettingsState | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -305,10 +305,14 @@ export function SimulatorSettingsTool({ udid }: { udid: string }) {
     }
   }, [udid]);
 
+  // Re-hydrate on device change and whenever the control token rotates. A
+  // server restart mints a fresh exec token, which closes the old socket; once
+  // the live token propagates here we re-auth and clear any stale "socket
+  // closed" error on our own, without the user reloading the page.
   useEffect(() => {
     setState(null);
     void refresh();
-  }, [refresh]);
+  }, [refresh, execToken]);
 
   const apply = useCallback(
     async (option: string, value: string) => {

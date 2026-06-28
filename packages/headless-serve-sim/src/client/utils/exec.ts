@@ -59,30 +59,57 @@ function rejectAllPending(reason: Error): void {
   pendingRequests.clear();
 }
 
-function openExecSocket(): Promise<WebSocket> {
-  socketPromise ??= new Promise<WebSocket>((resolve, reject) => {
-    let settled = false;
+// The page bakes the exec token at load, but the server mints a fresh one on
+// every process start. After a server restart (a Metro/Expo reload, a helper
+// recycle, simctl churn) the baked token is stale, the socket's auth frame is
+// rejected, and the channel closes — the "control socket closed" the user used
+// to escape only by reloading the page. Pull the live token from /api (which
+// always reflects the running server) so the socket can re-auth itself.
+async function fetchLiveExecToken(): Promise<string | null> {
+  try {
+    const url = new URL(simEndpoint("api"), window.location.href);
+    const device =
+      new URLSearchParams(window.location.search).get("device") ??
+      window.__SIM_PREVIEW__?.device ??
+      "";
+    if (device) url.searchParams.set("device", device);
+    const res = await fetch(url.toString(), { cache: "no-store" });
+    const cfg = (await res.json()) as { execToken?: string } | null;
+    const token = cfg?.execToken;
+    if (typeof token === "string" && token) {
+      if (window.__SIM_PREVIEW__) window.__SIM_PREVIEW__.execToken = token;
+      return token;
+    }
+  } catch {
+    // Server may be mid-restart; the caller surfaces the original error.
+  }
+  return null;
+}
+
+// One connect + auth attempt with a single token. Resolves when the server
+// accepts it ({ready:true}); rejects on a failed handshake, rejected auth, or
+// timeout. A drop AFTER auth clears the cached socket and fails in-flight
+// requests so the next call reconnects; the pre-auth phase leaves socketPromise
+// to openExecSocket, which owns the token refresh + retry.
+function connectExecSocket(token: string): Promise<WebSocket> {
+  return new Promise<WebSocket>((resolve, reject) => {
+    let authed = false;
     let ws: WebSocket;
     try {
       ws = new WebSocket(execSocketUrl());
     } catch (e) {
-      socketPromise = null;
-      reject(e);
+      reject(e instanceof Error ? e : new Error(String(e)));
       return;
     }
     // Fail fast if the server never completes the handshake or auth — a hung
     // connection must not stall every request behind it.
     const connectTimer = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        socketPromise = null;
+      if (!authed) {
         reject(new Error("control socket connect timeout"));
         ws.close();
       }
     }, CONNECT_TIMEOUT_MS);
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ token: window.__SIM_PREVIEW__?.execToken ?? "" }));
-    };
+    ws.onopen = () => ws.send(JSON.stringify({ token }));
     ws.onmessage = (event) => {
       let msg: SocketReply;
       try {
@@ -91,8 +118,8 @@ function openExecSocket(): Promise<WebSocket> {
         return;
       }
       if (msg.ready) {
-        if (!settled) {
-          settled = true;
+        if (!authed) {
+          authed = true;
           clearTimeout(connectTimer);
           resolve(ws);
         }
@@ -104,18 +131,39 @@ function openExecSocket(): Promise<WebSocket> {
       pendingRequests.delete(msg.id);
       pending.resolve(msg);
     };
-    const fail = () => {
-      socketPromise = null;
-      const err = new Error("control socket closed — reload the page if this persists");
-      rejectAllPending(err);
-      if (!settled) {
-        settled = true;
-        clearTimeout(connectTimer);
-        reject(err);
+    const onDown = () => {
+      clearTimeout(connectTimer);
+      if (authed) {
+        socketPromise = null;
+        rejectAllPending(new Error("control socket closed — reload the page if this persists"));
+      } else {
+        reject(new Error("control socket closed before auth"));
       }
     };
-    ws.onerror = fail;
-    ws.onclose = fail;
+    ws.onerror = onDown;
+    ws.onclose = onDown;
+  });
+}
+
+function openExecSocket(): Promise<WebSocket> {
+  socketPromise ??= (async () => {
+    const baked = window.__SIM_PREVIEW__?.execToken ?? "";
+    try {
+      return await connectExecSocket(baked);
+    } catch (firstErr) {
+      // The handshake failed — most often a stale token after a server
+      // restart. Refetch the live token and retry once before surfacing the
+      // error, so the control socket self-heals without a manual page reload.
+      const fresh = await fetchLiveExecToken();
+      if (fresh && fresh !== baked) return await connectExecSocket(fresh);
+      throw firstErr instanceof Error
+        ? firstErr
+        : new Error("control socket closed — reload the page if this persists");
+    }
+  })().catch((err: unknown) => {
+    // Drop the cache so the next request starts a fresh connect attempt.
+    socketPromise = null;
+    throw err;
   });
   return socketPromise;
 }

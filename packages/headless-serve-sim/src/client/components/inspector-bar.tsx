@@ -26,6 +26,8 @@ export interface InspectorBarProps {
   frameHeight: number;
   openOverlay: "stats" | "grid" | "devtools" | null;
   udid: string;
+  /** Live exec token; rotates on server restart so the settings tool re-auths. */
+  execToken?: string;
   currentApp: { bundleId: string; isReactNative: boolean; pid?: number } | null;
   axOverlayEnabled: boolean;
   onToggleAxOverlay: () => void;
@@ -47,6 +49,7 @@ export function InspectorBar({
   frameHeight,
   openOverlay,
   udid,
+  execToken,
   currentApp,
   axOverlayEnabled,
   onToggleAxOverlay,
@@ -124,7 +127,7 @@ export function InspectorBar({
           }}
         >
           <AppDetectionTool udid={udid} currentApp={currentApp} />
-          <SimulatorSettingsTool udid={udid} />
+          <SimulatorSettingsTool udid={udid} execToken={execToken} />
           <AxTreeTool overlayEnabled={axOverlayEnabled} onToggleOverlay={onToggleAxOverlay} />
           <CameraTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
           <ScreenshotTool udid={udid} />
