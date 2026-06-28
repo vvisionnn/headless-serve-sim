@@ -1,6 +1,6 @@
 {
   "name": "headless-serve-sim",
-  "version": "0.0.14",
+  "version": "0.0.15",
   "type": "module",
   "author": {
     "name": "Evan Bacon",
