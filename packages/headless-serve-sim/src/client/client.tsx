@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useReducer,
   useRef,
   useState,
@@ -15,7 +16,6 @@ import {
   SimulatorToolbar,
   getDeviceType,
   parseServerStreamStats,
-  simulatorAspectRatio,
   simulatorMaxWidth,
   type DeviceType,
   type SimulatorOrientation,
@@ -31,18 +31,15 @@ import { AxToolbarButton } from "./components/ax-toolbar-button";
 import { BootEmptyState } from "./components/boot-empty-state";
 import { DevicePicker } from "./components/device-picker";
 import { GridPanel } from "./components/grid-panel";
-import { MetricsHud } from "./components/metrics-hud";
+import { TopBarMetrics } from "./components/metrics-hud";
 import { ConnectionStatsPanel } from "./components/connection-stats-panel";
 import { ResizeHandle } from "./components/resize-handle";
-import { SimulatorResizeCornerHandle } from "./components/simulator-resize-corner-handle";
-import { SimulatorResizeSizeBadge } from "./components/simulator-resize-size-badge";
-import { ToolsPanel } from "./components/tools-panel";
+import { InspectorBar } from "./components/inspector-bar";
 import { WebKitDevtoolsPanel } from "./components/webkit-devtools-panel";
 import { useMediaDrop } from "./hooks/use-media-drop";
 import { useMjpegStream } from "./hooks/use-mjpeg-stream";
 import { useAvccStream } from "./hooks/use-avcc-stream";
 import { useResizableWidth } from "./hooks/use-resizable-width";
-import { useSimulatorResize } from "./hooks/use-simulator-resize";
 import { useUploadToasts } from "./hooks/use-upload-toasts";
 import { useWebKitDevtools } from "./hooks/use-webkit-devtools";
 import {
@@ -58,14 +55,12 @@ import {
   CONNECTION_STATS_PANEL_WIDTH,
   DEVTOOLS_PANEL_WIDTH,
   GRID_PANEL_WIDTH,
-  PANEL_WIDTH,
 } from "./utils/panel-widths";
 import { captureScreenshot, downloadScreenshot, screenshotFilename } from "./utils/screenshot";
 import { simEndpoint } from "./utils/sim-endpoint";
 import {
-  SIMULATOR_RESIZE_DRAG_TRANSITION,
-  SIMULATOR_RESIZE_LAYOUT_TRANSITION,
-  SIMULATOR_RESIZE_PAGE_TRANSITION,
+  SIMULATOR_RESIZE_MAX_SCALE,
+  roundToDevicePixel,
 } from "./utils/simulator-resize";
 
 // Counter-clockwise cycle, matching Simulator.app's Cmd+Left ("Rotate Left").
@@ -362,7 +357,6 @@ function AppWithConfig({
   const activeStreamConfig = liveStreamConfig ?? streamConfig ?? fallbackScreenSize(deviceType, selectedDevice?.name);
   const imgBorderRadius = screenBorderRadius(deviceType, activeStreamConfig);
   const frameMaxWidth = simulatorMaxWidth(deviceType, activeStreamConfig);
-  const frameAspectRatio = simulatorAspectRatio(activeStreamConfig);
   const frameDisplayConfig = displayStreamConfig(activeStreamConfig);
   const frameAspectRatioValue = frameDisplayConfig
     ? frameDisplayConfig.width / frameDisplayConfig.height
@@ -526,15 +520,8 @@ function AppWithConfig({
 
   // Subscribe to app-state SSE.
   const [currentApp, setCurrentApp] = useState<{ bundleId: string; isReactNative: boolean; pid?: number } | null>(null);
-  const [panelOpen, setPanelOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [streamMode, setStreamMode] = useState<"perf" | "quality">("perf");
-  const { width: toolsPanelWidth, onPointerDown: onToolsResize } = useResizableWidth(
-    "headless-serve-sim:tools-panel-width",
-    PANEL_WIDTH,
-    240,
-    720,
-  );
   const { width: devtoolsPanelWidth, onPointerDown: onDevtoolsResize } = useResizableWidth(
     "headless-serve-sim:devtools-panel-width",
     DEVTOOLS_PANEL_WIDTH,
@@ -604,19 +591,6 @@ function AppWithConfig({
   }, [sendKey]);
 
   const simContainerRef = useRef<HTMLDivElement | null>(null);
-  const [deviceRenderedWidth, setDeviceRenderedWidth] = useState(0);
-  const [deviceRenderedHeight, setDeviceRenderedHeight] = useState(0);
-  useEffect(() => {
-    const el = simContainerRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver((entries) => {
-      const rect = entries[0]?.contentRect;
-      setDeviceRenderedWidth(rect?.width ?? 0);
-      setDeviceRenderedHeight(rect?.height ?? 0);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
   const [simFocused, setSimFocused] = useState(true);
   const simFocusedRef = useRef(true);
   simFocusedRef.current = simFocused;
@@ -753,59 +727,51 @@ function AppWithConfig({
     }
   }, [fetchDevices, setStoppingUdids]);
 
-  const simulatorResize = useSimulatorResize({
-    defaultWidth: frameMaxWidth,
+  // ── Layout geometry ──────────────────────────────────────────────────
+  // Left column = top bar + device frame, filling the viewport height. The
+  // frame fits within the space left of the inspector, preserving the device
+  // aspect ratio; the top bar's width follows the frame width.
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const TOP_BAR_HEIGHT = 44;
+  const INSPECTOR_COLLAPSED_WIDTH = 44;
+  const INSPECTOR_EXPANDED_WIDTH = 360;
+  const inspectorWidth = Math.min(
+    inspectorOpen ? INSPECTOR_EXPANDED_WIDTH : INSPECTOR_COLLAPSED_WIDTH,
     viewportWidth,
-    viewportHeight,
-    aspectRatio: frameAspectRatioValue,
-    onStart: () => setSimFocused(false),
-  });
+  );
 
-  // Only shift the simulator when the panel would otherwise collide with it.
-  const panelWidthPx = devtoolsOpen
-    ? devtoolsPanelWidth
-    : gridOpen
-    ? gridPanelWidth
-    : statsOpen
-    ? connectionStatsPanelWidth
-    : panelOpen
-    ? toolsPanelWidth
-    : 0;
-  const PANEL_RIGHT_OFFSET = 12;
-  const PANEL_GAP = 24;
-  const maxShift = panelWidthPx > 0 ? panelWidthPx + PANEL_GAP : 0;
-  let shiftForPanel = 0;
-  if (panelWidthPx > 0) {
-    const panelLeftEdge = viewportWidth - PANEL_RIGHT_OFFSET - panelWidthPx;
-    const deviceWidth = deviceRenderedWidth > 0
-      ? Math.min(deviceRenderedWidth, simulatorResize.width)
-      : simulatorResize.width;
-    const deviceRightAtCenter = viewportWidth / 2 + deviceWidth / 2;
-    const overlap = deviceRightAtCenter - (panelLeftEdge - PANEL_GAP);
-    if (overlap > 0) {
-      const shiftNeeded = 2 * overlap;
-      shiftForPanel = shiftNeeded <= maxShift ? shiftNeeded : 0;
+  const frameGeom = useMemo(() => {
+    const aspect = frameAspectRatioValue > 0 ? frameAspectRatioValue : 1;
+    const availH = Math.max(0, viewportHeight - TOP_BAR_HEIGHT);
+    const availW = Math.max(0, viewportWidth - inspectorWidth);
+    // Height-bound by default (top bar + frameH == viewport height for portrait);
+    // clamp to width for wide devices; cap upscale so low-res devices (watch /
+    // vision) don't balloon soft on large displays.
+    let h = Math.min(availH, aspect > 0 ? availW / aspect : availH);
+    let w = h * aspect;
+    if (w > availW) {
+      w = availW;
+      h = aspect > 0 ? w / aspect : h;
     }
-  }
+    const upscaleCap = frameMaxWidth * SIMULATOR_RESIZE_MAX_SCALE;
+    if (w > upscaleCap) {
+      w = upscaleCap;
+      h = aspect > 0 ? w / aspect : h;
+    }
+    return {
+      width: Math.max(0, roundToDevicePixel(w)),
+      height: Math.max(0, roundToDevicePixel(h)),
+    };
+  }, [viewportWidth, viewportHeight, inspectorWidth, frameAspectRatioValue, frameMaxWidth]);
 
   return (
     <AxStateProvider endpoint={axOverlayEnabled ? config?.axEndpoint : undefined}>
-    <div
-      className="flex flex-col items-center justify-center h-screen bg-page py-6 pl-6 gap-3 font-system box-border"
-      style={{
-        paddingRight: 24 + shiftForPanel,
-        transition:
-          simulatorResize.isResizing || simulatorResize.isInertia ? "none" : SIMULATOR_RESIZE_PAGE_TRANSITION,
-      }}
-    >
+    <div className="flex items-center justify-center h-screen w-screen overflow-hidden bg-page font-system">
       <div
-        className="flex flex-col items-center gap-3 min-w-0"
+        className="flex shrink-0 min-w-0 flex-col"
         style={{
-          width: simulatorResize.width,
-          transition:
-            simulatorResize.isResizing || simulatorResize.isInertia
-              ? SIMULATOR_RESIZE_DRAG_TRANSITION
-              : SIMULATOR_RESIZE_LAYOUT_TRANSITION,
+          width: frameGeom.width,
+          transition: "width 340ms cubic-bezier(0.34, 1.3, 0.6, 1)",
         }}
       >
         <SimulatorToolbar
@@ -816,6 +782,7 @@ function AppWithConfig({
           deviceName={selectedDevice?.name ?? null}
           deviceRuntime={selectedDevice?.runtime ?? null}
           streaming={streaming}
+          style={{ borderLeft: "1px solid #424245" }}
         >
           <DevicePicker
             devices={devices}
@@ -828,7 +795,15 @@ function AppWithConfig({
             onStop={stopDevice}
             trigger={<SimulatorToolbar.Title />}
           />
+          <TopBarMetrics pid={currentApp?.pid} enabled={streaming} barWidth={frameGeom.width} />
           <SimulatorToolbar.Actions>
+            <span
+              className="mx-0.5 size-1.5 shrink-0"
+              style={{ background: streaming ? "var(--color-success)" : "var(--color-fg-3)" }}
+              role="status"
+              aria-label={streaming ? "Live" : "Connecting"}
+              title={streaming ? "live" : "connecting"}
+            />
             {currentApp?.isReactNative && (
               <SimulatorToolbar.Button
                 aria-label="Reload React Native bundle"
@@ -858,17 +833,8 @@ function AppWithConfig({
         </SimulatorToolbar>
         <div
           ref={simContainerRef}
-          className="relative max-h-full"
-          style={{
-            width: simulatorResize.width,
-            aspectRatio: frameAspectRatio,
-            transition:
-              simulatorResize.isResizing || simulatorResize.isInertia
-                ? SIMULATOR_RESIZE_DRAG_TRANSITION
-                : SIMULATOR_RESIZE_LAYOUT_TRANSITION,
-            willChange:
-              simulatorResize.isResizing || simulatorResize.isInertia ? "width" : undefined,
-          }}
+          className="relative shrink-0 overflow-hidden border-l border-b border-divider bg-page"
+          style={{ width: frameGeom.width, height: frameGeom.height }}
           {...mediaDrop.dropZoneProps}
         >
           <SimulatorView
@@ -877,18 +843,10 @@ function AppWithConfig({
               width: "100%",
               height: "100%",
               border: "none",
-              pointerEvents:
-                simulatorResize.isResizing || simulatorResize.isInertia ? "none" : undefined,
             }}
             imageStyle={{
               borderRadius: imgBorderRadius,
               cornerShape: "superellipse(1.3)",
-              // Subtle screen bezel as an INSET shadow rather than a border: a
-              // 1px border sits outside the content and, on the <canvas> path,
-              // composites its semi-transparent white against the black page as
-              // a visible outline. An inset shadow paints over the (opaque)
-              // video edge instead, so no white rim shows.
-              boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.2)",
             } as CSSProperties}
             hideControls
             onStreamingChange={setStreaming}
@@ -909,7 +867,7 @@ function AppWithConfig({
           {axOverlayEnabled && <AxDomOverlay />}
           {mediaDrop.isDragOver && (
             <div
-              className="absolute inset-0 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-accent bg-[rgba(99,102,241,0.12)] backdrop-blur-[2px] text-accent pointer-events-none z-20"
+              className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-accent bg-[rgba(41,151,255,0.12)] backdrop-blur-[2px] text-accent pointer-events-none"
               style={{ borderRadius: imgBorderRadius }}
             >
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -920,25 +878,6 @@ function AppWithConfig({
               <span className="text-[13px] font-medium">Drop media or .ipa</span>
             </div>
           )}
-          <SimulatorResizeCornerHandle
-            simulatorResize={simulatorResize}
-            deviceType={deviceType}
-            streamConfig={activeStreamConfig}
-            containerWidth={deviceRenderedWidth || simulatorResize.width}
-            containerHeight={
-              deviceRenderedHeight ||
-              (frameAspectRatioValue > 0 ? simulatorResize.width / frameAspectRatioValue : 0)
-            }
-          />
-          <SimulatorResizeSizeBadge
-            width={deviceRenderedWidth || simulatorResize.width}
-            height={
-              deviceRenderedHeight ||
-              (frameAspectRatioValue > 0 ? simulatorResize.width / frameAspectRatioValue : 0)
-            }
-            visible={simulatorResize.isResizing || simulatorResize.isInertia}
-          />
-          <MetricsHud pid={currentApp?.pid} enabled={streaming} />
         </div>
       </div>
 
@@ -956,12 +895,12 @@ function AppWithConfig({
             return (
               <div
                 key={t.id}
-                className={`flex flex-col gap-1.5 px-3 py-2 bg-panel border border-white/12 rounded-lg text-white/90 text-[12px] font-mono shadow-[0_4px_12px_rgba(0,0,0,0.4)] ${isError ? "select-text cursor-text" : "select-none cursor-default"}`}
+                className={`flex flex-col gap-1.5 px-3 py-2 bg-panel border border-divider text-fg text-[12px] font-mono shadow-[0_8px_24px_rgba(0,0,0,0.5)] ${isError ? "select-text cursor-text" : "select-none cursor-default"}`}
               >
                 <div className="flex items-center gap-2">
                   <span
-                    className="size-1.5 rounded-full shrink-0 [transition:background_0.3s]"
-                    style={{ background: isUploading ? "#a5b4fc" : t.status === "success" ? "#4ade80" : "#f87171" }}
+                    className="size-1.5 shrink-0 [transition:background_0.3s]"
+                    style={{ background: isUploading ? "var(--color-accent)" : t.status === "success" ? "var(--color-success)" : "var(--color-danger)" }}
                   />
                   <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
                     {isUploading && transferring &&
@@ -974,14 +913,14 @@ function AppWithConfig({
                   </span>
                 </div>
                 {isUploading && (
-                  <div className="relative h-[3px] w-full bg-white/8 rounded-[2px] overflow-hidden">
+                  <div className="relative h-[3px] w-full bg-surface-3 overflow-hidden">
                     {transferring ? (
                       <div
-                        className="h-full bg-accent rounded-[2px] [transition:width_120ms_linear]"
+                        className="h-full bg-accent [transition:width_120ms_linear]"
                         style={{ width: `${pct}%` }}
                       />
                     ) : (
-                      <div className="headless-serve-sim-toast-indeterminate absolute top-0 left-0 h-full w-[40%] bg-accent rounded-[2px]" />
+                      <div className="headless-serve-sim-toast-indeterminate absolute top-0 left-0 h-full w-[40%] bg-accent" />
                     )}
                   </div>
                 )}
@@ -991,96 +930,34 @@ function AppWithConfig({
         </div>
       )}
 
-      {/* Right-edge sidebar rail. */}
-      <div
-        className={`fixed top-3 right-3 flex flex-col gap-1 p-1 bg-panel-bg border border-white/8 rounded-[10px] backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] [transition:opacity_0.18s_ease] z-40 ${(panelOpen || devtoolsOpen || gridOpen || statsOpen) ? "opacity-0 pointer-events-none" : "opacity-100 pointer-events-auto"}`}
-      >
-        <button
-          onClick={() => {
-            setDevtoolsOpen(false);
-            setGridOpen(false);
-            setStatsOpen(false);
-            setPanelOpen((o) => !o);
-          }}
-          className="w-[30px] h-[30px] flex items-center justify-center bg-transparent border-none rounded-md text-[#8e8e93] cursor-pointer [transition:background_0.15s_ease,color_0.15s_ease] hover:bg-white/8 hover:text-white"
-          aria-label="Open tools panel"
-          aria-pressed={panelOpen}
-          title="Tools"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="4" width="18" height="16" rx="2.5" />
-            <line x1="15" y1="4" x2="15" y2="20" />
-          </svg>
-        </button>
-        <button
-          onClick={() => {
-            setPanelOpen(false);
-            setGridOpen(false);
-            setStatsOpen(false);
-            setDevtoolsOpen((o) => !o);
-          }}
-          className="w-[30px] h-[30px] flex items-center justify-center bg-transparent border-none rounded-md text-[#8e8e93] cursor-pointer [transition:background_0.15s_ease,color_0.15s_ease] hover:bg-white/8 hover:text-white"
-          aria-label="Open WebKit DevTools"
-          aria-pressed={devtoolsOpen}
-          title="WebKit DevTools"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
-            <path d="M2 12h20" />
-          </svg>
-        </button>
-        <button
-          onClick={() => {
-            setPanelOpen(false);
-            setDevtoolsOpen(false);
-            setStatsOpen(false);
-            setGridOpen((o) => !o);
-          }}
-          className="w-[30px] h-[30px] flex items-center justify-center bg-transparent border-none rounded-md text-[#8e8e93] cursor-pointer [transition:background_0.15s_ease,color_0.15s_ease] hover:bg-white/8 hover:text-white"
-          aria-label="Open simulator grid"
-          aria-pressed={gridOpen}
-          title="Simulators"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="7" height="7" rx="1.5" />
-            <rect x="14" y="3" width="7" height="7" rx="1.5" />
-            <rect x="3" y="14" width="7" height="7" rx="1.5" />
-            <rect x="14" y="14" width="7" height="7" rx="1.5" />
-          </svg>
-        </button>
-        <button
-          onClick={() => {
-            setPanelOpen(false);
-            setDevtoolsOpen(false);
-            setGridOpen(false);
-            setStatsOpen((o) => !o);
-          }}
-          className="w-[30px] h-[30px] flex items-center justify-center bg-transparent border-none rounded-md text-[#8e8e93] cursor-pointer [transition:background_0.15s_ease,color_0.15s_ease] hover:bg-white/8 hover:text-white"
-          aria-label="Open connection stats"
-          aria-pressed={statsOpen}
-          title="Connection Stats"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M2 12h5l3-7 4 14 3-7h5" />
-          </svg>
-        </button>
-      </div>
-
-      <ToolsPanel
-        open={panelOpen}
-        onClose={() => setPanelOpen(false)}
+      {/* Inspector */}
+      <InspectorBar
+        open={inspectorOpen}
+        onToggle={() => setInspectorOpen((o) => !o)}
+        collapsedWidth={INSPECTOR_COLLAPSED_WIDTH}
+        expandedWidth={INSPECTOR_EXPANDED_WIDTH}
+        topBarHeight={TOP_BAR_HEIGHT}
+        frameHeight={frameGeom.height}
+        openOverlay={statsOpen ? "stats" : gridOpen ? "grid" : devtoolsOpen ? "devtools" : null}
         udid={config.device}
         currentApp={currentApp}
         axOverlayEnabled={axOverlayEnabled}
         onToggleAxOverlay={() => setAxOverlayEnabled((enabled) => !enabled)}
-        width={toolsPanelWidth}
-      />
-      <ResizeHandle
-        panelWidth={toolsPanelWidth}
-        visible={panelOpen}
-        onPointerDown={onToolsResize}
-        ariaLabel="Resize tools panel"
+        onOpenStats={() => {
+          setGridOpen(false);
+          setDevtoolsOpen(false);
+          setStatsOpen(true);
+        }}
+        onOpenGrid={() => {
+          setStatsOpen(false);
+          setDevtoolsOpen(false);
+          setGridOpen(true);
+        }}
+        onOpenDevtools={() => {
+          setStatsOpen(false);
+          setGridOpen(false);
+          setDevtoolsOpen(true);
+        }}
       />
 
       <GridPanel
@@ -1133,19 +1010,6 @@ function AppWithConfig({
         ariaLabel="Resize connection stats panel"
       />
 
-      {/* Status bar */}
-      <div className="flex items-center gap-2.5 text-[12px] font-mono text-white/40">
-        <span
-          className="flex items-center gap-[5px] [transition:color_0.3s]"
-          style={{ color: streaming ? "#4ade80" : "#666" }}
-        >
-          <span
-            className="size-1.5 rounded-full [transition:background_0.3s]"
-            style={{ background: streaming ? "#4ade80" : "#666" }}
-          />
-          {streaming ? "live" : "connecting"}
-        </span>
-      </div>
     </div>
     </AxStateProvider>
   );

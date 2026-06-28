@@ -55,17 +55,18 @@ export interface SimulatorToolbarProps extends HTMLAttributes<HTMLDivElement> {
 
 const toolbarStyle: CSSProperties = {
   display: "flex",
-  flexWrap: "wrap",
+  flexWrap: "nowrap",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: "4px 12px",
-  padding: "8px 12px",
-  borderRadius: 24,
-  background: "#1c1c1e",
-  border: "1px solid rgba(255,255,255,0.1)",
-  boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
-  minWidth: 240,
+  gap: "0 8px",
+  height: 44,
+  padding: "0 10px",
+  background: "#1d1d1f",
+  borderBottom: "1px solid #424245",
+  minWidth: 0,
   width: "100%",
+  boxSizing: "border-box",
+  overflow: "hidden",
 };
 
 function SimulatorToolbarRoot({
@@ -125,7 +126,7 @@ const titleButtonStyle: CSSProperties = {
   color: "#fff",
   padding: "2px 4px",
   margin: "-2px -4px",
-  borderRadius: 6,
+  borderRadius: 0,
   cursor: "pointer",
   minWidth: 0,
   maxWidth: "100%",
@@ -158,7 +159,7 @@ const Title = forwardRef<HTMLButtonElement, TitleProps>(function Title(
       }}
       style={{
         ...titleButtonStyle,
-        background: hover ? "rgba(255,255,255,0.1)" : "transparent",
+        background: hover ? "#2c2c2e" : "transparent",
         ...style,
       }}
       {...rest}
@@ -188,7 +189,7 @@ const Title = forwardRef<HTMLButtonElement, TitleProps>(function Title(
             strokeWidth="2.5"
             strokeLinecap="round"
             strokeLinejoin="round"
-            style={{ color: "rgba(255,255,255,0.6)", flexShrink: 0 }}
+            style={{ color: "#86868b", flexShrink: 0 }}
           >
             <polyline points="6 9 12 15 18 9" />
           </svg>
@@ -197,7 +198,7 @@ const Title = forwardRef<HTMLButtonElement, TitleProps>(function Title(
       <span
         style={{
           fontSize: 10,
-          color: "rgba(255,255,255,0.5)",
+          color: "#86868b",
           maxWidth: "100%",
           overflow: "hidden",
           textOverflow: "ellipsis",
@@ -234,7 +235,7 @@ const buttonStyle: CSSProperties = {
   background: "transparent",
   border: "none",
   padding: 6,
-  borderRadius: 6,
+  borderRadius: 0,
   cursor: "pointer",
   display: "inline-flex",
   alignItems: "center",
@@ -268,7 +269,7 @@ const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(function
         ...buttonStyle,
         color: effectiveDisabled ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.8)",
         background:
-          hover && !effectiveDisabled ? "rgba(255,255,255,0.1)" : "transparent",
+          hover && !effectiveDisabled ? "#2c2c2e" : "transparent",
         cursor: effectiveDisabled ? "not-allowed" : "pointer",
         ...style,
       }}

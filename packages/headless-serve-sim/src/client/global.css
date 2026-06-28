@@ -3,25 +3,39 @@
 @source "./";
 
 @theme {
-  /* Panel / surface palette */
-  --color-panel: #1c1c1e;
-  --color-panel-bg: rgba(20, 20, 22, 0.92);
-  --color-panel-overlay: rgba(20, 20, 22, 0.65);
-  --color-panel-deep: #111113;
-  --color-page: #0a0a0a;
+  /* Surfaces — Apple DocC dark register. Layer by fill shift, not shadow. */
+  --color-page: #000000;          /* canvas */
+  --color-panel: #1d1d1f;         /* panels, top bar, inspector, blocks */
+  --color-panel-bg: #1d1d1f;      /* opaque in the dense register (no translucency) */
+  --color-panel-overlay: rgba(20, 20, 22, 0.92);
+  --color-panel-deep: #161617;    /* nested / secondary fill */
+  --color-surface-2: #161617;
+  --color-surface-3: #111111;     /* raised alt */
+  --color-hover: #2c2c2e;         /* row / control hover */
+  --color-divider: #424245;       /* EVERY hairline rule */
 
-  /* Accent palette */
-  --color-accent: #a5b4fc;
-  --color-success: #4ade80;
-  --color-success-emerald: #34d399;
-  --color-danger: #f87171;
-  --color-danger-soft: #fca5a5;
-  --color-warning: #fbbf24;
-  --color-warning-soft: #fcd34d;
+  /* Text — weight/size drives rank, never color */
+  --color-fg: #f5f5f7;            /* primary */
+  --color-fg-2: #a1a1a6;          /* secondary */
+  --color-fg-3: #86868b;          /* muted / captions / eyebrows */
+
+  /* Accent — one blue for all interactive text/links */
+  --color-accent: #2997ff;
+  --color-accent-solid: #0071e3;  /* the single filled primary button */
+  --color-accent-tint: rgba(0, 113, 227, 0.18); /* selected-row fill */
+
+  /* Status / figure colors — crisp, no glow, >=0.6 alpha */
+  --color-success: #30d158;
+  --color-success-emerald: #30d158;
+  --color-danger: #ff453a;
+  --color-danger-soft: #ff6961;
+  --color-warning: #ffd60a;
+  --color-warning-soft: #ffd60a;
 
   /* Font families */
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-system: -apple-system, system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-system: "SF Pro Text", -apple-system, system-ui, "Helvetica Neue", sans-serif;
+  --font-display: "SF Pro Display", -apple-system, system-ui, "Helvetica Neue", sans-serif;
 }
 
 /* The UI is dark-only, but UA-rendered chrome (select popups, scrollbars,
@@ -31,6 +45,13 @@
    show a white option list on the dark panel. */
 :root {
   color-scheme: dark;
+}
+
+/* Keyboard focus ring for the inline-styled top-bar icon buttons (the toolbar
+   lib uses CSS-in-JS, so :focus-visible can't be expressed inline). */
+[data-simulator-toolbar] button:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-accent);
 }
 
 /* Collapsible tool sections (<details>) animate open/close height with a
@@ -47,8 +68,8 @@ details.lem-section::details-content {
   height: 0;
   overflow: clip;
   transition:
-    height 0.22s ease,
-    content-visibility 0.22s allow-discrete;
+    height 0.28s cubic-bezier(0.4, 0, 0.6, 1),
+    content-visibility 0.28s allow-discrete;
 }
 
 details.lem-section[open]::details-content {
@@ -101,8 +122,8 @@ details.lem-section > summary::-webkit-details-marker {
 }
 .grid-tile:hover .grid-shutdown-btn { opacity: 1; }
 .grid-shutdown-btn:hover:not(:disabled) {
-  background: #5a1d1d;
-  color: #fff;
-  border-color: #a33;
+  background: #4a1717;
+  color: var(--color-fg);
+  border-color: var(--color-danger);
 }
-.grid-tile:hover { border-color: #555 !important; }
+.grid-tile:hover { border-color: var(--color-divider) !important; }
