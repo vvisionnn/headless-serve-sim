@@ -42,6 +42,8 @@ const TAG_TO_TYPE: Record<number, AvccChunkType | undefined> = {
 // blocking forever waiting for bytes that will never arrive.
 const MAX_CHUNK_BYTES = 64 * 1024 * 1024;
 
+const EMPTY = new Uint8Array(0);
+
 /**
  * Stateful demuxer that turns a byte stream into whole AVCC chunks. Feed it
  * each `Uint8Array` from the reader; it returns the chunks now fully buffered
@@ -51,17 +53,27 @@ export class AvccDemuxer {
   private buffer = new Uint8Array(0);
 
   push(bytes: Uint8Array): AvccChunk[] {
-    if (bytes.length > 0) {
+    // Fast path: with nothing retained, parse straight out of the incoming
+    // bytes and copy only the trailing partial chunk back into `buffer`. In
+    // steady state each read carries ~one whole frame and drains fully, so this
+    // skips a full-buffer alloc+copy on every read — pure GC pressure off the
+    // 60fps decode loop. Only when a partial chunk straddles reads do we merge.
+    let src: Uint8Array;
+    if (this.buffer.length === 0) {
+      src = bytes;
+    } else if (bytes.length > 0) {
       const merged = new Uint8Array(this.buffer.length + bytes.length);
       merged.set(this.buffer);
       merged.set(bytes, this.buffer.length);
-      this.buffer = merged;
+      src = merged;
+    } else {
+      src = this.buffer;
     }
 
     const chunks: AvccChunk[] = [];
     let offset = 0;
-    while (this.buffer.length - offset >= 4) {
-      const view = new DataView(this.buffer.buffer, this.buffer.byteOffset + offset, 4);
+    while (src.length - offset >= 4) {
+      const view = new DataView(src.buffer, src.byteOffset + offset, 4);
       const length = view.getUint32(0, false);
       // length covers the tag byte + payload. Below 1 or above the sane cap
       // means framing is lost (corrupt/torn stream): skip the 4-byte header and
@@ -73,15 +85,26 @@ export class AvccDemuxer {
         continue;
       }
       // Need the whole chunk buffered before we can emit it.
-      if (this.buffer.length - offset - 4 < length) break;
-      const tag = this.buffer[offset + 4]!;
-      const payload = this.buffer.slice(offset + 5, offset + 4 + length);
+      if (src.length - offset - 4 < length) break;
+      const tag = src[offset + 4]!;
+      // slice() copies, so emitted payloads never alias a transient reader
+      // buffer (important now that `src` may be the caller's `bytes`).
+      const payload = src.slice(offset + 5, offset + 4 + length);
       const type = TAG_TO_TYPE[tag];
       if (type) chunks.push({ type, payload });
       offset += 4 + length;
     }
 
-    this.buffer = offset === 0 ? this.buffer : this.buffer.slice(offset);
+    // Retain the unparsed remainder. Skip the copy when nothing was consumed
+    // from our own buffer; otherwise copy (the remainder may live inside the
+    // caller's transient `bytes`).
+    if (offset >= src.length) {
+      this.buffer = EMPTY;
+    } else if (offset === 0 && src === this.buffer) {
+      // unchanged — keep the existing buffer as-is
+    } else {
+      this.buffer = src.slice(offset);
+    }
     return chunks;
   }
 

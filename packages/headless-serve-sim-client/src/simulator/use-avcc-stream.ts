@@ -105,6 +105,22 @@ export function useAvccStream({
       onRequestKeyframe?.();
     };
 
+    // Cache the 2D context across frames. `desynchronized: true` puts the canvas
+    // on Chromium's low-latency present path (decouples the paint from the
+    // normal compositor sync — measurably tighter input→photon and less paint
+    // jitter for a live video canvas); `alpha: false` lets the compositor treat
+    // it as opaque (the stream fills the canvas; overlays are separate DOM).
+    // Re-acquiring getContext per frame is pure overhead — the same context
+    // object survives a width/height resize.
+    let ctx2d: CanvasRenderingContext2D | null = null;
+    let ctxCanvas: HTMLCanvasElement | null = null;
+    const acquireCtx = (canvas: HTMLCanvasElement): CanvasRenderingContext2D | null => {
+      if (ctxCanvas === canvas && ctx2d) return ctx2d;
+      ctx2d = canvas.getContext("2d", { desynchronized: true, alpha: false });
+      ctxCanvas = canvas;
+      return ctx2d;
+    };
+
     const paint = (source: CanvasImageSource, w: number, h: number, info: AvccFrameInfo) => {
       if (stopped) return;
       const canvas = canvasRef.current;
@@ -113,7 +129,7 @@ export function useAvccStream({
         canvas.width = w;
         canvas.height = h;
       }
-      const ctx = canvas.getContext("2d");
+      const ctx = acquireCtx(canvas);
       if (!ctx) return;
       ctx.drawImage(source, 0, 0, w, h);
       onFrame?.(info);

@@ -165,6 +165,9 @@ export function SimulatorView({
   const lastKeyframeAtRef = useRef<number | null>(null);
   const serverStatsRef = useRef<ServerStreamStats | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  // Cached surface rect for the pointer hot path (see getInputRect): refreshed
+  // lazily and invalidated whenever layout can shift.
+  const inputRectRef = useRef<DOMRect | null>(null);
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number } | null>(null);
   useEffect(() => {
     const el = viewportRef.current;
@@ -172,6 +175,7 @@ export function SimulatorView({
     const ro = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
       if (rect) setViewportSize({ width: rect.width, height: rect.height });
+      inputRectRef.current = null; // surface moved/resized — drop the cached rect
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -538,7 +542,11 @@ export function SimulatorView({
     // FPS counter: read MJPEG boundary markers
     const fpsAbort = new AbortController();
     const fpsInterval = setInterval(() => {
-      setFps(frameCountRef.current);
+      // The FPS readout only renders when controls are shown; skipping the
+      // setState when hidden avoids a 1 Hz re-render of this large component
+      // landing on top of the steady-state decode/paint loop (a periodic
+      // jitter-tail source).
+      if (!hideControls) setFps(frameCountRef.current);
       frameCountRef.current = 0;
     }, 1000);
 
@@ -644,7 +652,7 @@ export function SimulatorView({
       // FPS is drained by the socket effect in direct mode (AVCC + MJPEG); only
       // own it here in relay mode, where that effect doesn't run.
       if (relayMode) {
-        setFps(frameCountRef.current);
+        if (!hideControls) setFps(frameCountRef.current);
         frameCountRef.current = 0;
       }
       checkStaleness();
@@ -665,11 +673,32 @@ export function SimulatorView({
     return relayMode ? relayImgRef.current : imgRef.current;
   }, [relayMode, useAvcc]);
 
+  // Pointer-move handlers fire ~60×/s during a drag; calling
+  // getBoundingClientRect on each one forces a synchronous layout reflow that
+  // competes with frame decode/paint and measurably widens interactive jitter.
+  // The surface rect only changes on resize/scroll/layout, so cache it and
+  // recompute only when invalidated — turning a per-move reflow into ~one per
+  // gesture.
   const getInputRect = useCallback(() => {
-    return surfaceRef.current?.getBoundingClientRect()
-      ?? getViewElement()?.getBoundingClientRect()
-      ?? null;
+    let r = inputRectRef.current;
+    if (!r) {
+      r = surfaceRef.current?.getBoundingClientRect()
+        ?? getViewElement()?.getBoundingClientRect()
+        ?? null;
+      inputRectRef.current = r;
+    }
+    return r;
   }, [getViewElement]);
+  useEffect(() => {
+    const invalidate = () => { inputRectRef.current = null; };
+    // capture-phase scroll catches scrolling in any ancestor, not just window.
+    window.addEventListener("scroll", invalidate, true);
+    window.addEventListener("resize", invalidate);
+    return () => {
+      window.removeEventListener("scroll", invalidate, true);
+      window.removeEventListener("resize", invalidate);
+    };
+  }, []);
 
   const handleTouch = useCallback(
     (type: "begin" | "move" | "end", event: MouseEvent<HTMLElement>) => {
