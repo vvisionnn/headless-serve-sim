@@ -519,13 +519,12 @@ function AppWithConfig({
   }, [config.streamUrl]);
 
   useEffect(() => {
-    const confirmedConfig = streamConfig;
-    if (!confirmedConfig) return;
+    if (!streamConfig) return;
     setLiveStreamConfig((prev) =>
       prev &&
-      prev.width === confirmedConfig.width &&
-      prev.height === confirmedConfig.height &&
-      prev.orientation === confirmedConfig.orientation
+      prev.width === streamConfig.width &&
+      prev.height === streamConfig.height &&
+      prev.orientation === streamConfig.orientation
         ? prev
         : null,
     );

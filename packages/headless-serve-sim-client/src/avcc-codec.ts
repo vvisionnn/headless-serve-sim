@@ -50,7 +50,7 @@ const EMPTY = new Uint8Array(0);
  * and retains any trailing partial bytes for the next call.
  */
 export class AvccDemuxer {
-  private buffer = new Uint8Array(0);
+  private buffer = EMPTY;
 
   push(bytes: Uint8Array): AvccChunk[] {
     // Fast path: with nothing retained, parse straight out of the incoming
@@ -109,7 +109,7 @@ export class AvccDemuxer {
   }
 
   reset(): void {
-    this.buffer = new Uint8Array(0);
+    this.buffer = EMPTY;
   }
 }
 

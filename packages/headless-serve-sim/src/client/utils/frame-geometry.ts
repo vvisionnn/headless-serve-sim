@@ -20,19 +20,20 @@ export function fitDeviceFrame(p: {
   maxWidth: number;
   maxScale: number;
 }): { width: number; height: number } {
+  // Normalized to > 0 so the divisions below never hit a divide-by-zero.
   const aspect = p.aspect > 0 ? p.aspect : 1;
   const availH = Math.max(0, p.viewportHeight - p.topBarHeight - p.assemblyBorder);
   const availW = Math.max(0, p.viewportWidth - p.sideRailsWidth - p.assemblyBorder);
-  let h = Math.min(availH, aspect > 0 ? availW / aspect : availH);
+  let h = Math.min(availH, availW / aspect);
   let w = h * aspect;
   if (w > availW) {
     w = availW;
-    h = aspect > 0 ? w / aspect : h;
+    h = w / aspect;
   }
   const upscaleCap = p.maxWidth * p.maxScale;
   if (w > upscaleCap) {
     w = upscaleCap;
-    h = aspect > 0 ? w / aspect : h;
+    h = w / aspect;
   }
   return {
     width: Math.max(0, roundToDevicePixel(w)),
