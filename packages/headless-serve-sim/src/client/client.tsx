@@ -78,6 +78,35 @@ const ROTATE_RIGHT_CYCLE: Record<SimulatorOrientation, SimulatorOrientation> = {
 
 // ─── App ───
 
+// Boolean UI flag persisted to localStorage, so a rail's expanded/collapsed
+// state survives a reload. Reads once on mount; writes on every change.
+function usePersistedFlag(
+  key: string,
+  fallback: boolean,
+): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
+  const [value, setValue] = useState<boolean>(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw == null ? fallback : raw === "1";
+    } catch {
+      return fallback;
+    }
+  });
+  const set = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      setValue((prev) => {
+        const v = typeof next === "function" ? (next as (p: boolean) => boolean)(prev) : next;
+        try {
+          localStorage.setItem(key, v ? "1" : "0");
+        } catch {}
+        return v;
+      });
+    },
+    [key],
+  );
+  return [value, set];
+}
+
 type PreviewConfig = NonNullable<Window["__SIM_PREVIEW__"]>;
 
 function previewConfigKey(config: PreviewConfig | null): string {
@@ -729,21 +758,25 @@ function AppWithConfig({
   // Left column = top bar + device frame, filling the viewport height. The
   // frame fits within the space left of the inspector, preserving the device
   // aspect ratio; the top bar's width follows the frame width.
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  // Both side rails — the left Activity gauges and the right inspector — share
+  // the same collapsed/expanded geometry, default collapsed, and persist their
+  // state across reloads.
+  const [metricsOpen, setMetricsOpen] = usePersistedFlag("headless-serve-sim:metrics-open", false);
+  const [inspectorOpen, setInspectorOpen] = usePersistedFlag("headless-serve-sim:inspector-open", false);
   const TOP_BAR_HEIGHT = 44;
-  const INSPECTOR_COLLAPSED_WIDTH = 44;
-  const INSPECTOR_EXPANDED_WIDTH = 360;
-  // Dedicated, always-visible left rail for the live CPU/MEM gauges — mirrors
-  // the right inspector's shell but never collapses (hiding the gauges would
-  // defeat its purpose).
-  const METRICS_BAR_WIDTH = 220;
+  const RAIL_COLLAPSED_WIDTH = 44;
+  const RAIL_EXPANDED_WIDTH = 360;
   const inspectorWidth = Math.min(
-    inspectorOpen ? INSPECTOR_EXPANDED_WIDTH : INSPECTOR_COLLAPSED_WIDTH,
+    inspectorOpen ? RAIL_EXPANDED_WIDTH : RAIL_COLLAPSED_WIDTH,
+    viewportWidth,
+  );
+  const metricsWidth = Math.min(
+    metricsOpen ? RAIL_EXPANDED_WIDTH : RAIL_COLLAPSED_WIDTH,
     viewportWidth,
   );
   // Both side rails are reserved out of the frame's available width, so the
   // device never slips under either bar at any viewport size.
-  const sideRailsWidth = Math.min(METRICS_BAR_WIDTH + inspectorWidth, viewportWidth);
+  const sideRailsWidth = Math.min(metricsWidth + inspectorWidth, viewportWidth);
 
   // The assembly is wrapped in a 1px border on every outer edge; reserve those
   // 2px (top+bottom / left+right) so the bordered box always fits the viewport
@@ -783,11 +816,14 @@ function AppWithConfig({
       <div className="flex border border-divider">
       {/* Left rail — live CPU/MEM gauges, mirrored against the right inspector. */}
       <MetricsBar
-        pid={currentApp?.pid}
-        enabled={streaming}
+        open={metricsOpen}
+        onToggle={() => setMetricsOpen((o) => !o)}
+        collapsedWidth={RAIL_COLLAPSED_WIDTH}
+        expandedWidth={RAIL_EXPANDED_WIDTH}
         topBarHeight={TOP_BAR_HEIGHT}
         frameHeight={frameGeom.height}
-        width={METRICS_BAR_WIDTH}
+        pid={currentApp?.pid}
+        enabled={streaming}
       />
       <div
         className="flex shrink-0 min-w-0 flex-col"
@@ -943,8 +979,8 @@ function AppWithConfig({
       <InspectorBar
         open={inspectorOpen}
         onToggle={() => setInspectorOpen((o) => !o)}
-        collapsedWidth={INSPECTOR_COLLAPSED_WIDTH}
-        expandedWidth={INSPECTOR_EXPANDED_WIDTH}
+        collapsedWidth={RAIL_COLLAPSED_WIDTH}
+        expandedWidth={RAIL_EXPANDED_WIDTH}
         topBarHeight={TOP_BAR_HEIGHT}
         frameHeight={frameGeom.height}
         openOverlay={statsOpen ? "stats" : gridOpen ? "grid" : devtoolsOpen ? "devtools" : null}

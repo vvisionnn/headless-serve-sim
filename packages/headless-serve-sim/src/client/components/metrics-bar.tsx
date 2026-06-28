@@ -2,20 +2,22 @@ import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { MAX_SAMPLES, useAppMetrics } from "../hooks/use-app-metrics";
 import { formatGridBytes } from "../utils/grid";
 
-// Full-height left "Activity" bar — the dedicated home for the foreground app's
-// live CPU% and memory. It mirrors the right inspector's shell (frosted 44px
-// header + recessed canvas + grouped white cards) so the two rails read as a
-// matched pair framing the device. Unlike the inspector it never collapses:
-// these gauges are the whole point of the bar, so hiding them would defeat it.
+// Full-height left "Activity" rail — the dedicated home for the foreground app's
+// live CPU% and memory. It mirrors the right inspector exactly: a thin
+// collapsed rail whose frosted header lines up with the top bar, expanding to a
+// fixed-width panel that slides out (the body is laid out at full width at all
+// times and anchored to the LEFT edge; expanding just animates the rail width).
 //
-// Each gauge leads with a LARGE tabular hero number (the memory figure alone
-// proves the readout is live even when an idle app's CPU line is flat against
-// the baseline), backed by a big filled sparkline that GROWS to fill the card
-// (its height is measured, so the chart is a real instrument, not a hairline).
-// CPU is color-graded by load; memory rides the one accent blue. Reuses the
-// 1Hz metrics hook + rolling history; presentation only.
+// The two gauges sit at the TOP of the panel at a fixed, comfortable height —
+// they are compact instruments, not space-fillers, so the lower panel is left
+// deliberately open. Each gauge leads with a large tabular hero number (the
+// memory figure alone proves the readout is live even when an idle app's CPU
+// line is flat) over a filled sparkline. CPU is color-graded by load; memory
+// rides the one accent blue. Reuses the 1Hz metrics hook; presentation only.
 
 const MEM_MIN_SPAN = 160 * 1024 * 1024; // y-range floor so idle memory jitter reads flat
+const CHART_H = 80; // fixed sparkline height — gauges stay compact, not full-bleed
+const EASE = "cubic-bezier(0.4, 0, 0.6, 1)";
 
 function cpuColor(pct: number | null): string {
   if (pct == null) return "var(--color-fg-3)";
@@ -24,22 +26,22 @@ function cpuColor(pct: number | null): string {
   return "var(--color-success)";
 }
 
-// Measure an element's content box, so the sparkline can render at exact crisp
-// pixels and reflow when the bar height changes (viewport resize / rotation).
-function useElementSize(): [React.RefObject<HTMLDivElement | null>, { w: number; h: number }] {
+// Measure an element's width so the sparkline renders at crisp pixels and
+// reflows when the panel resizes (the height is fixed at CHART_H).
+function useElementWidth(): [React.RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement | null>(null);
-  const [size, setSize] = useState({ w: 0, h: 0 });
+  const [w, setW] = useState(0);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
       const box = entries[0]?.contentRect;
-      if (box) setSize({ w: Math.round(box.width), h: Math.round(box.height) });
+      if (box) setW(Math.round(box.width));
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  return [ref, size];
+  return [ref, w];
 }
 
 // Right-anchored sparkline scaled into [yMin, yMax]; newest sample pins to the
@@ -74,19 +76,29 @@ function buildPaths(
   return { line, area, tip: xy[xy.length - 1]! as [number, number] };
 }
 
-export function MetricsBar({
-  pid,
-  enabled,
-  topBarHeight,
-  frameHeight,
-  width,
-}: {
-  pid?: number;
-  enabled: boolean;
+export interface MetricsBarProps {
+  open: boolean;
+  onToggle: () => void;
+  collapsedWidth: number;
+  expandedWidth: number;
   topBarHeight: number;
   frameHeight: number;
-  width: number;
-}) {
+  pid?: number;
+  enabled: boolean;
+}
+
+export function MetricsBar({
+  open,
+  onToggle,
+  collapsedWidth,
+  expandedWidth,
+  topBarHeight,
+  frameHeight,
+  pid,
+  enabled,
+}: MetricsBarProps) {
+  // The hook runs whether the rail is open or not, so samples accumulate while
+  // collapsed and the charts already have data the instant it's expanded.
   const { latest, samples } = useAppMetrics(pid, enabled);
   const height = topBarHeight + frameHeight;
 
@@ -113,32 +125,69 @@ export function MetricsBar({
   return (
     <aside
       className="relative shrink-0 overflow-hidden bg-panel border-r border-divider font-system"
-      style={{ width, height }}
+      style={{
+        width: open ? expandedWidth : collapsedWidth,
+        height,
+        transition: `width 320ms ${EASE}`,
+      }}
       aria-label="Activity"
     >
-      <div className="flex flex-col" style={{ width, height }}>
-        {/* Header — frosted, same height + bottom keyline as the top bar, so the
-            left rail's cap lines up with the toolbar across the device. */}
+      {/* Fixed-width panel anchored to the LEFT edge — never reflows; the rail
+          width animation reveals it. */}
+      <div className="absolute top-0 left-0 flex flex-col" style={{ width: expandedWidth, height }}>
+        {/* Header — frosted, same height + keyline as the top bar. The toggle
+            sits at the LEFT so it stays in the collapsed rail. */}
         <div
-          className="flex items-center gap-2 shrink-0 border-b border-divider px-3.5 bg-panel-overlay [backdrop-filter:saturate(1.8)_blur(20px)]"
+          className="flex items-center shrink-0 border-b border-divider bg-panel-overlay [backdrop-filter:saturate(1.8)_blur(20px)]"
           style={{ height: topBarHeight }}
         >
+          {/* The toggle sits in a slot exactly the collapsed-rail width, so the
+              title that follows starts at the rail edge: it stays mounted and is
+              simply clipped by the rail when collapsed (sliding behind the frame
+              with the width animation) rather than extending out or popping. */}
+          <div className="flex shrink-0 items-center justify-center" style={{ width: collapsedWidth }}>
+            <button
+              type="button"
+              onClick={onToggle}
+              className="flex size-9 items-center justify-center rounded-full bg-transparent text-fg-2 hover:bg-hover hover:text-fg [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1)] cursor-pointer focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+              aria-label={open ? "Collapse activity" : "Expand activity"}
+              aria-expanded={open}
+              title="Activity"
+            >
+              <svg
+                width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                style={{ transform: open ? "rotate(180deg)" : "none" }}
+              >
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+            </button>
+          </div>
           <ActivityGlyph />
-          <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
+          <span className="ml-1.5 whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
             Activity
           </span>
           {alive && (
             <span
-              className="ml-auto size-1.5 rounded-full bg-success"
+              className="ml-auto mr-2 size-1.5 rounded-full bg-success"
               style={{ animation: "hud-pulse 1.8s cubic-bezier(0.4,0,0.6,1) infinite" }}
               aria-hidden
             />
           )}
         </div>
 
-        {/* Body — two gauges share the column height as a balanced instrument
-            panel; scrolls on a short viewport. */}
-        <div className="flex flex-1 min-h-0 flex-col gap-3 overflow-y-auto bg-inset p-3.5">
+        {/* Body — compact gauges pinned to the top; the lower panel stays open.
+            Fades + slides in as a unit so it reads as a panel sliding out. */}
+        <div
+          className="flex flex-1 min-h-0 flex-col gap-3 overflow-y-auto bg-inset p-3.5 [&>*]:shrink-0"
+          aria-hidden={!open}
+          style={{
+            opacity: open ? 1 : 0,
+            transform: open ? "translateX(0)" : "translateX(-28px)",
+            pointerEvents: open ? "auto" : "none",
+            transition: `opacity 260ms ${EASE}, transform 320ms ${EASE}`,
+          }}
+        >
           <Gauge
             kind="cpu"
             label="CPU"
@@ -190,11 +239,11 @@ function Gauge({
   yMin: number;
   yMax: number;
 }) {
-  const [chartRef, { w, h }] = useElementSize();
+  const [chartRef, w] = useElementWidth();
   const fillId = `metric-fill-${kind}`;
-  const paths = values ? buildPaths(values, yMin, yMax, w, h) : null;
+  const paths = values ? buildPaths(values, yMin, yMax, w, CHART_H) : null;
   return (
-    <div className="flex flex-1 min-h-[150px] flex-col rounded-card border border-divider bg-panel p-3.5">
+    <div className="flex flex-col rounded-card border border-divider bg-panel p-3.5">
       <div className="flex items-center gap-2">
         <GlyphIcon kind={kind} color={color} />
         <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
@@ -203,23 +252,17 @@ function Gauge({
       </div>
       <div className="mt-2 flex items-baseline gap-1">
         <span
-          className="text-[32px] leading-none font-semibold tabular-nums tracking-[-0.02em]"
+          className="text-[30px] leading-none font-semibold tabular-nums tracking-[-0.02em]"
           style={{ color } as CSSProperties}
         >
           {value}
         </span>
         {unit && <span className="text-[14px] font-medium text-fg-3">{unit}</span>}
       </div>
-      {/* Chart fills the remaining card height; measured so the SVG stays crisp. */}
-      <div ref={chartRef} className="relative mt-3 min-h-0 flex-1">
-        {w > 0 && h > 0 && (
-          <svg
-            width={w}
-            height={h}
-            viewBox={`0 0 ${w} ${h}`}
-            className="block"
-            aria-hidden
-          >
+      {/* Fixed-height sparkline (measured width keeps it crisp). */}
+      <div ref={chartRef} className="mt-3" style={{ height: CHART_H }}>
+        {w > 0 && (
+          <svg width={w} height={CHART_H} viewBox={`0 0 ${w} ${CHART_H}`} className="block" aria-hidden>
             <defs>
               <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={color} stopOpacity={0.26} />
@@ -227,18 +270,11 @@ function Gauge({
               </linearGradient>
             </defs>
             {/* baseline axis — always drawn so an idle/flat series still reads as a chart */}
-            <line x1="0" y1={h - 4} x2={w} y2={h - 4} stroke={color} strokeWidth="1" strokeOpacity={0.22} />
+            <line x1="0" y1={CHART_H - 4} x2={w} y2={CHART_H - 4} stroke={color} strokeWidth="1" strokeOpacity={0.22} />
             {paths && (
               <>
                 <path d={paths.area} fill={`url(#${fillId})`} stroke="none" />
-                <path
-                  d={paths.line}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth="2"
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
+                <path d={paths.line} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
                 <circle cx={paths.tip[0]} cy={paths.tip[1]} r="2.6" fill={color} />
                 <circle cx={paths.tip[0]} cy={paths.tip[1]} r="2.6" fill="none" stroke={color} strokeOpacity={0.28} strokeWidth="3.5" />
               </>
