@@ -35,6 +35,12 @@
       "sourceType": "github",
       "skillPath": "skills/web-design-guidelines/SKILL.md",
       "computedHash": "f3bc47f890f42a44db1007ab390709ec368e4b8c089baee6b0007182236ac474"
+    },
+    "website-to-design-md": {
+      "source": "paidax01/web-to-design-md",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "ccc789ee3b8eb533c172ef669f47136f31c84b5d601069c87d76945399a6d397"
     }
   }
 }
