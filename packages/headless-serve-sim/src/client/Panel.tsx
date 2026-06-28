@@ -13,7 +13,7 @@ export function Panel({
 }) {
   return (
     <aside
-      className="fixed top-0 right-0 bottom-0 z-35 min-w-0 overflow-hidden border-l border-divider bg-panel text-fg shadow-[0_0_40px_rgba(0,0,0,0.5)] [font-family:-apple-system,system-ui,sans-serif] [transition:transform_0.28s_cubic-bezier(0.4,0,0.6,1),opacity_0.2s_ease] flex flex-col"
+      className="fixed top-0 right-0 bottom-0 z-35 min-w-0 overflow-hidden border-l border-divider bg-panel text-fg shadow-[-8px_0_24px_rgba(0,0,0,0.12)] font-system [transition:transform_0.3s_cubic-bezier(0.4,0,0.6,1),opacity_0.24s_cubic-bezier(0.4,0,0.6,1)] flex flex-col"
       style={{
         width,
         transform: open ? "translateX(0)" : "translateX(100%)",
@@ -35,11 +35,11 @@ export function PanelHeader({
   children: ReactNode;
   style?: CSSProperties;
 }) {
-  return <header className="flex shrink-0 items-center justify-between gap-2.5 border-b border-divider px-2.5 py-1.5 pl-3" style={style}>{children}</header>;
+  return <header className="flex shrink-0 items-center justify-between gap-2.5 border-b border-divider px-4 py-3" style={style}>{children}</header>;
 }
 
 export function PanelTitle({ children }: { children: ReactNode }) {
-  return <span className="text-[11px] font-medium text-fg-2">{children}</span>;
+  return <span className="font-display text-[15px] font-semibold tracking-[-0.01em] text-fg">{children}</span>;
 }
 
 export function PanelCloseButton({
@@ -57,7 +57,7 @@ export function PanelCloseButton({
     <button
       type="button"
       onClick={onClick}
-      className="flex shrink-0 cursor-pointer items-center justify-center bg-transparent p-2 min-h-[36px] min-w-[36px] text-fg-2 hover:bg-hover hover:text-fg [transition:background_0.15s,color_0.15s] focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent)]"
+      className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-transparent text-fg-2 hover:bg-hover hover:text-fg [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
       aria-label={ariaLabel}
       title={title}
     >

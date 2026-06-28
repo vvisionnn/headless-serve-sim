@@ -92,28 +92,32 @@ export function BootEmptyState({
   );
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-page p-2 gap-3 font-system box-border">
+    <div className="flex flex-col items-center justify-center h-screen bg-page p-4 gap-4 font-system box-border">
       <div className="flex flex-col items-center gap-3 text-center">
-        <h1 className="text-[18px] m-0 text-fg">No headless-serve-sim stream running</h1>
-        <p className="text-fg-2 text-[14px] max-w-120">
+        <h1 className="font-display text-[24px] font-semibold tracking-[-0.01em] m-0 text-fg">No headless-serve-sim stream running</h1>
+        <p className="text-fg-2 text-[15px] tracking-[-0.01em] max-w-120">
           Pick a simulator to boot, or start one yourself with{" "}
-          <code className="bg-surface-2 px-1.5 py-0.5 text-[13px]">bunx headless-serve-sim --detach</code>.
+          <code className="bg-surface-2 rounded-pill px-2 py-0.5 text-[13px]">bunx headless-serve-sim --detach</code>.
         </p>
-        <div className="w-full max-w-90 mt-2 bg-panel border border-divider font-mono text-[13px] text-fg text-left max-h-[70vh] overflow-y-auto min-h-0">
-          <div className="flex items-center justify-between px-2 py-1.5 text-[11px] text-fg-2 border-b border-divider">
-            <span className="font-semibold">Simulators</span>
-            <button onClick={onRefresh} disabled={loading} className="bg-transparent border-none text-accent text-[11px] cursor-pointer p-0">
+        <div className="w-full max-w-90 mt-2 bg-panel-deep rounded-card border border-divider font-mono text-[13px] text-fg text-left max-h-[70vh] overflow-y-auto min-h-0">
+          <div className="flex items-center justify-between px-3 py-2.5 text-[12px] text-fg-3 border-b border-divider">
+            <span className="font-semibold uppercase tracking-[0.06em]">Simulators</span>
+            <button
+              onClick={onRefresh}
+              disabled={loading}
+              className="bg-transparent border-none text-accent text-[12px] cursor-pointer p-0 rounded-sm transition-[color] duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] disabled:cursor-default disabled:opacity-50 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+            >
               {loading ? "..." : "Refresh"}
             </button>
           </div>
-          {error && <div className="px-2 py-1.5 text-danger text-[11px] border-b border-divider">{error}</div>}
-          {startError && <div className="px-2 py-1.5 text-danger text-[11px] border-b border-divider">{startError}</div>}
+          {error && <div className="px-3 py-2 text-danger text-[12px] break-words border-b border-divider">{error}</div>}
+          {startError && <div className="px-3 py-2 text-danger text-[12px] break-words border-b border-divider">{startError}</div>}
           {!loading && !error && devices.length === 0 && (
-            <div className="p-2 text-fg-3 text-[11px] text-center">No available simulators found</div>
+            <div className="px-3 py-3 text-fg-3 text-[12px] text-center">No available simulators found</div>
           )}
           {sortedGroups.map(([runtime, devs]) => (
             <div key={runtime} className="border-b border-divider last:border-b-0">
-              <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold text-fg-3 uppercase tracking-[0.08em]">{runtime}</div>
+              <div className="px-3 pt-2.5 pb-1 text-[12px] font-semibold text-fg-3 uppercase tracking-[0.07em]">{runtime}</div>
               {devs.map((d) => {
                 const isStarting = startingUdid === d.udid;
                 const disabled = startingUdid !== null && !isStarting;
@@ -121,15 +125,15 @@ export function BootEmptyState({
                 return (
                   <div
                     key={d.udid}
-                    className={`flex items-center gap-2 px-2 py-1.5 transition-colors ${disabled ? "cursor-default opacity-50" : "cursor-pointer hover:bg-hover"}`}
+                    className={`flex items-center gap-2.5 px-3 py-2 transition-[background-color] duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] ${disabled ? "cursor-default opacity-50" : "cursor-pointer hover:bg-hover"}`}
                     onClick={() => { if (!disabled) start(d); }}
                   >
                     <span
-                      className="size-1.5 shrink-0"
+                      className="size-1.5 shrink-0 rounded-full"
                       style={{ background: isBooted ? "var(--color-success)" : "var(--color-fg-3)" }}
                     />
-                    <span className="flex-1 text-left">{d.name}</span>
-                    <span className={`text-[10px] ${isStarting ? "text-accent" : "text-fg-2"}`}>
+                    <span className="flex-1 min-w-0 truncate text-left">{d.name}</span>
+                    <span className={`shrink-0 whitespace-nowrap text-[11px] ${isStarting ? "text-accent" : "text-fg-2"}`}>
                       {isStarting
                         ? (isBooted ? "Starting..." : "Booting...")
                         : (isBooted ? "Start stream" : "Boot & stream")}

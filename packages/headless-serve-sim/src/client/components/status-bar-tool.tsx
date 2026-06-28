@@ -15,16 +15,17 @@ const BATTERY_STATE = ["charging", "charged", "discharging"] as const;
 // so emit a small sheet keyed off the shared lem-* classnames. Mirrors
 // location-emulation-tool.tsx so the look stays consistent.
 const HOVER_CSS = `
-.lem-toggle:hover { color: #f5f5f7; }
-.lem-toggle:hover .lem-chevron { color: #f5f5f7 !important; }
-.lem-select:hover { background: #2c2c2e; border-color: #424245; }
-.lem-select:focus { outline: none; border-color: #2997ff; background: #2c2c2e; }
-.lem-input:hover { background: #2c2c2e; border-color: #424245; }
-.lem-input:focus { outline: none; border-color: #2997ff; background: #2c2c2e; }
-.lem-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.lem-toggle:hover { color: var(--color-fg); }
+.lem-toggle:hover .lem-chevron { color: var(--color-fg) !important; }
+.lem-select:hover { background: var(--color-hover); border-color: var(--color-divider); }
+.lem-select:focus { outline: none; border-color: var(--color-accent-solid); box-shadow: 0 0 0 2px var(--color-accent-solid); }
+.lem-input:hover { background: var(--color-hover); border-color: var(--color-divider); }
+.lem-input:focus-visible { outline: none; border-color: var(--color-accent-solid); box-shadow: 0 0 0 2px var(--color-accent-solid); }
+.lem-primary:hover:not(:disabled) { filter: brightness(1.06); }
 .lem-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.lem-ghost:hover:not(:disabled) { background: #2c2c2e; border-color: #424245; color: #f5f5f7; }
+.lem-ghost:hover:not(:disabled) { background: var(--color-hover); border-color: var(--color-divider); color: var(--color-fg); }
 .lem-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+.lem-primary:focus-visible, .lem-ghost:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); }
 `;
 
 interface Fields {
@@ -138,26 +139,25 @@ export function StatusBarTool({ udid }: { udid: string }) {
   }, [cliPrefix, udid]);
 
   return (
-    <div className="bg-panel border border-divider flex flex-col gap-2 px-2 py-1.5">
+    <div className="bg-panel border border-divider rounded-card overflow-hidden">
       <style>{HOVER_CSS}</style>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-fg py-2.5 px-1 -my-2 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
+        className="lem-toggle flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full bg-transparent border-none text-left cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold text-fg-3 uppercase tracking-[0.08em] leading-none inline-flex items-center">Status Bar</span>
-        <span />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">Status Bar</span>
         <Chevron open={open} />
       </button>
 
       {open && (
-        <>
-          <p className="m-0 text-[10px] leading-[1.5] text-fg-3">
+        <div className="border-t border-divider px-3.5 py-3 flex flex-col gap-2">
+          <p className="m-0 text-[12px] leading-[1.5] text-fg-3">
             Overrides only affect apps using the standard status bar and reset on reboot.
           </p>
 
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2.5">
             <Field label="Time">
               <input
                 type="text"
@@ -165,7 +165,7 @@ export function StatusBarTool({ udid }: { udid: string }) {
                 value={fields.time}
                 onChange={(e) => set("time", e.target.value)}
                 placeholder="9:41"
-                className="lem-input appearance-none bg-panel-deep border border-divider text-fg text-[12px] font-mono py-1.5 px-2 font-[inherit] w-full [transition:background_0.12s,border-color_0.12s]"
+                className="lem-input appearance-none bg-surface-3 rounded-card border border-divider text-fg text-[13px] font-mono py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
                 aria-label="Time"
               />
             </Field>
@@ -199,7 +199,7 @@ export function StatusBarTool({ udid }: { udid: string }) {
                 onChange={(e) => set("operatorName", e.target.value)}
                 placeholder="Carrier"
                 maxLength={32}
-                className="lem-input appearance-none bg-panel-deep border border-divider text-fg text-[12px] py-1.5 px-2 font-[inherit] w-full [transition:background_0.12s,border-color_0.12s]"
+                className="lem-input appearance-none bg-surface-3 rounded-card border border-divider text-fg text-[13px] py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
                 aria-label="Operator name"
               />
             </Field>
@@ -218,7 +218,7 @@ export function StatusBarTool({ udid }: { udid: string }) {
             <button
               type="button"
               onClick={applyPreset}
-              className="lem-ghost bg-transparent border border-divider text-fg-2 text-[10px] px-2 py-[3px] cursor-pointer uppercase tracking-[0.04em] [transition:background_0.12s,border-color_0.12s,color_0.12s]"
+              className="lem-ghost rounded-pill bg-transparent border border-divider text-fg-2 text-[12px] px-3 py-1 cursor-pointer tracking-[-0.01em] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
               title="Fill the form with the 9:41 keynote preset"
             >
               9:41 keynote
@@ -230,7 +230,7 @@ export function StatusBarTool({ udid }: { udid: string }) {
               type="button"
               onClick={apply}
               disabled={pending !== null}
-              className="lem-primary flex-1 flex items-center justify-center py-2 px-2.5 border-none text-[12px] font-semibold cursor-pointer font-[inherit] bg-accent-solid text-white"
+              className="lem-primary rounded-pill flex-1 flex items-center justify-center py-2 px-4 border-none text-[13px] font-semibold tracking-[-0.01em] cursor-pointer font-[inherit] bg-accent-solid text-white [transition:filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
             >
               {pending === "override" ? "…" : "Apply"}
             </button>
@@ -238,7 +238,7 @@ export function StatusBarTool({ udid }: { udid: string }) {
               type="button"
               onClick={reset}
               disabled={pending !== null}
-              className="lem-ghost flex items-center justify-center py-2 px-3 border border-divider text-[12px] font-medium bg-transparent text-fg cursor-pointer font-[inherit] [transition:background_0.12s,border-color_0.12s,color_0.12s]"
+              className="lem-ghost rounded-pill flex items-center justify-center py-2 px-4 border border-divider text-[13px] font-medium tracking-[-0.01em] bg-transparent text-fg cursor-pointer font-[inherit] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
               title="Clear all status bar overrides"
             >
               {pending === "clear" ? "…" : "Reset"}
@@ -246,11 +246,11 @@ export function StatusBarTool({ udid }: { udid: string }) {
           </div>
 
           {error && (
-            <div className="bg-panel-deep border border-divider text-danger text-[11px] px-2 py-1.5">
+            <div className="bg-surface-3 rounded-card border border-divider text-danger text-[12px] leading-[1.45] tracking-[-0.01em] px-3 py-2">
               {error}
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );
@@ -260,8 +260,8 @@ export function StatusBarTool({ udid }: { udid: string }) {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1 min-w-0">
-      <span className="text-[9px] uppercase tracking-[0.06em] text-fg-3">{label}</span>
+    <label className="flex flex-col gap-1.5 min-w-0">
+      <span className="text-[12px] text-fg-3 tracking-[-0.01em]">{label}</span>
       {children}
     </label>
   );
@@ -285,9 +285,9 @@ function Select({
         value={value}
         options={[{ value: "", label: "unset" }, ...options.map((o) => ({ value: o, label: o }))]}
         onChange={onChange}
-        className="bg-panel-deep border border-divider text-fg text-[12px] py-1.5 pr-[26px] pl-2 w-full [transition:background_0.12s,border-color_0.12s]"
+        className="lem-select bg-surface-3 rounded-card border border-divider text-fg text-[13px] py-2 pr-[28px] pl-2.5 w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
       />
-      <span className="absolute right-[9px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center" aria-hidden="true">
+      <span className="absolute right-[10px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center" aria-hidden="true">
         <Chevron open={false} />
       </span>
     </div>
@@ -315,7 +315,7 @@ function NumberInput({
       min={min}
       max={max}
       placeholder={`${min}–${max}`}
-      className="lem-input appearance-none bg-panel-deep border border-divider text-fg text-[12px] font-mono py-1.5 px-2 font-[inherit] w-full [transition:background_0.12s,border-color_0.12s]"
+      className="lem-input appearance-none bg-surface-3 rounded-card border border-divider text-fg text-[13px] font-mono py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
       aria-label={ariaLabel}
     />
   );

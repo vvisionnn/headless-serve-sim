@@ -146,23 +146,25 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
   const destLabel = folder.trim() ? `On My iPad/${folder.trim()}` : "On My iPad";
 
   return (
-    <div className="bg-panel border border-divider flex flex-col gap-2 px-2 py-1.5">
+    <div className="bg-panel border border-divider rounded-card overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-fg py-2 px-1 -my-1.5 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
+        className="lem-toggle flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full bg-transparent border-none text-left cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold text-fg-3 uppercase tracking-[0.08em] leading-none inline-flex items-center">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
           Documents
         </span>
-        <DocStatusPill
-          active={activeCount}
-          done={doneCount}
-          errors={errorCount}
-          destLabel={destLabel}
-        />
-        <Chevron open={open} />
+        <span className="flex items-center gap-2.5">
+          <DocStatusPill
+            active={activeCount}
+            done={doneCount}
+            errors={errorCount}
+            destLabel={destLabel}
+          />
+          <Chevron open={open} />
+        </span>
       </button>
 
       {open && (
@@ -171,14 +173,14 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
-          className="flex flex-col gap-2"
+          className="border-t border-divider px-3.5 py-3 flex flex-col gap-2"
         >
-          <p className="m-0 text-[10px] leading-[1.5] text-fg-3">
-            Imports files straight into the Files app under <span className="text-fg-2">On My iPad</span> —
+          <p className="m-0 text-[12px] leading-[1.5] text-fg-3">
+            Imports files straight into the Files app under <span className="text-fg">On My iPad</span> —
             open the document picker's local tab and they're already there, no in-app prompt.
           </p>
 
-          <label className="flex items-center gap-2 bg-surface-2 border border-divider px-2 h-9 focus-within:border-accent transition-colors">
+          <label className="flex items-center gap-2 bg-surface-3 border border-divider rounded-card px-3 h-9 focus-within:border-transparent focus-within:[box-shadow:0_0_0_2px_var(--color-accent-solid)] [transition:border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]">
             <svg
               width="15"
               height="15"
@@ -198,7 +200,7 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
               onChange={(e) => setFolder((e.target as HTMLInputElement).value)}
               placeholder="On My iPad (top level)"
               spellCheck={false}
-              className="flex-1 min-w-0 bg-transparent border-none outline-none text-[12px] text-fg font-mono placeholder:text-fg-3"
+              className="flex-1 min-w-0 bg-transparent border-none outline-none text-[13px] text-fg font-mono placeholder:text-fg-3"
               aria-label="Destination folder under On My iPad"
             />
           </label>
@@ -215,8 +217,9 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
             type="button"
             onClick={openFilePicker}
             className={[
-              "relative min-h-[64px] flex flex-col items-center justify-center gap-1 px-2 py-3 cursor-pointer text-center transition-[border-color,background] duration-150",
-              "bg-surface-2 border border-dashed border-divider hover:border-fg-3",
+              "relative min-h-[80px] flex flex-col items-center justify-center gap-1.5 px-3 py-4 cursor-pointer text-center rounded-card [transition:border-color_0.3s_cubic-bezier(0.4,0,0.6,1),background_0.3s_cubic-bezier(0.4,0,0.6,1)]",
+              "bg-surface-3 border border-dashed border-divider hover:border-fg-3",
+              "focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]",
               isDragOver
                 ? "!bg-accent-tint !border-accent !border-solid"
                 : "",
@@ -238,16 +241,16 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
               <path d="M12 18v-6" />
               <path d="m9.5 14.5 2.5-2.5 2.5 2.5" />
             </svg>
-            <span className="text-[12px] text-fg font-medium">
+            <span className="text-[13px] text-fg font-medium tracking-[-0.01em]">
               {isDragOver ? "Drop to import" : "Select or drop documents"}
             </span>
-            <span className="text-[10px] text-fg-3">
+            <span className="text-[11px] text-fg-3">
               {destLabel}
             </span>
           </button>
 
           {entries.length > 0 && (
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1.5">
               {entries.map((e) => (
                 <DocRow key={e.id} entry={e} />
               ))}
@@ -259,7 +262,7 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
               <button
                 type="button"
                 onClick={() => setEntries([])}
-                className="bg-transparent border border-divider text-fg-2 text-[10px] px-2 py-[3px] cursor-pointer uppercase tracking-[0.04em] hover:text-fg hover:bg-hover"
+                className="bg-transparent border border-divider rounded-pill text-fg-2 text-[11px] px-3 py-1 cursor-pointer uppercase tracking-[0.04em] hover:text-fg hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
               >
                 Clear
               </button>
@@ -267,7 +270,7 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
           )}
 
           {error && (
-            <div className="bg-surface-2 border border-divider text-danger-soft text-[11px] px-2 py-1.5 break-words" role="alert">
+            <div className="bg-surface-3 border border-divider rounded-card text-danger-soft text-[11px] px-3 py-2 break-words" role="alert">
               {error}
             </div>
           )}
@@ -290,28 +293,28 @@ function DocStatusPill({
 }) {
   if (active > 0) {
     return (
-      <span className="text-[11px] text-fg-2 font-mono inline-flex items-center gap-1.5 justify-self-end leading-none">
-        <span className="size-1.5 bg-accent" />
+      <span className="text-[11px] text-fg-2 font-mono inline-flex items-center gap-1.5 leading-none">
+        <span className="size-1.5 rounded-full bg-accent" />
         Importing {active}…
       </span>
     );
   }
   if (errors > 0) {
     return (
-      <span className="text-[11px] text-danger-soft font-mono justify-self-end leading-none">
+      <span className="text-[11px] text-danger-soft font-mono leading-none">
         {errors} failed
       </span>
     );
   }
   if (done > 0) {
     return (
-      <span className="text-[11px] text-success-emerald font-mono justify-self-end leading-none">
+      <span className="text-[11px] text-success-emerald font-mono leading-none">
         {done} imported
       </span>
     );
   }
   return (
-    <span className="text-[11px] text-fg-3 font-mono justify-self-end leading-none truncate max-w-[160px]">
+    <span className="text-[11px] text-fg-3 leading-none truncate max-w-[160px]">
       {destLabel}
     </span>
   );
@@ -320,23 +323,23 @@ function DocStatusPill({
 function DocRow({ entry }: { entry: DocEntry }) {
   const uploading = entry.status === "queued" || entry.status === "uploading";
   return (
-    <div className="doc-row-in flex flex-col gap-1 bg-surface-2 border border-divider px-2 py-1.5">
+    <div className="doc-row-in flex flex-col gap-1.5 bg-surface-3 rounded-card border border-divider px-3 py-2">
       <div className="flex items-center gap-2">
-        <span className="shrink-0 text-[9px] tracking-[0.08em] uppercase text-fg-2 bg-surface-3 border border-divider px-[6px] py-[2px] font-mono">
+        <span className="shrink-0 text-[9px] tracking-[0.08em] uppercase text-fg-2 bg-surface-2 rounded-pill border border-divider px-2 py-[2px] font-mono">
           {entry.ext || "file"}
         </span>
-        <span className="flex-1 min-w-0 truncate text-[12px] text-fg font-mono">
+        <span className="flex-1 min-w-0 truncate text-[13px] text-fg font-mono">
           {entry.name}
         </span>
         <DocRowStatusIcon status={entry.status} />
       </div>
       {uploading && (
-        <div className="h-[2px] w-full overflow-hidden bg-surface-3">
-          <div className="headless-serve-sim-toast-indeterminate h-full w-1/3 bg-accent" />
+        <div className="h-[2px] w-full overflow-hidden rounded-pill bg-surface-2">
+          <div className="headless-serve-sim-toast-indeterminate h-full w-1/3 rounded-pill bg-accent" />
         </div>
       )}
       {entry.status === "error" && entry.error && (
-        <span className="text-[10px] text-danger-soft break-words leading-[1.4]">
+        <span className="text-[11px] text-danger-soft break-words leading-[1.4]">
           {entry.error}
         </span>
       )}
@@ -383,7 +386,7 @@ function DocRowStatusIcon({ status }: { status: DocStatus }) {
     );
   }
   return (
-    <span className="shrink-0 text-[10px] text-fg-3 font-mono">
+    <span className="shrink-0 text-[11px] text-fg-3 font-mono">
       {status === "queued" ? "queued" : "…"}
     </span>
   );

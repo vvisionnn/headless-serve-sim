@@ -12,15 +12,18 @@ import { execOnHost, shellEscape } from "../utils/exec";
 // so emit a small sheet keyed off the shared lem-* classnames. Mirrors
 // status-bar-tool.tsx / user-defaults-tool.tsx so the look stays consistent.
 const HOVER_CSS = `
-.lem-toggle:hover { color: #f5f5f7; }
-.lem-toggle:hover .lem-chevron { color: #f5f5f7 !important; }
-.lem-input:hover { background: #161617; border-color: #424245; }
-.lem-input:focus { outline: none; border-color: #2997ff; background: #161617; }
-.lem-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.lem-toggle:hover { color: var(--color-accent); }
+.lem-toggle:hover .lem-chevron { color: var(--color-accent) !important; }
+.lem-input:hover { background: var(--color-surface-3); border-color: var(--color-fg-3); }
+.lem-input:focus { outline: none; border-color: var(--color-accent-solid); background: var(--color-panel); box-shadow: 0 0 0 2px var(--color-accent-solid); }
+.lem-primary:hover:not(:disabled) { filter: brightness(1.05); }
+.lem-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); }
 .lem-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.lem-ghost:hover:not(:disabled) { background: #2c2c2e; border-color: #424245; color: #f5f5f7; }
+.lem-ghost:hover:not(:disabled) { background: var(--color-hover); }
+.lem-ghost:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); }
 .lem-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
-.lem-danger:hover:not(:disabled) { background: #2c2c2e; border-color: #ff453a; }
+.lem-danger:hover:not(:disabled) { background: var(--color-hover); border-color: var(--color-danger); }
+.lem-danger:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); }
 .lem-danger:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 
@@ -123,23 +126,22 @@ export function AppActionsTool({
   }, [cliPrefix, udid]);
 
   return (
-    <div className="bg-panel border border-divider flex flex-col gap-2 px-2 py-1.5">
+    <div className="bg-panel border border-divider rounded-card overflow-hidden">
       <style>{HOVER_CSS}</style>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-fg py-2.5 px-1 -my-1.5 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
+        className="lem-toggle flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full text-left bg-transparent border-none cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold text-fg-3 uppercase tracking-[0.08em] leading-none inline-flex items-center">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
           App Actions
         </span>
-        <span />
         <Chevron open={open} />
       </button>
 
       {open && (
-        <>
+        <div className="border-t border-divider px-3.5 py-3 flex flex-col gap-2">
           {/* ─── Open URL ─── */}
           <Section label="Open URL">
             <div className="flex items-end gap-2">
@@ -152,14 +154,14 @@ export function AppActionsTool({
                 }}
                 placeholder="https://example.com or myapp://path"
                 spellCheck={false}
-                className="lem-input flex-1 min-w-0 appearance-none bg-panel border border-divider text-fg text-[12px] font-mono py-1.5 px-2 font-[inherit] [transition:background_0.12s,border-color_0.12s]"
+                className="lem-input flex-1 min-w-0 appearance-none rounded-card bg-surface-3 border border-divider text-fg text-[12px] font-mono py-2 px-2.5 font-[inherit] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
                 aria-label="URL to open"
               />
               <button
                 type="button"
                 onClick={openUrl}
                 disabled={pending !== null || !urlText.trim()}
-                className="lem-primary inline-flex items-center justify-center py-1.5 px-3 border-none text-[12px] font-semibold cursor-pointer font-[inherit] bg-accent-solid text-white"
+                className="lem-primary inline-flex items-center justify-center rounded-pill py-2 px-4 border-none text-[12px] font-semibold cursor-pointer font-[inherit] bg-accent-solid text-white min-h-[32px] [transition:filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
               >
                 {pending === "open" ? "…" : "Open"}
               </button>
@@ -176,7 +178,7 @@ export function AppActionsTool({
               onChange={(e) => setPushBundle((e.target as HTMLInputElement).value)}
               placeholder="com.example.app"
               spellCheck={false}
-              className="lem-input appearance-none bg-panel border border-divider text-fg text-[12px] font-mono py-1.5 px-2 font-[inherit] w-full [transition:background_0.12s,border-color_0.12s]"
+              className="lem-input appearance-none rounded-card bg-surface-3 border border-divider text-fg text-[12px] font-mono py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
               aria-label="Push target bundle id"
             />
             <textarea
@@ -184,7 +186,7 @@ export function AppActionsTool({
               onChange={(e) => setPayloadText((e.target as HTMLTextAreaElement).value)}
               rows={3}
               spellCheck={false}
-              className="lem-input appearance-none resize-y bg-panel border border-divider text-fg text-[12px] font-mono leading-[1.5] py-1.5 px-2 font-[inherit] w-full [transition:background_0.12s,border-color_0.12s]"
+              className="lem-input appearance-none resize-y rounded-card bg-surface-3 border border-divider text-fg text-[12px] font-mono leading-[1.5] py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
               aria-label="Push payload JSON"
             />
             <div className="flex">
@@ -192,7 +194,7 @@ export function AppActionsTool({
                 type="button"
                 onClick={sendPush}
                 disabled={pending !== null || !pushBundle.trim()}
-                className="lem-primary inline-flex items-center justify-center py-1.5 px-3 border-none text-[12px] font-semibold cursor-pointer font-[inherit] bg-accent-solid text-white"
+                className="lem-primary inline-flex items-center justify-center rounded-pill py-2 px-4 border-none text-[12px] font-semibold cursor-pointer font-[inherit] bg-accent-solid text-white min-h-[32px] [transition:filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
               >
                 {pending === "push" ? "…" : "Send"}
               </button>
@@ -204,15 +206,15 @@ export function AppActionsTool({
           {/* ─── Keychain ─── */}
           <Section label="Keychain">
             {confirmReset ? (
-              <div className="flex items-center gap-2 bg-surface-2 border border-divider px-2 py-1.5">
-                <span className="flex-1 min-w-0 text-[11px] text-danger leading-[1.4]">
+              <div className="flex items-center gap-2 rounded-card bg-surface-2 border border-divider px-3 py-2.5">
+                <span className="flex-1 min-w-0 text-[12px] text-danger leading-[1.4]">
                   Reset the device keychain? This clears all stored credentials.
                 </span>
                 <button
                   type="button"
                   onClick={resetKeychain}
                   disabled={pending !== null}
-                  className="lem-danger shrink-0 inline-flex items-center justify-center py-1 px-2.5 text-[11px] font-semibold cursor-pointer font-[inherit] bg-transparent border border-divider text-danger [transition:background_0.12s,border-color_0.12s]"
+                  className="lem-danger shrink-0 inline-flex items-center justify-center rounded-pill py-1.5 px-3 text-[12px] font-semibold cursor-pointer font-[inherit] bg-transparent border border-divider text-danger min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
                 >
                   {pending === "keychain" ? "…" : "Reset"}
                 </button>
@@ -220,7 +222,7 @@ export function AppActionsTool({
                   type="button"
                   onClick={() => setConfirmReset(false)}
                   disabled={pending !== null}
-                  className="lem-ghost shrink-0 inline-flex items-center justify-center py-1 px-2.5 border border-divider text-[11px] font-medium bg-transparent text-fg cursor-pointer font-[inherit] [transition:background_0.12s,border-color_0.12s,color_0.12s]"
+                  className="lem-ghost shrink-0 inline-flex items-center justify-center rounded-pill py-1.5 px-3 border border-divider text-[12px] font-medium bg-transparent text-fg cursor-pointer font-[inherit] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
                 >
                   Cancel
                 </button>
@@ -233,7 +235,7 @@ export function AppActionsTool({
                   setConfirmReset(true);
                 }}
                 disabled={pending !== null}
-                className="lem-ghost inline-flex items-center gap-1.5 py-1.5 px-2.5 border border-divider text-[12px] font-medium bg-transparent text-fg cursor-pointer font-[inherit] [transition:background_0.12s,border-color_0.12s,color_0.12s] self-start"
+                className="lem-ghost inline-flex items-center gap-1.5 rounded-pill py-2 px-3 border border-divider text-[12px] font-medium bg-transparent text-fg cursor-pointer font-[inherit] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)] self-start"
               >
                 <svg
                   width="14"
@@ -256,11 +258,11 @@ export function AppActionsTool({
           </Section>
 
           {error && (
-            <div className="bg-surface-2 border border-divider text-danger text-[11px] px-2 py-1.5 break-words" role="alert">
+            <div className="rounded-card bg-surface-2 border border-divider text-danger text-[12px] px-3 py-2.5 break-words" role="alert">
               {error}
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );
@@ -271,7 +273,7 @@ export function AppActionsTool({
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-2" role="group" aria-label={label}>
-      <span className="text-[11px] uppercase tracking-[0.06em] text-fg-3">{label}</span>
+      <span className="text-[12px] uppercase tracking-[0.06em] text-fg-3">{label}</span>
       {children}
     </div>
   );

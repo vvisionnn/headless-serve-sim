@@ -125,14 +125,14 @@ function MetricCard({
   const s = summarize(values);
   const hasData = values.length > 0 && current != null;
   return (
-    <div className="flex flex-col gap-1.5 border-b border-divider pb-2 last:border-b-0 last:pb-0">
+    <div className="flex flex-col gap-2 border-b border-divider pb-3 last:border-b-0 last:pb-0">
       <div className="flex items-baseline justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fg-3">{label}</span>
-        <span className="text-[9px] uppercase tracking-wider text-fg-3">{unit}</span>
+        <span className="text-[12px] font-semibold text-fg-3">{label}</span>
+        <span className="text-[11px] text-fg-3">{unit}</span>
       </div>
       <div className="flex items-end gap-2.5">
         <span
-          className="shrink-0 text-[27px] leading-none [font-variant-numeric:tabular-nums]"
+          className="shrink-0 text-[27px] leading-none tracking-[-0.02em] [font-variant-numeric:tabular-nums]"
           style={{ color }}
         >
           {hasData ? fmtValue(current) : "—"}
@@ -141,7 +141,7 @@ function MetricCard({
           <Sparkline values={values} color={color} gradId={gradId} />
         </div>
       </div>
-      <div className="flex items-center gap-3 text-[9px] text-fg-3 [font-variant-numeric:tabular-nums]">
+      <div className="flex items-center gap-3 text-[11px] text-fg-3 [font-variant-numeric:tabular-nums]">
         <span>min {hasData ? fmtStat(s.min) : "—"}</span>
         <span>avg {hasData ? fmtStat(s.avg) : "—"}</span>
         <span>max {hasData ? fmtStat(s.max) : "—"}</span>
@@ -162,35 +162,35 @@ function StatusStrip({
   dropped: number;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 border border-divider bg-surface-2 px-2 py-1.5">
+    <div className="flex flex-col gap-1.5 rounded-card border border-divider bg-surface-2 px-3 py-2.5">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <span
-            className="size-1.5 shrink-0"
+            className="size-2 shrink-0 rounded-full"
             style={{
               background: live ? C_FPS : "var(--color-fg-3)",
               animation: live ? "hud-pulse 1.6s ease-in-out infinite" : "none",
             }}
           />
           <span
-            className="text-[10px] font-semibold uppercase tracking-[0.18em]"
+            className="text-[12px] font-semibold"
             style={{ color: live ? C_FPS : "var(--color-fg-3)" }}
           >
             {live ? "Live" : "Offline"}
           </span>
         </div>
-        <div className="flex items-center gap-1.5 text-[10px] text-fg-2 [font-variant-numeric:tabular-nums]">
-          <span>{codecLabel}</span>
+        <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg-2 [font-variant-numeric:tabular-nums]">
+          <span className="min-w-0 truncate">{codecLabel}</span>
           {resolution && (
             <>
-              <span className="text-fg-3">·</span>
-              <span>{resolution}</span>
+              <span className="shrink-0 text-fg-3">·</span>
+              <span className="shrink-0">{resolution}</span>
             </>
           )}
         </div>
       </div>
       {dropped > 0 && (
-        <div className="text-[9px] font-medium uppercase tracking-wider text-warning [font-variant-numeric:tabular-nums]">
+        <div className="text-[11px] font-medium text-warning [font-variant-numeric:tabular-nums]">
           {dropped} dropped
         </div>
       )}
@@ -207,8 +207,8 @@ function ModeToggle({
 }) {
   return (
     <div className="flex items-center gap-2.5">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fg-3">Mode</span>
-      <div className="flex flex-1 gap-0.5 border border-divider bg-surface-2 p-0.5">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">Mode</span>
+      <div className="flex flex-1 gap-0.5 rounded-pill border border-divider bg-surface-2 p-0.5">
         {(["perf", "quality"] as const).map((m) => {
           const active = mode === m;
           const accent = m === "quality" ? C_DECODE : C_FPS;
@@ -218,7 +218,7 @@ function ModeToggle({
               type="button"
               onClick={() => onModeChange(m)}
               aria-pressed={active}
-              className="flex-1 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] [transition:background-color_0.15s,color_0.15s]"
+              className="flex-1 rounded-pill px-3 py-1.5 text-[12px] font-semibold [transition:background-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
               style={
                 active
                   ? { background: "var(--color-hover)", color: accent }
@@ -237,9 +237,9 @@ function ModeToggle({
 function StatRow({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="text-[10px] uppercase tracking-[0.14em] text-fg-3">{label}</span>
+      <span className="text-[12px] text-fg-3">{label}</span>
       <span
-        className="text-[11px] [font-variant-numeric:tabular-nums]"
+        className="text-[12px] [font-variant-numeric:tabular-nums]"
         style={{ color: accent ?? "var(--color-fg)" }}
       >
         {value}
@@ -255,8 +255,8 @@ function AdaptiveSection({ stats }: { stats: ConnectionStats | null }) {
   const kfMs = stats?.keyframeIntervalMs ?? null;
   const recoveries = stats?.recoveries ?? 0;
   return (
-    <div className="flex flex-col gap-2 border border-divider bg-surface-2 px-2 py-1.5">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fg-3">Adaptive</span>
+    <div className="flex flex-col gap-2.5 rounded-card border border-divider bg-surface-2 px-3 py-2.5">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">Adaptive</span>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
         <StatRow
           label="Link"
@@ -319,7 +319,7 @@ export function ConnectionStatsPanel({
       </PanelHeader>
 
       {open && (
-        <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-2 py-2 font-mono select-none">
+        <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 py-3 select-none">
           <StatusStrip
             live={live}
             codecLabel={codecLabel}
@@ -373,7 +373,7 @@ export function ConnectionStatsPanel({
               />
             </div>
           ) : (
-            <div className="flex flex-1 items-center justify-center py-10 text-center text-[11px] text-fg-3">
+            <div className="flex flex-1 items-center justify-center py-10 text-center text-[13px] text-fg-3">
               Waiting for stream…
             </div>
           )}

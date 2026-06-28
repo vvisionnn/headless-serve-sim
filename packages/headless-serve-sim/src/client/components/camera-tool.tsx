@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { createPortal } from "react-dom";
 import { Chevron, PlayGlyph, StopGlyph, ReloadIcon } from "../icons";
 import { execOnHost, shellEscape } from "../utils/exec";
 import { fileExtension, uploadFileToTmp } from "../utils/drop";
@@ -103,13 +104,13 @@ export function CameraStatusPill({ state }: { state: CameraPillState }) {
     state === "active" ? "Active" : state === "disconnected" ? "Disconnected" : "Ready";
   const dotClass =
     state === "active"
-      ? "size-1.5 bg-success"
+      ? "size-1.5 rounded-full bg-success"
       : state === "disconnected"
-        ? "size-1.5 bg-danger"
+        ? "size-1.5 rounded-full bg-danger"
         : null;
   return (
     <span
-      className="text-[11px] text-fg-2 font-mono inline-flex items-center gap-1.5 justify-self-end leading-none"
+      className="text-[11px] text-fg-3 inline-flex items-center gap-1.5 leading-none"
       data-camera-pill-state={state}
     >
       {dotClass && <span className={dotClass} />}
@@ -121,7 +122,7 @@ export function CameraStatusPill({ state }: { state: CameraPillState }) {
 export function CameraTestPatternHint() {
   return (
     <p
-      className="m-0 text-center text-[10px] leading-[1.5] text-fg-3"
+      className="m-0 text-center text-[12px] leading-[1.5] text-fg-3"
       data-camera-test-pattern-hint
     >
       Test-pattern feed
@@ -148,10 +149,10 @@ export function CameraMediaPreview({
   if (mode === "file") {
     return (
       <>
-        <div className="shrink-0 text-[9px] tracking-[0.1em] uppercase text-fg-2 bg-surface-2 border border-divider px-[7px] py-[2px]">
+        <div className="shrink-0 text-[10px] tracking-[0.06em] uppercase text-fg-2 bg-panel border border-divider rounded-pill px-2 py-[3px]">
           {sourceKind === "video" ? "Video" : "Image"}
         </div>
-        <span className="flex-1 min-w-0 truncate text-[12px] text-fg font-mono">
+        <span className="flex-1 min-w-0 truncate text-[13px] text-fg font-mono">
           {fileName ?? ""}
         </span>
       </>
@@ -160,16 +161,16 @@ export function CameraMediaPreview({
   if (mode === "webcam") {
     return (
       <>
-        <div className="shrink-0 text-[9px] tracking-[0.1em] uppercase text-fg-2 bg-surface-2 border border-divider px-[7px] py-[2px]">
+        <div className="shrink-0 text-[10px] tracking-[0.06em] uppercase text-fg-2 bg-panel border border-divider rounded-pill px-2 py-[3px]">
           Webcam
         </div>
-        <span className="flex-1 min-w-0 truncate text-[12px] text-fg font-mono">
+        <span className="flex-1 min-w-0 truncate text-[13px] text-fg font-mono">
           {webcamName ?? ""}
         </span>
       </>
     );
   }
-  return <span className="text-[12px] text-fg font-medium">Select or drop media</span>;
+  return <span className="text-[13px] text-fg font-medium">Select or drop media</span>;
 }
 
 export function CameraInlineBanner({
@@ -181,8 +182,8 @@ export function CameraInlineBanner({
 }) {
   const classes =
     kind === "warning"
-      ? "bg-surface-2 border border-divider text-warning text-[11px] px-2 py-1.5 break-words"
-      : "bg-surface-2 border border-divider text-danger text-[11px] px-2 py-1.5 break-words";
+      ? "bg-surface-2 border border-divider rounded-card text-warning text-[12px] px-2.5 py-2 break-words"
+      : "bg-surface-2 border border-divider rounded-card text-danger text-[12px] px-2.5 py-2 break-words";
   return (
     <div className={classes} data-camera-banner-kind={kind} role={kind === "error" ? "alert" : "status"}>
       {message}
@@ -207,6 +208,9 @@ export function CameraTool({
   const dragCountRef = useRef(0);
   const [uploading, setUploading] = useState(false);
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
+  const sourceMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const sourceMenuRef = useRef<HTMLDivElement | null>(null);
+  const [sourceMenuPos, setSourceMenuPos] = useState<{ top: number; left: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [webcams, setWebcams] = useState<CamWebcam[]>([]);
   const [webcamLoading, setWebcamLoading] = useState(false);
@@ -623,11 +627,47 @@ export function CameraTool({
     if (file) await handleSourceFile(file);
   }, [handleSourceFile]);
 
+  // Anchor the portaled menu to its trigger; keep it pinned while open. The
+  // menu portals to <body> so it escapes the card's `overflow-hidden` and the
+  // inspector body's `overflow-x-hidden`/scroll (otherwise it's clipped to the
+  // ~360px panel and the webcam list scrolls out of view).
+  useLayoutEffect(() => {
+    if (!sourceMenuOpen) return;
+    const place = () => {
+      const r = sourceMenuTriggerRef.current?.getBoundingClientRect();
+      if (r) setSourceMenuPos({ top: Math.round(r.bottom + 6), left: Math.round(r.left) });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [sourceMenuOpen]);
+
+  // Second pass once the menu has a width: keep it inside the viewport. The
+  // trigger sits near the inspector's right edge, so a left-anchored 200px menu
+  // can overhang the right edge.
+  useLayoutEffect(() => {
+    if (!sourceMenuOpen || !sourceMenuPos) return;
+    const menu = sourceMenuRef.current;
+    if (!menu) return;
+    const margin = 8;
+    const maxLeft = window.innerWidth - menu.offsetWidth - margin;
+    if (sourceMenuPos.left > maxLeft) {
+      setSourceMenuPos({ ...sourceMenuPos, left: Math.max(margin, Math.round(maxLeft)) });
+    }
+  }, [sourceMenuOpen, sourceMenuPos]);
+
+  // Outside-click closes — the menu is portaled, so check BOTH the trigger and
+  // the menu (a `closest("[data-camera-source-menu]")` check would miss the
+  // portaled menu and close it on its own click).
   useEffect(() => {
     if (!sourceMenuOpen) return;
     const onDocDown = (e: MouseEvent) => {
-      const t = e.target;
-      if (t instanceof Element && t.closest("[data-camera-source-menu]")) return;
+      const t = e.target as Node;
+      if (sourceMenuTriggerRef.current?.contains(t) || sourceMenuRef.current?.contains(t)) return;
       setSourceMenuOpen(false);
     };
     window.addEventListener("mousedown", onDocDown);
@@ -668,15 +708,23 @@ export function CameraTool({
   }, []);
 
   const primaryKind = selectCameraPrimaryKind({ bundleId, injected, source, foregroundIsInjected });
-  const primary: { label: string; onClick: () => void; kind: CameraPrimaryKind } =
+  const primary: { onClick: () => void; kind: CameraPrimaryKind } =
     primaryKind === "stop"
-      ? { label: pendingPrimary === "stop" ? "Stopping…" : "Stop", onClick: stopHelper, kind: "stop" }
+      ? { onClick: stopHelper, kind: "stop" }
     : primaryKind === "attach"
-      ? { label: pendingPrimary === "inject" ? "Injecting…" : `Inject ${bundleId}`, onClick: inject, kind: "attach" }
-    : { label: pendingPrimary === "inject" ? "Starting…" : "Play", onClick: inject, kind: "play" };
+      ? { onClick: inject, kind: "attach" }
+    : { onClick: inject, kind: "play" };
   const primaryDisabled = primaryKind === "stop"
     ? uploading || pendingPrimary !== null
     : !bundleId || uploading || pendingPrimary !== null;
+  // Short button text (keeps the bundleId out of the flex-1 label so it can't
+  // overflow the ~360px panel) that still surfaces the pending/busy state.
+  const primaryText =
+    primary.kind === "stop"
+      ? pendingPrimary === "stop" ? "Stopping…" : "Stop"
+    : primary.kind === "attach"
+      ? pendingPrimary === "inject" ? "Injecting…" : "Inject"
+    : pendingPrimary === "inject" ? "Starting…" : "Play";
 
   const isPlaceholder = source === "placeholder";
   const showWebcam = source === "webcam";
@@ -693,16 +741,18 @@ export function CameraTool({
         : "placeholder";
 
   return (
-    <div className="bg-panel border border-divider flex flex-col gap-2 px-2 py-1.5">
+    <div className="bg-panel border border-divider rounded-card overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-fg py-2.5 px-1 -my-2 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
+        className="lem-toggle flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full bg-transparent border-none text-left cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold text-fg-3 uppercase tracking-[0.08em] leading-none inline-flex items-center">Camera</span>
-        <CameraStatusPill state={pillState} />
-        <Chevron open={open} />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">Camera</span>
+        <span className="flex items-center gap-2.5">
+          <CameraStatusPill state={pillState} />
+          <Chevron open={open} />
+        </span>
       </button>
 
       {open && (
@@ -711,9 +761,9 @@ export function CameraTool({
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
-          className="flex flex-col gap-2"
+          className="border-t border-divider px-3.5 py-3 flex flex-col gap-2"
         >
-          <p className="m-0 text-[10px] leading-[1.5] text-fg-3">
+          <p className="m-0 text-[12px] leading-[1.5] text-fg-3">
             Replaces the simulator's camera feed by injecting a dylib at app launch
             and streaming frames into shared memory. Pick media or a webcam,
             then Play to inject into the foreground app.
@@ -741,10 +791,10 @@ export function CameraTool({
                   : `Source: ${droppedFileName ?? source}`
             }
             className={[
-              "relative min-h-[44px] flex flex-row items-center justify-center gap-2 px-2 py-2 text-center transition-[border-color,background] duration-150",
+              "relative min-h-[44px] flex flex-row items-center justify-center gap-2 px-3 py-2.5 text-center rounded-card transition-[border-color,background] duration-300 ease-[cubic-bezier(0.4,0,0.6,1)]",
               isPlaceholder
-                ? "bg-surface-2 border border-dashed border-divider"
-                : "bg-surface-2 border border-divider",
+                ? "bg-surface-3 border border-dashed border-divider"
+                : "bg-surface-3 border border-divider",
               isDragOver ? "!bg-accent-tint !border-accent" : "",
               uploading ? "cursor-progress" : isPlaceholder ? "cursor-pointer" : "cursor-default",
             ].join(" ")}
@@ -760,7 +810,7 @@ export function CameraTool({
               <button
                 data-clear-media
                 onClick={(e) => { e.stopPropagation(); clearMedia(); }}
-                className="shrink-0 w-5 h-5 flex items-center justify-center bg-transparent border-none text-fg-2 hover:text-fg cursor-pointer p-0"
+                className="shrink-0 w-6 h-6 flex items-center justify-center bg-transparent rounded-full border-none text-fg-2 hover:text-fg hover:bg-hover cursor-pointer p-0 transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
                 aria-label="Clear source"
                 title="Clear → placeholder"
               >
@@ -777,8 +827,10 @@ export function CameraTool({
           <div className="flex items-stretch gap-1.5">
             <div className="relative" data-camera-source-menu>
               <button
+                ref={sourceMenuTriggerRef}
+                type="button"
                 onClick={() => setSourceMenuOpen((o) => !o)}
-                className="lem-ghost h-full min-h-[36px] w-10 flex items-center justify-center bg-transparent border border-divider text-fg hover:bg-hover cursor-pointer p-0"
+                className="lem-ghost h-full min-h-[36px] w-10 flex items-center justify-center bg-panel rounded-card border border-divider text-fg hover:bg-hover cursor-pointer p-0 transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
                 aria-haspopup="menu"
                 aria-expanded={sourceMenuOpen}
                 title={
@@ -796,62 +848,69 @@ export function CameraTool({
                 </svg>
               </button>
 
-              {sourceMenuOpen && (
-                <div
-                  role="menu"
-                  className="absolute top-[calc(100%+6px)] left-0 z-10 min-w-[200px] flex flex-col gap-px p-1 bg-panel border border-divider shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
-                >
-                  <button
-                    role="menuitem"
-                    className="text-left bg-transparent border-none text-fg text-[12px] px-2.5 py-[7px] cursor-pointer hover:bg-hover"
-                    onClick={() => { setSourceMenuOpen(false); openFilePicker(); }}
-                    title="Pick an image or video from disk"
+              {sourceMenuOpen && sourceMenuPos &&
+                createPortal(
+                  <div
+                    ref={sourceMenuRef}
+                    role="menu"
+                    style={{ position: "fixed", top: sourceMenuPos.top, left: sourceMenuPos.left, zIndex: 1000 }}
+                    className="min-w-[200px] max-h-[min(70vh,420px)] overflow-y-auto flex flex-col gap-px p-1 bg-panel border border-divider rounded-card shadow-[0_4px_24px_rgba(0,0,0,0.12)]"
                   >
-                    Browse media…
-                  </button>
-                  <div className="h-px bg-divider my-1" />
-                  <div className="flex items-center justify-between pl-2.5 pr-2 pt-1 pb-[2px]">
-                    <span className="text-[10px] text-fg-3 uppercase tracking-[0.08em]">
-                      {webcamLoading ? "Cameras (loading…)" : webcams.length === 0 ? "No cameras" : "Cameras"}
-                    </span>
                     <button
-                      onClick={(e) => { e.stopPropagation(); void refreshWebcams(); }}
-                      disabled={webcamLoading}
-                      className="flex items-center justify-center w-[22px] h-[22px] bg-transparent border-none text-fg-2 hover:text-fg cursor-pointer p-0 disabled:opacity-50"
-                      aria-label="Refresh cameras"
-                      title="Refresh cameras"
+                      type="button"
+                      role="menuitem"
+                      className="text-left bg-transparent border-none text-fg text-[13px] px-2.5 py-2 rounded-sm cursor-pointer hover:bg-hover transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)]"
+                      onClick={() => { setSourceMenuOpen(false); openFilePicker(); }}
+                      title="Pick an image or video from disk"
                     >
-                      <ReloadIcon size={13} strokeWidth={2} />
+                      Browse media…
                     </button>
-                  </div>
-                  {webcams.map((w) => {
-                    const active = source === "webcam" && webcamId === w.id;
-                    return (
+                    <div className="h-px bg-divider my-1" />
+                    <div className="flex items-center justify-between pl-2.5 pr-2 pt-1 pb-[2px]">
+                      <span className="text-[12px] text-fg-3">
+                        {webcamLoading ? "Cameras (loading…)" : webcams.length === 0 ? "No cameras" : "Cameras"}
+                      </span>
                       <button
-                        key={w.id}
-                        role="menuitem"
-                        className={[
-                          "text-left bg-transparent border-none text-[12px] px-2.5 py-[7px] cursor-pointer hover:bg-hover",
-                          active ? "!bg-accent-tint !text-accent" : "text-fg",
-                        ].join(" ")}
-                        onClick={() => selectWebcam(w)}
-                        title={w.name}
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); void refreshWebcams(); }}
+                        disabled={webcamLoading}
+                        className="flex items-center justify-center w-6 h-6 bg-transparent rounded-full border-none text-fg-2 hover:text-fg hover:bg-hover cursor-pointer p-0 disabled:opacity-50 transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)]"
+                        aria-label="Refresh cameras"
+                        title="Refresh cameras"
                       >
-                        {w.name}
+                        <ReloadIcon size={13} strokeWidth={2} />
                       </button>
-                    );
-                  })}
-                </div>
-              )}
+                    </div>
+                    {webcams.map((w) => {
+                      const active = source === "webcam" && webcamId === w.id;
+                      return (
+                        <button
+                          key={w.id}
+                          type="button"
+                          role="menuitem"
+                          className={[
+                            "text-left bg-transparent border-none text-[13px] px-2.5 py-2 rounded-sm cursor-pointer hover:bg-hover transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)]",
+                            active ? "!bg-accent-tint !text-accent" : "text-fg",
+                          ].join(" ")}
+                          onClick={() => selectWebcam(w)}
+                          title={w.name}
+                        >
+                          {w.name}
+                        </button>
+                      );
+                    })}
+                  </div>,
+                  document.body,
+                )}
             </div>
 
             <button
               onClick={primary.onClick}
               disabled={primaryDisabled}
               className={[
-                "flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 text-[12px] font-semibold cursor-pointer disabled:opacity-50 min-h-[36px]",
+                "flex-1 flex items-center justify-center gap-1.5 py-2 px-4 text-[13px] font-medium rounded-pill cursor-pointer disabled:opacity-50 min-h-[36px] transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]",
                 primary.kind === "stop"
-                  ? "lem-primary lem-primary-on bg-surface-3 border border-divider text-fg hover:bg-hover"
+                  ? "lem-primary lem-primary-on bg-panel border border-divider text-fg hover:bg-hover"
                   : "lem-primary bg-accent-solid border border-accent-solid text-white",
               ].join(" ")}
               title={
@@ -861,20 +920,20 @@ export function CameraTool({
                 "Start: inject the dylib and launch the foreground app with the chosen source"
               }
               aria-pressed={primary.kind === "stop"}
-              aria-label={primary.kind === "stop" ? "Stop" : "Play"}
+              aria-label={primaryText}
             >
               {primary.kind === "stop" ? <StopGlyph /> : <PlayGlyph />}
-              <span>{primary.kind === "stop" ? "Stop" : primary.kind === "attach" ? "Inject" : "Play"}</span>
+              <span>{primaryText}</span>
             </button>
 
             <button
               type="button"
               onClick={toggleMirror}
               disabled={mirrorDisabled}
-              className={`flex items-center justify-center w-10 min-h-[36px] border font-[inherit] disabled:opacity-50 disabled:cursor-not-allowed ${
+              className={`flex items-center justify-center w-10 min-h-[36px] border rounded-card font-[inherit] disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] ${
                 mirror === "on"
                   ? "lem-speed lem-speed-on bg-accent-tint border-accent text-accent cursor-pointer"
-                  : "lem-speed bg-surface-2 border-divider text-fg hover:bg-hover cursor-pointer"
+                  : "lem-speed bg-panel border-divider text-fg hover:bg-hover cursor-pointer"
               }`}
               aria-label={`Mirror: ${mirror} — tap to toggle`}
               title={

@@ -61,8 +61,10 @@ const toolbarStyle: CSSProperties = {
   gap: "0 8px",
   height: 44,
   padding: "0 10px",
-  background: "#1d1d1f",
-  borderBottom: "1px solid #424245",
+  background: "var(--color-panel-overlay)",
+  backdropFilter: "saturate(1.8) blur(20px)",
+  WebkitBackdropFilter: "saturate(1.8) blur(20px)",
+  borderBottom: "1px solid var(--color-divider)",
   minWidth: 0,
   width: "100%",
   boxSizing: "border-box",
@@ -123,15 +125,16 @@ const titleButtonStyle: CSSProperties = {
   textAlign: "left",
   background: "transparent",
   border: "none",
-  color: "#fff",
-  padding: "2px 4px",
-  margin: "-2px -4px",
-  borderRadius: 0,
+  color: "var(--color-fg)",
+  padding: "3px 8px",
+  margin: "-3px -8px",
+  borderRadius: 8,
   cursor: "pointer",
   minWidth: 0,
   maxWidth: "100%",
   lineHeight: 1.2,
   fontFamily: "inherit",
+  transition: "background-color 0.3s cubic-bezier(0.4,0,0.6,1)",
 };
 
 const Title = forwardRef<HTMLButtonElement, TitleProps>(function Title(
@@ -159,7 +162,7 @@ const Title = forwardRef<HTMLButtonElement, TitleProps>(function Title(
       }}
       style={{
         ...titleButtonStyle,
-        background: hover ? "#2c2c2e" : "transparent",
+        background: hover ? "var(--color-hover)" : "transparent",
         ...style,
       }}
       {...rest}
@@ -171,7 +174,7 @@ const Title = forwardRef<HTMLButtonElement, TitleProps>(function Title(
           gap: 4,
           fontSize: 12,
           fontWeight: 600,
-          color: "#fff",
+          color: "var(--color-fg)",
           maxWidth: "100%",
           overflow: "hidden",
           textOverflow: "ellipsis",
@@ -189,7 +192,7 @@ const Title = forwardRef<HTMLButtonElement, TitleProps>(function Title(
             strokeWidth="2.5"
             strokeLinecap="round"
             strokeLinejoin="round"
-            style={{ color: "#86868b", flexShrink: 0 }}
+            style={{ color: "var(--color-fg-3)", flexShrink: 0 }}
           >
             <polyline points="6 9 12 15 18 9" />
           </svg>
@@ -198,7 +201,7 @@ const Title = forwardRef<HTMLButtonElement, TitleProps>(function Title(
       <span
         style={{
           fontSize: 10,
-          color: "#86868b",
+          color: "var(--color-fg-3)",
           maxWidth: "100%",
           overflow: "hidden",
           textOverflow: "ellipsis",
@@ -234,14 +237,15 @@ export interface ToolbarButtonProps extends ButtonHTMLAttributes<HTMLButtonEleme
 const buttonStyle: CSSProperties = {
   background: "transparent",
   border: "none",
-  padding: 6,
-  borderRadius: 0,
+  padding: 7,
+  borderRadius: "50%",
   cursor: "pointer",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  color: "rgba(255,255,255,0.8)",
-  transition: "background-color 0.15s, color 0.15s",
+  color: "var(--color-fg)",
+  transition:
+    "background-color 0.3s cubic-bezier(0.4,0,0.6,1), color 0.3s cubic-bezier(0.4,0,0.6,1)",
 };
 
 const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(function ToolbarButton(
@@ -267,9 +271,9 @@ const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(function
       }}
       style={{
         ...buttonStyle,
-        color: effectiveDisabled ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.8)",
+        color: effectiveDisabled ? "var(--color-fg-3)" : "var(--color-fg)",
         background:
-          hover && !effectiveDisabled ? "#2c2c2e" : "transparent",
+          hover && !effectiveDisabled ? "var(--color-hover)" : "transparent",
         cursor: effectiveDisabled ? "not-allowed" : "pointer",
         ...style,
       }}

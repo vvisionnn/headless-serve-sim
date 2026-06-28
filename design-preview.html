@@ -1,795 +1,147 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Apple Developer — Design Board</title>
+<title>Apple.com Design System — Preview</title>
 <style>
-:root{
-  --bg:#000000;--s1:#1d1d1f;--s2:#161617;--s3:#111111;--hover:#2c2c2e;
-  --divider:#424245;--text:#f5f5f7;--text2:#a1a1a6;--text3:#86868b;
-  --accent:#2997ff;--accent-solid:#0071e3;--code:#333336;
-  --font-d:"SF Pro Display",-apple-system,"Helvetica Neue",Arial,sans-serif;
-  --font-t:"SF Pro Text",-apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif;
-  --mono:"SF Mono",ui-monospace,Menlo,Monaco,monospace;
-}
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{background:var(--bg);color:var(--text);font-family:var(--font-t);letter-spacing:-0.022em;-webkit-font-smoothing:antialiased}
-body{display:grid;grid-template-columns:minmax(0,1fr) 440px;min-height:100vh}
-a{color:var(--accent);text-decoration:none}
-a:hover{text-decoration:underline}
-code{font-family:var(--mono);font-size:12px}
-.board{padding:0;border-right:1px solid var(--divider);overflow:hidden}
-.topbar{height:44px;display:flex;align-items:center;gap:24px;padding:0 24px;background:var(--s1);border-bottom:1px solid var(--divider);position:sticky;top:0;z-index:5}
-.topbar .brand{font-family:var(--font-t);font-weight:600;font-size:17px;color:rgba(255,255,255,.92)}
-.topbar nav a{font-size:13px;font-weight:600;color:rgba(255,255,255,.8)}
-.topbar nav a:hover{color:#fff;text-decoration:none}
-.topbar .spacer{flex:1}
-.scroll{padding:24px;overflow:auto;height:calc(100vh - 44px)}
-section{border:1px solid var(--divider);background:var(--s1);margin-bottom:16px}
-section.flush{background:transparent;border:0;margin-bottom:8px}
-.sec-head{display:flex;align-items:baseline;gap:12px;padding:10px 14px;border-bottom:1px solid var(--divider);background:var(--s2)}
-.sec-head h2{font-family:var(--font-d);font-size:15px;font-weight:600;color:var(--text)}
-.sec-head .eyebrow{font-size:12px;color:var(--text3);letter-spacing:-0.01em}
-.sec-body{padding:14px}
-.eyebrow{font-size:12px;color:var(--text3)}
-.grid{display:grid;gap:10px}
-.grid.c4{grid-template-columns:repeat(4,1fr)}
-.grid.c3{grid-template-columns:repeat(3,1fr)}
-.grid.c2{grid-template-columns:repeat(2,1fr)}
-.sw{display:flex;gap:10px;align-items:center}
-.chip{width:40px;height:40px;flex:0 0 40px;background:#333}
-.sw-meta{display:flex;flex-direction:column;min-width:0}
-.sw-name{font-size:13px;font-weight:600}
-.sw-hex{font-family:var(--mono);font-size:11px;color:var(--text2)}
-.sw-note{font-size:11px;color:var(--text3)}
-.mini{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);padding:5px 0;border-bottom:1px solid var(--divider)}
-.mini:last-child{border-bottom:0}
-.mini b{color:var(--text);font-weight:600;min-width:64px}
-.mini-dot{width:14px;height:14px;flex:0 0 14px;border:1px solid var(--divider)}
-.mini code{margin-left:auto;color:var(--text3)}
-.type-row{display:flex;align-items:baseline;gap:14px;padding:10px 0;border-bottom:1px solid var(--divider)}
-.type-row:last-child{border-bottom:0}
-.type-spec{font-family:var(--mono);font-size:11px;color:var(--text3);min-width:150px;flex:0 0 150px}
-.type-sample{color:var(--text)}
-.btnrow{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
-.btn{font-family:var(--font-t);font-size:13px;padding:8px 14px;border:1px solid transparent;cursor:default}
-.btn.primary{background:var(--accent-solid);color:#fff;border-radius:6px}
-.btn.pill{background:var(--accent-solid);color:#fff;border-radius:980px;padding:8px 18px}
-.btn.ghost{background:transparent;color:var(--text);border:1px solid var(--divider)}
-.btn.ghost:hover{background:var(--hover)}
-.btn.textlink{background:transparent;color:var(--accent);padding:8px 0}
-.btn.textlink:hover{text-decoration:underline}
-.scaleStrip{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
-.scaleStep{background:var(--accent);opacity:.85}
-.scaleLab{font-size:10px;color:var(--text3);text-align:center;margin-top:4px;font-family:var(--mono)}
-.radwrap{display:flex;gap:16px;flex-wrap:wrap}
-.radbox{width:64px;height:64px;background:var(--s2);border:1px solid var(--divider);display:flex;align-items:flex-end;justify-content:center;font-size:10px;color:var(--text3);font-family:var(--mono);padding:4px}
-.demoCard{background:var(--s1);border:1px solid var(--divider);padding:12px}
-.demoCard h4{font-family:var(--font-d);font-size:17px;font-weight:600;margin-bottom:4px}
-.demoCard p{font-size:13px;color:var(--text2);line-height:1.5;margin-bottom:8px}
-table.rows{width:100%;border-collapse:collapse;font-size:13px}
-table.rows th{text-align:left;font-size:12px;color:var(--text3);font-weight:400;padding:6px 8px;border-bottom:1px solid var(--divider)}
-table.rows td{padding:6px 8px;border-bottom:1px solid var(--divider);color:var(--text)}
-table.rows tr:hover td{background:var(--hover)}
-.aside{border-left:3px solid;padding:8px 12px;font-size:12px;display:flex;flex-direction:column;gap:2px}
-.aside b{font-size:12px}
-.codeblock{background:var(--code);padding:12px;font-family:var(--mono);font-size:12px;line-height:1.6;overflow:auto}
-.inspector{display:flex;border:1px solid var(--divider)}
-.insp-rail{width:150px;background:var(--s1);border-right:1px solid var(--divider);padding:6px 0}
-.insp-row{padding:5px 12px;font-size:12px;color:var(--text2)}
-.insp-row:hover{background:var(--hover);color:var(--text)}
-.insp-row.active{background:rgba(0,113,227,.18);color:var(--accent)}
-.insp-main{flex:1;padding:12px;background:var(--bg)}
-.insp-main h4{font-size:14px;font-weight:600;margin-bottom:4px}
-.insp-main p{font-size:12px;color:var(--text2)}
-.pane{background:var(--s1);border-left:1px solid var(--divider);display:flex;flex-direction:column;height:100vh;position:sticky;top:0}
-.pane-head{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--divider);background:var(--s2)}
-.pane-head h3{font-size:13px;font-weight:600;color:var(--text)}
-.pane-head button{background:var(--bg);color:var(--text2);border:1px solid var(--divider);font-size:11px;padding:4px 10px;cursor:pointer;font-family:var(--font-t)}
-.pane-head button:hover{background:var(--hover);color:var(--text)}
-.pane pre{flex:1;overflow:auto;margin:0;padding:16px;font-family:var(--mono);font-size:11px;line-height:1.6;color:var(--text2);white-space:pre-wrap;word-break:break-word}
-.note{font-size:11px;color:var(--text3);margin-top:6px}
-@media(max-width:1000px){body{grid-template-columns:1fr}.pane{display:none}.board{border-right:0}}
-</style></head>
-<body>
-<div class="board">
-  <div class="topbar">
-    <span class="brand">Apple Developer</span>
-    <nav><a href="#">Discover</a> <a href="#">Design</a> <a href="#">Develop</a> <a href="#">Distribute</a></nav>
-    <span class="spacer"></span>
-    <a href="#" style="font-size:12px;font-weight:600;background:var(--accent-solid);color:#fff;padding:3px 12px;border-radius:980px">Sign in</a>
+  :root{
+    --fill:#fff; --fill-2:#fafafc; --fill-3:#f5f5f7; --fill-4:#e8e8ed;
+    --fg:#1d1d1f; --fg-2:#6e6e73; --fg-3:#86868b;
+    --link:#0066cc; --blue:#0071e3; --divider:#d2d2d7;
+    --green:#03a10e; --red:#e30000; --orange:#f56300; --yellow:#ffe045;
+    --text:"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;
+    --display:"SF Pro Display","Helvetica Neue",Helvetica,Arial,sans-serif;
+    --ease:cubic-bezier(0.4,0,0.6,1);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--fill);color:var(--fg);font-family:var(--text);
+    font-size:17px;line-height:25px;letter-spacing:-.022em;-webkit-font-smoothing:antialiased}
+  .nav{position:sticky;top:0;z-index:9;height:44px;display:flex;align-items:center;
+    gap:28px;padding:0 22px;background:rgba(255,255,255,.8);
+    backdrop-filter:saturate(1.8) blur(20px);border-bottom:1px solid var(--divider);
+    font-size:12px;color:rgba(29,29,31,.8)}
+  .nav b{font-size:14px}
+  main{max-width:1024px;margin:0 auto;padding:64px 22px 96px}
+  h1{font-family:var(--display);font-size:56px;line-height:60px;font-weight:600;
+    letter-spacing:-.005em;margin:0 0 8px}
+  .sub{font-family:var(--display);font-size:28px;line-height:32px;font-weight:400;color:var(--fg);margin:0 0 28px}
+  h2{font-family:var(--display);font-size:40px;line-height:44px;font-weight:600;margin:80px 0 24px}
+  .eyebrow{font-size:12px;line-height:16px;color:var(--fg-2);text-transform:none;margin:0 0 8px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
+  .card{background:var(--fill-3);border-radius:18px;padding:24px}
+  .card h3{font-family:var(--display);font-size:21px;line-height:25px;font-weight:600;margin:0 0 6px}
+  .card p{font-size:14px;line-height:20px;color:var(--fg-2);margin:0}
+  .swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+  .sw{border-radius:12px;overflow:hidden;border:1px solid var(--divider)}
+  .sw .chip{height:64px}
+  .sw .meta{padding:8px 10px;font-size:11px;line-height:15px}
+  .sw .meta b{display:block;font-size:12px}
+  .sw .meta span{color:var(--fg-2);font-family:var(--text)}
+  .btns{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+  .btn{font-family:var(--text);font-size:17px;font-weight:400;letter-spacing:-.022em;
+    border-radius:980px;padding:11px 21px;border:1px solid transparent;cursor:pointer;
+    transition:background-color .32s var(--ease),color .32s var(--ease),opacity .24s var(--ease)}
+  .btn-primary{background:var(--blue);color:#fff}
+  .btn-primary:hover{background:#0077ed}
+  .btn-neutral{background:var(--fill-3);color:var(--fg)}
+  .btn-neutral:hover{background:var(--fill-4)}
+  .btn-outline{background:transparent;color:var(--link);border-color:var(--link)}
+  .btn-outline:hover{background:rgba(0,102,204,.06)}
+  .btn-link{background:none;border:none;color:var(--link);padding:8px 0}
+  .btn-link:hover{text-decoration:underline}
+  .iconbtn{width:36px;height:36px;border-radius:50%;border:none;background:transparent;
+    color:var(--fg);cursor:pointer;font-size:16px;transition:background-color .32s var(--ease)}
+  .iconbtn:hover{background:var(--fill-4)}
+  .badges{display:flex;gap:10px;flex-wrap:wrap}
+  .badge{border-radius:980px;font-size:12px;padding:3px 11px;font-weight:500}
+  .input{font-family:var(--text);font-size:14px;border:1px solid var(--divider);
+    background:var(--fill-2);border-radius:12px;padding:10px 14px;color:var(--fg);width:260px}
+  .input:focus{outline:1px solid var(--blue);outline-offset:1px;border-color:var(--blue)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th{text-align:left;font-size:12px;color:var(--fg-3);font-weight:400;padding:8px 12px;border-bottom:1px solid var(--divider)}
+  td{padding:10px 12px;border-bottom:1px solid var(--divider);color:var(--fg)}
+  tr:hover td{background:var(--fill-3)}
+  .type-row{display:flex;align-items:baseline;gap:16px;padding:12px 0;border-bottom:1px solid var(--divider)}
+  .type-row .lbl{font-size:12px;color:var(--fg-3);width:120px;flex:none}
+  details{margin-top:48px;border-top:1px solid var(--divider);padding-top:16px}
+  summary{cursor:pointer;font-size:13px;color:var(--fg-2)}
+  pre{background:var(--fill-3);border-radius:12px;padding:20px;overflow:auto;
+    font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12px;line-height:18px;color:var(--fg)}
+  .note{font-size:12px;color:var(--fg-3);margin-top:8px}
+</style>
+</head><body>
+<nav class="nav"><b></b><span>Store</span><span>Mac</span><span>iPhone</span><span>Watch</span>
+  <span>Vision</span><span style="margin-left:auto">Design System Preview</span></nav>
+<main>
+  <p class="eyebrow">APPLE.COM DESIGN SYSTEM</p>
+  <h1>Flat structure. Pill controls.</h1>
+  <p class="sub">One typeface, a lot of white space, and a single blue.</p>
+  <div class="btns">
+    <button class="btn btn-primary">Learn more</button>
+    <button class="btn btn-outline">Buy</button>
+    <button class="btn btn-link">Watch the film&nbsp;›</button>
   </div>
-  <div class="scroll">
 
-    <section class="flush"><div class="sec-body" style="padding:4px 0 12px">
-      <div class="eyebrow">DESIGN BOARD · extracted from developer.apple.com</div>
-      <h1 style="font-family:var(--font-d);font-size:32px;font-weight:600;line-height:36px;margin-top:6px">Apple Developer — dark tool register</h1>
-      <p style="font-size:14px;color:var(--text2);margin-top:6px;max-width:60ch">Hairline dividers, square content blocks, SF Pro weight-driven hierarchy, one restrained blue accent, fill-shift layering. Optimized for a dark developer tool with top-bar + collapsible side inspector.</p>
-    </div></section>
-
-    <section>
-      <div class="sec-head"><h2>Color Palette &amp; Roles</h2><span class="eyebrow">dark tokens · observed</span></div>
-      <div class="sec-body">
-        <div class="grid c4">
-  <div class="sw">
-    <div class="chip" style="background:#000000;"></div>
-    <div class="sw-meta"><span class="sw-name">Canvas</span><span class="sw-hex">#000000</span><span class="sw-note">--bg</span></div>
+  <h2>Color</h2>
+  <p class="eyebrow">Light mode — observed from apple.com</p>
+  <div class="swatches">
+    <div class="sw"><div class="chip" style="background:#fff;border-bottom:1px solid var(--divider)"></div><div class="meta"><b>Canvas</b><span>#ffffff</span></div></div>
+    <div class="sw"><div class="chip" style="background:#f5f5f7"></div><div class="meta"><b>Surface</b><span>#f5f5f7</span></div></div>
+    <div class="sw"><div class="chip" style="background:#e8e8ed"></div><div class="meta"><b>Faint fill</b><span>#e8e8ed</span></div></div>
+    <div class="sw"><div class="chip" style="background:#1d1d1f"></div><div class="meta"><b>Text</b><span>#1d1d1f</span></div></div>
+    <div class="sw"><div class="chip" style="background:#6e6e73"></div><div class="meta"><b>Text 2</b><span>#6e6e73</span></div></div>
+    <div class="sw"><div class="chip" style="background:#0071e3"></div><div class="meta"><b>Fill blue</b><span>#0071e3</span></div></div>
+    <div class="sw"><div class="chip" style="background:#0066cc"></div><div class="meta"><b>Link</b><span>#0066cc</span></div></div>
+    <div class="sw"><div class="chip" style="background:#d2d2d7"></div><div class="meta"><b>Divider</b><span>#d2d2d7</span></div></div>
+    <div class="sw"><div class="chip" style="background:#03a10e"></div><div class="meta"><b>Success</b><span>#03a10e</span></div></div>
+    <div class="sw"><div class="chip" style="background:#e30000"></div><div class="meta"><b>Danger</b><span>#e30000</span></div></div>
   </div>
-  <div class="sw">
-    <div class="chip" style="background:#1d1d1f;"></div>
-    <div class="sw-meta"><span class="sw-name">Surface 1</span><span class="sw-hex">#1d1d1f</span><span class="sw-note">panels / inspector</span></div>
+
+  <h2>Type</h2>
+  <div class="type-row"><span class="lbl">Display 56 / 600</span><span style="font-family:var(--display);font-size:56px;font-weight:600;letter-spacing:-.005em">iPhone</span></div>
+  <div class="type-row"><span class="lbl">Display 40 / 600</span><span style="font-family:var(--display);font-size:40px;font-weight:600">Section title</span></div>
+  <div class="type-row"><span class="lbl">Display 28 / 400</span><span style="font-family:var(--display);font-size:28px">Intro sub-headline</span></div>
+  <div class="type-row"><span class="lbl">Text 17 / 400</span><span style="font-size:17px">Body copy at seventeen pixels, tracking −0.022em.</span></div>
+  <div class="type-row"><span class="lbl">Text 12 / 400</span><span style="font-size:12px;color:var(--fg-2)">EYEBROW · CAPTION</span></div>
+
+  <h2>Controls</h2>
+  <div class="btns" style="margin-bottom:20px">
+    <button class="btn btn-primary">Primary</button>
+    <button class="btn btn-neutral">Neutral</button>
+    <button class="btn btn-outline">Outline</button>
+    <button class="iconbtn">⌕</button>
+    <input class="input" placeholder="Search…">
   </div>
-  <div class="sw">
-    <div class="chip" style="background:#161617;"></div>
-    <div class="sw-meta"><span class="sw-name">Surface 2</span><span class="sw-hex">#161617</span><span class="sw-note">nested fill</span></div>
+  <div class="badges">
+    <span class="badge" style="background:rgba(3,161,14,.12);color:#03a10e">● Live</span>
+    <span class="badge" style="background:#f5f5f7;color:#1d1d1f">iOS 26.2</span>
+    <span class="badge" style="background:rgba(0,113,227,.1);color:#0071e3">CPU 4%</span>
+    <span class="badge" style="background:rgba(227,0,0,.1);color:#e30000">Error</span>
   </div>
-  <div class="sw">
-    <div class="chip" style="background:#111111;"></div>
-    <div class="sw-meta"><span class="sw-name">Surface 3</span><span class="sw-hex">#111111</span><span class="sw-note">raised alt</span></div>
+
+  <h2>Cards</h2>
+  <div class="grid">
+    <div class="card"><h3>Flat scaffolding</h3><p>Bars, sections, frames: 0px corners, no shadow. Layer by fill shift.</p></div>
+    <div class="card"><h3>Pill controls</h3><p>Buttons are full 980px pills. Cards soften to 12–18px.</p></div>
+    <div class="card"><h3>Quiet motion</h3><p>cubic-bezier(0.4,0,0.6,1) at ~0.3s. No springs, no bounce.</p></div>
   </div>
-  <div class="sw">
-    <div class="chip" style="background:#2c2c2e;"></div>
-    <div class="sw-meta"><span class="sw-name">Hover</span><span class="sw-hex">#2c2c2e</span><span class="sw-note">row/control hover</span></div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#424245;"></div>
-    <div class="sw-meta"><span class="sw-name">Divider</span><span class="sw-hex">#424245</span><span class="sw-note">1px hairlines</span></div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#f5f5f7;border:1px solid #424245"></div>
-    <div class="sw-meta"><span class="sw-name">Text</span><span class="sw-hex">#f5f5f7</span><span class="sw-note">primary</span></div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#a1a1a6;border:1px solid #424245"></div>
-    <div class="sw-meta"><span class="sw-name">Text 2</span><span class="sw-hex">#a1a1a6</span><span class="sw-note">secondary</span></div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#86868b;border:1px solid #424245"></div>
-    <div class="sw-meta"><span class="sw-name">Text 3</span><span class="sw-hex">#86868b</span><span class="sw-note">muted</span></div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#2997ff;"></div>
-    <div class="sw-meta"><span class="sw-name">Accent</span><span class="sw-hex">#2997ff</span><span class="sw-note">links (dark)</span></div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#0071e3;"></div>
-    <div class="sw-meta"><span class="sw-name">Accent solid</span><span class="sw-hex">#0071e3</span><span class="sw-note">primary button</span></div>
-  </div>
-  <div class="sw">
-    <div class="chip" style="background:#333336;"></div>
-    <div class="sw-meta"><span class="sw-name">Code bg</span><span class="sw-hex">#333336</span><span class="sw-note">inset</span></div>
-  </div></div>
-        <div class="note" style="margin-top:14px"><b style="color:var(--text)">Two-blue rule:</b> conservative <code>#0066CC</code> on light, <code>#2997FF</code> on dark; solid <code>#0071E3</code> reserved for the single filled CTA.</div>
-      </div>
-    </section>
 
-    <section>
-      <div class="sec-head"><h2>Semantic &amp; Syntax</h2><span class="eyebrow">figure colors / code</span></div>
-      <div class="sec-body grid c2">
-        <div><div class="eyebrow" style="margin-bottom:8px">Status / figure</div><div class="mini"><span class="mini-dot" style="background:#03a10e"></span><b>Green</b><code>#03a10e</code></div><div class="mini"><span class="mini-dot" style="background:#ff3037"></span><b>Red</b><code>#ff3037</code></div><div class="mini"><span class="mini-dot" style="background:#f56300"></span><b>Orange</b><code>#f56300</code></div><div class="mini"><span class="mini-dot" style="background:#ffb50f"></span><b>Yellow</b><code>#ffb50f</code></div><div class="mini"><span class="mini-dot" style="background:#7dffe4"></span><b>Teal</b><code>#7dffe4</code></div><div class="mini"><span class="mini-dot" style="background:#a95ed2"></span><b>Purple</b><code>#a95ed2</code></div><div class="mini"><span class="mini-dot" style="background:#f14bf1"></span><b>Pink</b><code>#f14bf1</code></div><div class="mini"><span class="mini-dot" style="background:#7dc1ff"></span><b>Light blue</b><code>#7dc1ff</code></div></div>
-        <div><div class="eyebrow" style="margin-bottom:8px">Dark syntax</div><div class="mini"><span class="mini-dot" style="background:#ffffff"></span><b>plain</b><code>#ffffff</code></div><div class="mini"><span class="mini-dot" style="background:#ff7ab2"></span><b>keyword</b><code>#ff7ab2</code></div><div class="mini"><span class="mini-dot" style="background:#ff8170"></span><b>string</b><code>#ff8170</code></div><div class="mini"><span class="mini-dot" style="background:#d9c97c"></span><b>number</b><code>#d9c97c</code></div><div class="mini"><span class="mini-dot" style="background:#7f8c98"></span><b>comment</b><code>#7f8c98</code></div><div class="mini"><span class="mini-dot" style="background:#6bdfff"></span><b>type</b><code>#6bdfff</code></div><div class="mini"><span class="mini-dot" style="background:#b281eb"></span><b>func</b><code>#b281eb</code></div><div class="mini"><span class="mini-dot" style="background:#ffa14f"></span><b>macro</b><code>#ffa14f</code></div></div>
-      </div>
-    </section>
-
-    <section>
-      <div class="sec-head"><h2>Typography</h2><span class="eyebrow">SF Pro · observed</span></div>
-      <div class="sec-body">
-        <div class="type-row"><span class="type-spec">40px · 600 · 44px · ~0</span><span class="type-sample" style="font-family:var(--font-d);font-size:40px;font-weight:600;line-height:44px">Display H1</span></div><div class="type-row"><span class="type-spec">32px · 600 · 36px · +0.128px</span><span class="type-sample" style="font-family:var(--font-d);font-size:32px;font-weight:600;line-height:36px">Section H2/H3</span></div><div class="type-row"><span class="type-spec">21px · 400 · 25px · +0.231px</span><span class="type-sample" style="font-family:var(--font-d);font-size:21px;font-weight:400;line-height:25px">Lead ¶</span></div><div class="type-row"><span class="type-spec">17px · 400 · 25px · −0.374px</span><span class="type-sample" style="font-family:var(--font-t);font-size:17px;font-weight:400;line-height:25px">Body</span></div><div class="type-row"><span class="type-spec">14px · 400 · 20px · −0.224px</span><span class="type-sample" style="font-family:var(--font-t);font-size:14px;font-weight:400;line-height:20px">Body small</span></div><div class="type-row"><span class="type-spec">12px · 400 · 16px · −0.12px</span><span class="type-sample" style="font-family:var(--font-t);font-size:12px;font-weight:400;line-height:16px">Eyebrow</span></div>
-      </div>
-    </section>
-
-    <section>
-      <div class="sec-head"><h2>Buttons</h2><span class="eyebrow">prefer ghost/text in tool</span></div>
-      <div class="sec-body btnrow">
-        <span class="btn primary">Primary</span>
-        <span class="btn ghost">Ghost / secondary</span>
-        <span class="btn textlink">Chevron text link ›</span>
-        <span class="btn pill">Pill (hero only)</span>
-      </div>
-    </section>
-
-    <section>
-      <div class="sec-head"><h2>Spacing &amp; Radius</h2><span class="eyebrow">8px base · 0px default</span></div>
-      <div class="sec-body">
-        <div class="eyebrow" style="margin-bottom:8px">Spacing scale (px)</div>
-        <div class="scaleStrip"><div><div class="scaleStep" style="width:4px;height:24px"></div><div class="scaleLab">4</div></div><div><div class="scaleStep" style="width:8px;height:24px"></div><div class="scaleLab">8</div></div><div><div class="scaleStep" style="width:12px;height:24px"></div><div class="scaleLab">12</div></div><div><div class="scaleStep" style="width:16px;height:24px"></div><div class="scaleLab">16</div></div><div><div class="scaleStep" style="width:20px;height:24px"></div><div class="scaleLab">20</div></div><div><div class="scaleStep" style="width:24px;height:24px"></div><div class="scaleLab">24</div></div><div><div class="scaleStep" style="width:32px;height:24px"></div><div class="scaleLab">32</div></div><div><div class="scaleStep" style="width:48px;height:24px"></div><div class="scaleLab">48</div></div><div><div class="scaleStep" style="width:64px;height:24px"></div><div class="scaleLab">64</div></div></div>
-        <div class="eyebrow" style="margin:18px 0 8px">Radius scale</div>
-        <div class="radwrap">
-          <div class="radbox" style="border-radius:0">0 · content</div>
-          <div class="radbox" style="border-radius:6px">6 · control</div>
-          <div class="radbox" style="border-radius:18px">18 · tile</div>
-          <div class="radbox" style="border-radius:980px;width:80px">980 · pill</div>
-        </div>
-      </div>
-    </section>
-
-    <section>
-      <div class="sec-head"><h2>Side inspector + content</h2><span class="eyebrow">DocC navigator model</span></div>
-      <div class="sec-body">
-        <div class="inspector">
-          <div class="insp-rail">
-            <div class="insp-row">Overview</div>
-            <div class="insp-row active">Tokens</div>
-            <div class="insp-row">Components</div>
-            <div class="insp-row">Layout</div>
-            <div class="insp-row">Motion</div>
-          </div>
-          <div class="insp-main">
-            <h4>Tokens</h4>
-            <p>Rows at 13–14px, hover <code>#2c2c2e</code>, selected = accent text on a faint accent tint. Rail separated by one 1px keyline. Square corners.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section>
-      <div class="sec-head"><h2>Card · Table · Aside · Code</h2><span class="eyebrow">distinctive patterns</span></div>
-      <div class="sec-body grid c2">
-        <div class="demoCard">
-          <h4>Content block</h4>
-          <p>Square, 1px #424245 border, fill #1d1d1f, no shadow. Separation by hairline + fill shift only.</p>
-          <span class="btn textlink" style="padding:0">Learn more ›</span>
-        </div>
-        <table class="rows">
-          <tr><th>Symbol</th><th>Kind</th></tr>
-          <tr><td>URLSession</td><td>class</td></tr>
-          <tr><td>dataTask</td><td>method</td></tr>
-          <tr><td>resume()</td><td>method</td></tr>
-        </table>
-        <div class="aside" style="border-color:#ff3037;background:#330000;color:#ff3037">
-          <b>Warning</b><span style="color:var(--text)">3px left accent, dark tinted bg, 0px radius.</span>
-        </div>
-        <div class="codeblock"><span style="color:#ff7ab2">func</span> <span style="color:#b281eb">load</span>() <span style="color:#ff7ab2">async</span> <span style="color:#7f8c98">// fetch</span>
-  <span style="color:#ff7ab2">let</span> data: <span style="color:#6bdfff">Data</span> = <span style="color:#ff8170">"…"</span></div>
-      </div>
-    </section>
-
-    <section>
-      <div class="sec-head"><h2>Depth · Motion · Breakpoints</h2></div>
-      <div class="sec-body" style="font-size:13px;color:var(--text2);line-height:1.6">
-        <p><b style="color:var(--text)">Depth:</b> no structural shadows. Layer by fill (#000 → #1d1d1f → #161617) and 1px hairlines. Real shadow (rgba(0,0,0,.5)) only for overlays.</p>
-        <p style="margin-top:8px"><b style="color:var(--text)">Motion:</b> ~300ms, <code>cubic-bezier(0.4,0,0.6,1)</code> decelerate. Nav color fade 0.32s. Never bouncy.</p>
-        <p style="margin-top:8px"><b style="color:var(--text)">Breakpoints:</b> 320 · 734/735 · 1068/1069 · 1440. Content max 980px, fluid 87.5%.</p>
-      </div>
-    </section>
-
-  </div>
-</div>
-
-<aside class="pane">
-  <div class="pane-head"><h3>design.md — source</h3><button id="copyBtn">Copy</button></div>
-  <pre id="src"></pre>
-</aside>
-
-<script type="text/plain" id="md-source"># Apple Developer — Design System
-
-> Extracted live from `developer.apple.com` (landing), `developer.apple.com/design/`,
-> and `developer.apple.com/documentation/` via `agent-browser eval` (DOM + computed
-> styles + CSS variables + stylesheet rules). Synthesized for reuse by AI agents
-> building a **dark developer-tool web UI**: top-bar chrome, a collapsible side
-> inspector, rectangular content blocks, hairline dividers, and minimal radius.
->
-> Values marked **(observed)** are read directly from the live site. Values marked
-> **(inferred)** are reasonable rules synthesized to fill gaps for the dark tool
-> consumer. Apple ships *two* visual registers and this doc captures both:
-> the **marketing register** (rounded pills, big editorial type, generous air) and
-> the **developer-tool / DocC register** (rectangular, hairline-divided, dense,
-> theme-aware). **Prioritize the DocC register** — it is the closest analog to the
-> consumer.
-
----
-
-## Visual Theme & Atmosphere
-
-Apple's developer surfaces feel **precise, quiet, and structural**. Nothing shouts.
-The system is built on near-neutral grays layered against pure black (dark) or pure
-white (light), with a single restrained blue carrying every interactive signal.
-Type does the heavy lifting: a tight, high-contrast SF Pro hierarchy where weight and
-size — not color or decoration — establish rank. Surfaces are separated not by
-shadows or heavy borders but by **1px hairline keylines** and subtle fill shifts
-(black → `#111` → `#1d1d1f`). Corners are effectively square in the dense content
-register; rounding only appears on marketing tiles (18px) and chrome pills (full
-radius). The result reads as engineered rather than decorated — content sits in
-crisp rectangular blocks divided by thin rules, the way a well-set technical
-document or a native macOS inspector does.
-
-Motion is deliberately understated: short color/opacity transitions on the order of
-~300ms using Apple's signature deceleration easing, never bouncy, never long. The
-overall mood an agent should reproduce: **restraint, structural clarity, hairline
-precision, and a single confident accent.** Whitespace is purposeful in marketing
-contexts and compressed-but-legible in tool contexts; the dark developer tool should
-lean toward the compressed end — minimal padding, dividers doing the spatial work.
-
-### Key Characteristics
-
-- **Hairline-divider system** — surfaces separated by `1px solid` keylines
-  (`#D2D2D7` light / `#424245` dark), not shadows or thick borders.
-- **Square content, rounded chrome** — content blocks `0px` radius; only marketing
-  tiles round (18px) and nav/CTA pills go fully round (980px).
-- **Neutral-gray layering** — three near-black surfaces (`#000` / `#1d1d1f` / `#111`)
-  in dark; three near-white (`#FFF` / `#F5F5F7` / `#FAFAFA`) in light.
-- **One accent, two blues** — conservative `#0066CC` (doc/tool links) and brighter
-  `#2997FF` (dark-mode links/glyphs); `#0071E3` for filled primary buttons.
-- **Weight-driven type rank** — SF Pro Display for headings (600), SF Pro Text for
-  body (400), with tight negative tracking on body and near-zero on display.
-- **Theme-aware tokens** — full light/dark token mirror; neutrals invert, the blue
-  accent shifts brighter in dark.
-
----
-
-## Color Palette & Roles
-
-Apple exposes a large CSS-variable token system. Below are the load-bearing roles
-for a dark tool, with both theme variants. All hex **(observed)** unless noted.
-
-### Primary / Accent
-
-| Role | Light | Dark | Notes |
-|---|---|---|---|
-| Link / interactive (tool, conservative) | `#0066CC` | `#2997FF` | DocC link color. Use this for the dev tool. |
-| Link / glyph (marketing) | `#0071E3` | `#2997FF` | Brighter marketing blue. |
-| Filled primary button bg | `#0071E3` | `#0071E3` | Stable across themes (`--color-button-background`). |
-| Filled primary button text | `#FFFFFF` | `#FFFFFF` | |
-| Accent — light blue (hover/secondary) | `#7DC1FF` | `#7DC1FF` | |
-| Accent fill / selection tint | `rgba(0,113,227,.5)` | `rgba(0,113,227,.5)` | Navigator item hover. |
-
-> **Two-blue rule:** the developer tool should use the **conservative `#0066CC`** for
-> links on light surfaces and **`#2997FF`** on dark surfaces. Reserve the solid
-> `#0071E3` pill for the single primary action.
-
-### Neutral Scale (text + glyph)
-
-| Role | Light | Dark |
-|---|---|---|
-| Text primary | `#1D1D1F` | `#F5F5F7` |
-| Text secondary | `#6E6E73` | `#A1A1A6` |
-| Text tertiary / muted | `#86868B` | `#86868B` |
-| Label on emphasis | `#000` | `#FFFFFF` |
-| Eyebrow / caption gray | `#6E6E73` | `#86868B` |
-
-### Surface & Overlay (layering)
-
-| Role | Light | Dark | Token |
-|---|---|---|---|
-| Canvas / base | `#FFFFFF` | `#000000` | `--color-fill` |
-| Surface primary (panels, cards) | `#FAFAFA` | `#1D1D1F` | `--color-background-primary` / `--fill-tertiary` |
-| Surface secondary | `#F5F5F7` | `#161617` | `--fill-secondary` |
-| Surface raised / alt | `#F5F5F7` | `#111111` | `--fill-tertiary-alt` |
-| Hover surface | `#F5F5F7` | `#2C2C2E` | `--color-background-hover` |
-| Code / inset fill | `#F9FAFA` | `#333336` | `--color-code-background` |
-| Global nav bg | `#FAFAFC` | `#1D1D1F` / `#161617` | `--r-globalnav-background-opened` |
-
-### Borders & Dividers (the signature)
-
-| Role | Light | Dark |
-|---|---|---|
-| **Hairline divider / keyline** | `#D2D2D7` | `#424245` |
-| Card / block border | `#D2D2D7` | `rgba(255,255,255,.25)` |
-| Card shadow color (barely-there) | `rgba(0,0,0,.04)` | `rgba(255,255,255,.04)` |
-| Strong shadow (overlays only) | `rgba(0,0,0,.5)` | `rgba(0,0,0,.5)` |
-
-> **All dividers are `1px solid`.** This is the single most important reusable trait
-> for the consumer. Use `#424245` on dark surfaces for every rule, table line, panel
-> edge, and section separator.
-
-### Semantic / Status (figure colors — used for badges, asides, syntax)
-
-| Role | Hex (stable across themes) |
-|---|---|
-| Green (success) | `#03A10E` |
-| Red (error/warning) | `#FF3037` |
-| Orange (deprecated) | `#F56300` |
-| Yellow (caution) | `#936D00` (light) / `#FFB50F` (dark) |
-| Teal (tip) | `#00C2BB` / `#7DFFE4` (dark) |
-| Purple (experimental) | `#A95ED2` |
-| Pink | `#F14BF1` |
-
-Asides pair each figure color with a dark tinted background, e.g. warning
-`#FF3037` text on `#330000`, tip `#00C2BB` on `#002D2B`, deprecated `#F56300` on
-`#290D00`. **(observed)**
-
-### Code Syntax (dark — for a developer tool, highly relevant)
-
-| Token | Hex |
-|---|---|
-| Plain text | `#FFFFFF` |
-| Keywords | `#FF7AB2` |
-| Strings | `#FF8170` |
-| Numbers / characters | `#D9C97C` |
-| Comments | `#7F8C98` |
-| Type declarations | `#6BDFFF` |
-| Other type names | `#DABAFF` |
-| Function / method names | `#B281EB` |
-| Preprocessor / macros | `#FFA14F` |
-| URLs | `#6699FF` |
-| Code line highlight | `rgba(41,151,255,.08)` |
-
-### Quick Color Reference (dark tool — copy/paste)
-
-```
---bg:            #000000   /* canvas */
---surface-1:     #1d1d1f   /* panels, side inspector, cards */
---surface-2:     #161617   /* nested / secondary fill */
---surface-3:     #111111   /* raised alt */
---hover:         #2c2c2e   /* row/control hover */
---divider:       #424245   /* every hairline rule */
---text:          #f5f5f7   /* primary text */
---text-2:        #a1a1a6   /* secondary text */
---text-3:        #86868b   /* muted / captions */
---accent:        #2997ff   /* links, interactive (dark) */
---accent-solid:  #0071e3   /* filled primary button */
---code-bg:       #333336
-```
-
----
-
-## Typography Rules
-
-### Font Family
-
-```
-Display / headings: "SF Pro Display", -apple-system, "Helvetica Neue", Arial, sans-serif
-Body / UI:          "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif
-Code:               "SF Mono", ui-monospace, Menlo, Monaco, monospace
-```
-
-Apple swaps SF Pro **Display** for sizes ≥ ~24px and SF Pro **Text** below that. If
-SF Pro is unavailable, `-apple-system` / system-ui reproduces it on Apple devices;
-otherwise Helvetica Neue / Inter is the closest fallback. **(observed for family;
-fallback chain partly inferred)**
-
-### Hierarchy (observed computed values)
-
-| Role | Font | Size | Weight | Line height | Tracking | Color (dark) |
-|---|---|---|---|---|---|---|
-| Display H1 / hero | SF Pro Display | 40px | 600 | 44px | `normal` (~0) | `#F5F5F7` |
-| Section H2/H3 | SF Pro Display | 32px | 600 | 36px | +0.128px | `#F5F5F7` |
-| Subhead / lead ¶ | SF Pro Display | 21px | 400 | 25px | +0.231px | `#F5F5F7` |
-| Body | SF Pro Text | 17px | 400 | 25px | **−0.374px** | `#F5F5F7` |
-| Body small / meta | SF Pro Text | 14px | 400 | 20px | −0.224px | `#A1A1A6` |
-| Eyebrow / overline label | SF Pro Text | 12px | 400 | 16px | −0.12px | `#6E6E73` |
-| Nav link | SF Pro Text | 17px | 600 | — | — | `rgba(255,255,255,.8)` |
-| Filled button label | SF Pro Text | 17px | 400 | — | — | `#000` / `#FFF` |
-
-> Larger Apple display type (52–80px hero on full marketing pages) also exists but is
-> out of register for a dense dev tool; the 40/32/21/17/14/12 ladder above is the
-> reusable scale.
-
-### Principles
-
-- **Negative tracking on body, near-zero on display.** Body text is tightened
-  (−0.374px @ 17px ≈ −0.022em). This compactness is part of the brand — reproduce it.
-- **Weight, not color, marks hierarchy.** Headings are 600; body 400. There is no
-  bold-blue heading convention. Keep headings the same neutral text color as body.
-- **Tight line heights.** Headings run ~1.1× (40/44, 32/36); body ~1.47× (17/25).
-- **Eyebrows are uppercase-feel small gray labels** at 12px sitting above section
-  titles, in secondary gray — used as section kickers.
-- **Links carry no underline by default;** underline appears on hover only. Link
-  color is the only place the blue accent touches text. **(observed)**
-
----
-
-## Component Stylings
-
-### Buttons
-
-Two button families. **For the dark dev tool, prefer the rectangular/ghost variants
-and reserve one filled pill for the primary action.**
-
-**Filled pill (primary CTA — marketing register):**
-- Light surface action: bg `#F5F5F7`, text `#000`; primary action: bg `#0071E3`,
-  text `#FFF`.
-- Radius `980px` (fully round), padding `9px 16px`, font 17px/400, border
-  `1px solid transparent`. Small chrome variant (nav "Sign in"): 12px, padding
-  `3px 10px`, height 24px. **(observed)**
-
-**Rectangular / tool button (inferred for consumer, grounded in DocC controls):**
-- Radius `0px` (or ≤4px if softening needed), `1px solid #424245` border on dark,
-  bg transparent → `#2c2c2e` on hover, text `#F5F5F7`, label 13–14px.
-- Selected/active: bg tinted `rgba(0,113,227,.5)` or text → accent.
-
-**Text / chevron link (heavily used):**
-- No background, accent color (`#2997FF` dark / `#0066CC` light), 17px/400,
-  no underline default → underline on hover. Often paired with a trailing chevron
-  glyph. This is Apple's default "more" affordance. **(observed)**
-
-### Cards & Containers
-
-- **Developer-tool / content blocks: `0px` radius, no shadow.** Separation comes from
-  a `1px #424245` hairline border and/or a fill shift to `#1d1d1f`. **(observed in
-  DocC + landing content cards.)**
-- **Marketing tiles: `18px` radius**, fill `#F5F5F7` (light) / `#1d1d1f` (dark),
-  no border, no shadow. Used only in editorial grids. **(observed)**
-- Link-block cards in dark get a faint `rgba(255,255,255,.25)` border and a barely
-  perceptible `rgba(255,255,255,.04)` shadow — effectively "shadow-as-hint," never
-  a drop shadow. **(observed)**
-
-### Inputs & Forms
-
-**(partly inferred — grounded in DocC filter/search field):**
-- Field: `1px solid #424245` border, bg `#1d1d1f` (or `#333336` for inset search),
-  radius `0px`–`6px`, text `#F5F5F7`, placeholder `#86868B`.
-- Focus: border → accent `#2997ff` (no glow ring in the dense register; a subtle
-  `box-shadow: 0 0 0 1px #2997ff` is acceptable).
-- Padding ~`8px 12px`; font 14–17px.
-
-### Navigation
-
-**Top bar (global nav):**
-- Height **`44px`** fixed, bg `#1D1D1F` (dark) / `#FAFAFC` (light), links 17px/600 at
-  `rgba(255,255,255,.8)` → full white on hover. Sticky/translucent (`backdrop-filter`
-  blur) when scrolled. Color transition `0.32s cubic-bezier(0.4,0,0.6,1)`.
-  **(observed)** — map this directly onto the consumer's top bar.
-
-**Side navigator / inspector (DocC left rail — the model for the collapsible
-inspector):**
-- Vertical list, rows at 17px (compress to 13–14px for a tool), row padding
-  `0 20px`, line-height 25px. No item borders; the rail is separated from content by
-  a single `1px #424245` keyline on its trailing edge.
-- Current item: accent-tinted background / accent text. Hover:
-  `rgba(0,113,227,.5)` tint or `#2c2c2e`. Collapsible hierarchy with disclosure
-  chevrons. **(observed structure; exact row metrics partly inferred.)**
-
-### Image Treatment
-
-- Photography is full-bleed, high-contrast, product-forward; illustration is minimal.
-- In the content register images sit in square frames (no radius); in marketing tiles
-  they inherit the 18px tile rounding. No borders on imagery. **(observed)**
-
-### Distinctive Components — Asides / Callouts
-
-Apple's doc **asides** are a signature pattern worth reusing for a dev tool:
-left-accent-bar callouts. Each type = a figure color + dark tinted bg + matching
-left border. E.g. Note: `#9A9A9E` on `#323232`; Warning: `#FF3037` on `#330000`;
-Tip: `#00C2BB` on `#002D2B`; Deprecated: `#F56300` on `#290D00`. Rectangular,
-`0px` radius, `1px` or 3px left accent border. **(observed)**
-
----
-
-## Layout Principles
-
-### Spacing System
-
-Apple's spacing is anchored to a ~**8px base** with a recurring 17px-derived rhythm.
-Observed section values: `8`, `20`, `25.5`, `51`px (note `25.5 = 51/2`, and `51 = 3×17`).
-**(observed)**
-
-```
-Reusable scale (dark tool):  4 · 8 · 12 · 16 · 20 · 24 · 32 · 48 · 64
-Section vertical rhythm:     ~25.5px / 51px between major content blocks
-Control / row padding:       4–12px (the tool register is tight)
-```
-
-> **Compression as identity for the tool:** the consumer wants minimal/zero padding.
-> Lean on dividers (not whitespace) to separate; use 0–8px block padding and let the
-> `1px #424245` rules carry the structure.
-
-### Grid & Container
-
-- Content max-width **`980px`** (`--sc-section-content`); responsive content width
-  `87.5%` of viewport (`--sc-viewport-content-responsive`). **(observed)**
-- Gallery/card grids: card width ~`310px`, column gap `24px`. **(observed)**
-- For a full-bleed tool shell, override the 980px cap — use the top bar + side
-  inspector as the frame and let content fill remaining width.
-
-### Whitespace Philosophy
-
-Marketing pages are airy; the developer/doc register is **dense and rule-divided.**
-Reproduce the dense register: tight padding, hairline separation, content packed into
-rectangular blocks. Whitespace is a tool, not a default.
-
-### Border Radius Scale
-
-| Context | Radius |
-|---|---|
-| Content blocks / tables / inspector / fields | **`0px`** (the default for the tool) |
-| Soft control (optional) | `4–6px` |
-| Marketing tile | `18px` |
-| Code block | `15px` (marketing) → `0px` for tool |
-| Pill button / chrome | `980px` (fully round) |
-
-> **Radius rule for the consumer: default to `0px`.** Only the single primary CTA
-> may use the pill; everything structural is square.
-
----
-
-## Depth & Elevation
-
-Apple **avoids shadows for structure.** Elevation is communicated by:
-
-1. **Hairline borders** (`1px #424245` dark / `#D2D2D7` light) — the primary
-   separator.
-2. **Fill shifts** — `#000 → #1d1d1f → #161617` step a surface "up."
-3. **Barely-there shadows** — only `rgba(255,255,255,.04)` (dark) / `rgba(0,0,0,.04)`
-   (light) on the rare raised card; never a visible drop shadow.
-4. **Real shadows reserved for true overlays** (menus, popovers): `rgba(0,0,0,.5)`.
-
-There is **no z-layer shadow ramp.** For the dark tool: separate panels with
-dividers and fill shifts; use a single strong shadow only for floating overlays.
-**(observed)**
-
----
-
-## Do's and Don'ts
-
-**Do**
-- Use `1px solid #424245` hairline dividers as the primary structural device.
-- Keep content blocks square (`0px` radius).
-- Drive hierarchy with SF Pro weight/size, not color.
-- Tighten body tracking (~−0.022em) to match the brand feel.
-- Use exactly one accent blue per surface (`#2997FF` on dark) for all interactive text.
-- Layer surfaces by fill (`#000`/`#1d1d1f`/`#161617`), not by shadow.
-- Keep motion short (~300ms) with `cubic-bezier(0.4,0,0.6,1)` deceleration.
-
-**Don't**
-- Don't add drop shadows for structure or rounded corners to content blocks.
-- Don't introduce a second accent hue or colored headings.
-- Don't pad generously in the tool register — let dividers do the spacing work.
-- Don't underline links by default (underline on hover only).
-- Don't use bouncy/long animations or parallax in the tool register.
-- Don't use low-opacity icons or text below ~0.6 alpha (keep glyphs crisp).
-
----
-
-## Responsive Behavior
-
-### Breakpoints (observed — Apple's canonical set)
-
-| Breakpoint | Role |
-|---|---|
-| `320px` | small phone floor |
-| `734 / 735px` | phone → tablet |
-| `1068 / 1069px` | tablet → desktop |
-| `1440px` | large desktop |
-
-Container caps at `980px` content with `87.5%` fluid width below. **(observed)**
-
-### Collapsing Strategy
-
-- **Top bar** stays 44px; on narrow widths the link cluster collapses into a menu
-  trigger (hamburger), nav background gains blur/translucency. **(observed pattern)**
-- **Side inspector** collapses to a slide-over / toggle below the tablet breakpoint;
-  the `1px` keyline becomes the panel's leading edge. **(inferred for consumer,
-  grounded in DocC navigator collapse.)**
-- Multi-column card grids reflow to single column under ~734px.
-
-### Touch Targets
-
-Interactive rows/controls should hold ≥44px touch height on touch widths even though
-the visual row may be denser on desktop (Apple's 44px HIG minimum). **(inferred, HIG.)**
-
----
-
-## Interaction Patterns
-
-- **Hover:** links underline + slightly brighten; nav links fade `rgba(255,255,255,.8)
-  → #fff` over `0.32s`; rows tint to `#2c2c2e` or `rgba(0,113,227,.5)`. **(observed)**
-- **Scroll:** top bar becomes sticky and translucent (backdrop blur); content does not
-  parallax in the tool register. **(observed)**
-- **Theme toggle:** neutrals invert wholesale via the light/dark token mirror; the
-  blue accent shifts brighter in dark (`#0066CC → #2997FF`); dividers go
-  `#D2D2D7 → #424245`; code/syntax colors swap to the dark syntax set. **(observed)**
-- **Motion feel:** crisp and restrained. Durations ~0.3s, easing
-  `cubic-bezier(0.4,0,0.6,1)` (decelerate) and `cubic-bezier(0.645,0.045,0.355,1)`
-  (in-out). Never bouncy. **(observed)**
-
----
-
-## Content & Messaging Patterns
-
-- **Headlines:** confident, plain, present-tense, often imperative — "Design
-  incredible apps and games," "Discover agentic coding in Xcode." Short, no hype
-  punctuation. **(observed)**
-- **CTAs:** verb-first and concrete — "Watch now," "Try it now," "Sign up now,"
-  "Read now," "Take the survey." Single clear action per block. **(observed)**
-- **Body:** technical-but-accessible; precise nouns, minimal adjectives. Trust comes
-  from specificity, not adjectives.
-- **Eyebrows:** short category labels above titles ("Explore Get Started,"
-  "Stay Updated"). **(observed)**
-- **Voice for the tool:** direct, technical, sparse. Match Apple's "say it once,
-  precisely" tone — no marketing fluff in a developer surface.
-
----
-
-## Agent Prompt Guide
-
-Drop-in instructions for an agent restyling the dark developer tool.
-
-### Global directive
-
-> Build a **dark developer-tool UI in the Apple DocC register.** Canvas `#000`,
-> panels `#1d1d1f`, nested fills `#161617`. Separate everything with **`1px solid
-> #424245` hairline dividers** — no drop shadows, no rounded corners on content
-> (`0px` radius). Text `#f5f5f7` primary / `#a1a1a6` secondary in SF Pro
-> (Display 600 for headings, Text 400 for body, body tracking −0.022em). One accent:
-> `#2997ff` for all interactive text/links (no underline until hover). Tight padding;
-> let dividers carry the structure. Motion ≤300ms, `cubic-bezier(0.4,0,0.6,1)`.
-
-### Example Component Prompts
-
-**Top bar**
-> 44px-tall top bar, bg `#1d1d1f`, 17px/600 nav links at `rgba(255,255,255,.8)`
-> brightening to `#fff` on hover over 0.32s `cubic-bezier(0.4,0,0.6,1)`. Bottom edge
-> is a single `1px #424245` keyline. Sticky + translucent (backdrop blur) on scroll.
-> No radius, no shadow.
-
-**Side inspector (collapsible)**
-> Left/right rail on `#1d1d1f`, separated from content by one `1px #424245` keyline on
-> its inner edge. List rows: 13–14px SF Pro Text, `#f5f5f7`, padding `4px 12px`, hover
-> bg `#2c2c2e`, selected = `#2997ff` text on `rgba(0,113,227,.18)`. Disclosure chevron
-> for collapsible groups. Square corners. Collapses to a toggle below 1068px.
-
-**Content block / card**
-> Rectangular block, `0px` radius, bg `#1d1d1f`, separated by `1px #424245` borders —
-> no shadow. Title in SF Pro Display 17–21px/600 `#f5f5f7`; body 13–14px/400 `#a1a1a6`.
-> Tight internal padding (8–12px). Trailing chevron-text link in `#2997ff`.
-
-**Primary button + ghost button**
-> Primary: solid `#0071e3` bg, white 13–14px label, radius `6px` (or pill `980px` only
-> if it's the single hero action), padding `8px 14px`, no border. Ghost/secondary:
-> transparent bg, `1px solid #424245` border, `#f5f5f7` label, hover bg `#2c2c2e`,
-> `0px`–`6px` radius.
-
-**Table / data grid**
-> Square table, header row text `#86868b` 12px, cells `#f5f5f7` 13–14px. Every row
-> separated by a `1px #424245` bottom border. No outer radius, no zebra fill (or a
-> faint `#161617` zebra). Hover row → `#2c2c2e`.
-
-**Code block**
-> bg `#333336` (or `#1d1d1f`), `0px` radius for the tool, SF Mono 13px, plain text
-> `#fff`, keywords `#ff7ab2`, strings `#ff8170`, types `#6bdfff`, comments `#7f8c98`,
-> numbers `#d9c97c`. Optional active-line highlight `rgba(41,151,255,.08)`.
-
-**Aside / callout**
-> Rectangular callout, `0px` radius, 3px left accent border + dark tinted bg matching
-> the type — Note `#9a9a9e`/`#323232`, Warning `#ff3037`/`#330000`, Tip
-> `#00c2bb`/`#002d2b`, Deprecated `#f56300`/`#290d00`. Title in the accent color,
-> body in `#f5f5f7`.
-
-### Iteration Guide
-
-- **Too soft / generic?** Remove radius (→ `0px`), delete shadows, add more `1px
-  #424245` dividers, tighten padding.
-- **Too flat / muddy?** Step a panel up a fill (`#000 → #1d1d1f → #161617`) instead of
-  adding a border or shadow.
-- **Too loud?** Cut accent usage to links + the single primary button; make headings
-  neutral text color, not blue.
-- **Off-brand type?** Switch headings to SF Pro Display 600, body to SF Pro Text 400,
-  and apply −0.022em body tracking.
-- **Motion feels cheap?** Shorten to ~250–320ms, swap easing to
-  `cubic-bezier(0.4,0,0.6,1)`, drop any bounce/scale.
-
----
-
-## Observed Pages
-
-| Surface | URL | Register | Default theme |
-|---|---|---|---|
-| Developer landing | `developer.apple.com/` | Marketing (rounded pills, editorial) | Dark (`#000`) |
-| Design | `developer.apple.com/design/` | Marketing/editorial (18px tiles) | Light (`#FFF`) |
-| Documentation (DocC) | `developer.apple.com/documentation/swift` | Developer-tool (hairline, dense) | Light, full dark token set present |
-
-## Evidence Notes
-
-- **Strong / observed:** full light + dark CSS-variable token sets, computed type
-  hierarchy, hairline divider colors, radius values, nav height (44px), content
-  max-width (980px), section spacing values, breakpoints, easing curves, syntax
-  colors, button computed styles.
-- **Inferred (clearly labeled inline):** the *rectangular tool-button*, *input/form*,
-  and *side-inspector row metrics* are synthesized for the dark-tool consumer —
-  grounded in DocC controls but Apple ships these mostly inside native apps, so exact
-  web pixel values were extrapolated from the DocC navigator + filter field rather
-  than read off a single element.
-- **Gaps:** DocC's resolved dark *nav* token values (`--color-nav-dark-*`) are
-  indirections that point to further variables not all resolvable from the light-mode
-  DOM; their concrete hexes were inferred from the surrounding dark surface scale
-  (`#1d1d1f` / `#161617` / `#424245`). Disabled/focus-ring states for tool controls
-  were not directly observable and are proposed conservatively.
-</script>
+  <h2>Data</h2>
+  <table>
+    <thead><tr><th>Device</th><th>Runtime</th><th>CPU</th><th>Memory</th></tr></thead>
+    <tbody>
+      <tr><td>iPhone 15 Pro</td><td>iOS 26.2</td><td>0%</td><td>257 MB</td></tr>
+      <tr><td>iPad Pro 13"</td><td>iOS 26.1</td><td>2%</td><td>402 MB</td></tr>
+    </tbody>
+  </table>
+
+  <details>
+    <summary>View design.md source</summary>
+    <pre id="src">Loading design.md…</pre>
+    <p class="note">Source of truth: <code>design.md</code> (this preview renders its tokens).</p>
+  </details>
+</main>
 <script>
-  const raw = document.getElementById('md-source').textContent;
-  document.getElementById('src').textContent = raw;
-  document.getElementById('copyBtn').addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(raw); const b=document.getElementById('copyBtn'); b.textContent='Copied'; setTimeout(()=>b.textContent='Copy',1200); } catch(e){}
-  });
+  fetch('design.md').then(r=>r.text()).then(t=>{document.getElementById('src').textContent=t;})
+    .catch(()=>{document.getElementById('src').textContent='Open alongside design.md to load the source.';});
 </script>
 </body></html>

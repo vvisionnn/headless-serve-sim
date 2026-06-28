@@ -12,7 +12,6 @@ import {
   SimulatorView,
   displayStreamConfig,
   fallbackScreenSize,
-  screenBorderRadius,
   SimulatorToolbar,
   getDeviceType,
   parseServerStreamStats,
@@ -31,7 +30,7 @@ import { AxToolbarButton } from "./components/ax-toolbar-button";
 import { BootEmptyState } from "./components/boot-empty-state";
 import { DevicePicker } from "./components/device-picker";
 import { GridPanel } from "./components/grid-panel";
-import { TopBarMetrics } from "./components/metrics-hud";
+import { MetricsBar } from "./components/metrics-bar";
 import { ConnectionStatsPanel } from "./components/connection-stats-panel";
 import { ResizeHandle } from "./components/resize-handle";
 import { InspectorBar } from "./components/inspector-bar";
@@ -355,7 +354,6 @@ function AppWithConfig({
   const [wsStreamConfig, setWsStreamConfig] = useState<StreamConfig | null>(null);
   const streamConfig = wsStreamConfig;
   const activeStreamConfig = liveStreamConfig ?? streamConfig ?? fallbackScreenSize(deviceType, selectedDevice?.name);
-  const imgBorderRadius = screenBorderRadius(deviceType, activeStreamConfig);
   const frameMaxWidth = simulatorMaxWidth(deviceType, activeStreamConfig);
   const frameDisplayConfig = displayStreamConfig(activeStreamConfig);
   const frameAspectRatioValue = frameDisplayConfig
@@ -735,15 +733,26 @@ function AppWithConfig({
   const TOP_BAR_HEIGHT = 44;
   const INSPECTOR_COLLAPSED_WIDTH = 44;
   const INSPECTOR_EXPANDED_WIDTH = 360;
+  // Dedicated, always-visible left rail for the live CPU/MEM gauges — mirrors
+  // the right inspector's shell but never collapses (hiding the gauges would
+  // defeat its purpose).
+  const METRICS_BAR_WIDTH = 220;
   const inspectorWidth = Math.min(
     inspectorOpen ? INSPECTOR_EXPANDED_WIDTH : INSPECTOR_COLLAPSED_WIDTH,
     viewportWidth,
   );
+  // Both side rails are reserved out of the frame's available width, so the
+  // device never slips under either bar at any viewport size.
+  const sideRailsWidth = Math.min(METRICS_BAR_WIDTH + inspectorWidth, viewportWidth);
 
+  // The assembly is wrapped in a 1px border on every outer edge; reserve those
+  // 2px (top+bottom / left+right) so the bordered box always fits the viewport
+  // and all four edges stay visible at any size.
+  const ASSEMBLY_BORDER = 2;
   const frameGeom = useMemo(() => {
     const aspect = frameAspectRatioValue > 0 ? frameAspectRatioValue : 1;
-    const availH = Math.max(0, viewportHeight - TOP_BAR_HEIGHT);
-    const availW = Math.max(0, viewportWidth - inspectorWidth);
+    const availH = Math.max(0, viewportHeight - TOP_BAR_HEIGHT - ASSEMBLY_BORDER);
+    const availW = Math.max(0, viewportWidth - sideRailsWidth - ASSEMBLY_BORDER);
     // Height-bound by default (top bar + frameH == viewport height for portrait);
     // clamp to width for wide devices; cap upscale so low-res devices (watch /
     // vision) don't balloon soft on large displays.
@@ -762,16 +771,29 @@ function AppWithConfig({
       width: Math.max(0, roundToDevicePixel(w)),
       height: Math.max(0, roundToDevicePixel(h)),
     };
-  }, [viewportWidth, viewportHeight, inspectorWidth, frameAspectRatioValue, frameMaxWidth]);
+  }, [viewportWidth, viewportHeight, sideRailsWidth, frameAspectRatioValue, frameMaxWidth]);
 
   return (
     <AxStateProvider endpoint={axOverlayEnabled ? config?.axEndpoint : undefined}>
     <div className="flex items-center justify-center h-screen w-screen overflow-hidden bg-page font-system">
+      {/* The whole assembly enclosed by a real hairline border on ALL FOUR edges
+          (the geometry reserves its 2px so it's never clipped, at any viewport
+          size) — same border as the bars, no shadow. Internal seams come from
+          the bars' own keylines. */}
+      <div className="flex border border-divider">
+      {/* Left rail — live CPU/MEM gauges, mirrored against the right inspector. */}
+      <MetricsBar
+        pid={currentApp?.pid}
+        enabled={streaming}
+        topBarHeight={TOP_BAR_HEIGHT}
+        frameHeight={frameGeom.height}
+        width={METRICS_BAR_WIDTH}
+      />
       <div
         className="flex shrink-0 min-w-0 flex-col"
         style={{
           width: frameGeom.width,
-          transition: "width 340ms cubic-bezier(0.34, 1.3, 0.6, 1)",
+          transition: "width 320ms cubic-bezier(0.4, 0, 0.6, 1)",
         }}
       >
         <SimulatorToolbar
@@ -782,7 +804,6 @@ function AppWithConfig({
           deviceName={selectedDevice?.name ?? null}
           deviceRuntime={selectedDevice?.runtime ?? null}
           streaming={streaming}
-          style={{ borderLeft: "1px solid #424245" }}
         >
           <DevicePicker
             devices={devices}
@@ -795,15 +816,7 @@ function AppWithConfig({
             onStop={stopDevice}
             trigger={<SimulatorToolbar.Title />}
           />
-          <TopBarMetrics pid={currentApp?.pid} enabled={streaming} barWidth={frameGeom.width} />
           <SimulatorToolbar.Actions>
-            <span
-              className="mx-0.5 size-1.5 shrink-0"
-              style={{ background: streaming ? "var(--color-success)" : "var(--color-fg-3)" }}
-              role="status"
-              aria-label={streaming ? "Live" : "Connecting"}
-              title={streaming ? "live" : "connecting"}
-            />
             {currentApp?.isReactNative && (
               <SimulatorToolbar.Button
                 aria-label="Reload React Native bundle"
@@ -833,7 +846,7 @@ function AppWithConfig({
         </SimulatorToolbar>
         <div
           ref={simContainerRef}
-          className="relative shrink-0 overflow-hidden border-l border-b border-divider bg-page"
+          className="relative shrink-0 overflow-hidden bg-page"
           style={{ width: frameGeom.width, height: frameGeom.height }}
           {...mediaDrop.dropZoneProps}
         >
@@ -844,10 +857,7 @@ function AppWithConfig({
               height: "100%",
               border: "none",
             }}
-            imageStyle={{
-              borderRadius: imgBorderRadius,
-              cornerShape: "superellipse(1.3)",
-            } as CSSProperties}
+            imageStyle={{ borderRadius: 0 } as CSSProperties}
             hideControls
             onStreamingChange={setStreaming}
             onStreamTouch={onStreamTouch}
@@ -867,8 +877,7 @@ function AppWithConfig({
           {axOverlayEnabled && <AxDomOverlay />}
           {mediaDrop.isDragOver && (
             <div
-              className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-accent bg-[rgba(41,151,255,0.12)] backdrop-blur-[2px] text-accent pointer-events-none"
-              style={{ borderRadius: imgBorderRadius }}
+              className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-accent bg-accent-tint backdrop-blur-[2px] text-accent pointer-events-none"
             >
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -895,11 +904,11 @@ function AppWithConfig({
             return (
               <div
                 key={t.id}
-                className={`flex flex-col gap-1.5 px-3 py-2 bg-panel border border-divider text-fg text-[12px] font-mono shadow-[0_8px_24px_rgba(0,0,0,0.5)] ${isError ? "select-text cursor-text" : "select-none cursor-default"}`}
+                className={`flex flex-col gap-1.5 px-3 py-2.5 rounded-card bg-panel border border-divider text-fg text-[12px] font-mono shadow-[0_4px_24px_rgba(0,0,0,0.12)] ${isError ? "select-text cursor-text" : "select-none cursor-default"}`}
               >
                 <div className="flex items-center gap-2">
                   <span
-                    className="size-1.5 shrink-0 [transition:background_0.3s]"
+                    className="size-1.5 shrink-0 rounded-full [transition:background_0.3s]"
                     style={{ background: isUploading ? "var(--color-accent)" : t.status === "success" ? "var(--color-success)" : "var(--color-danger)" }}
                   />
                   <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
@@ -913,14 +922,14 @@ function AppWithConfig({
                   </span>
                 </div>
                 {isUploading && (
-                  <div className="relative h-[3px] w-full bg-surface-3 overflow-hidden">
+                  <div className="relative h-[3px] w-full rounded-full bg-hover overflow-hidden">
                     {transferring ? (
                       <div
-                        className="h-full bg-accent [transition:width_120ms_linear]"
+                        className="h-full rounded-full bg-accent-solid [transition:width_120ms_linear]"
                         style={{ width: `${pct}%` }}
                       />
                     ) : (
-                      <div className="headless-serve-sim-toast-indeterminate absolute top-0 left-0 h-full w-[40%] bg-accent" />
+                      <div className="headless-serve-sim-toast-indeterminate absolute top-0 left-0 h-full w-[40%] rounded-full bg-accent-solid" />
                     )}
                   </div>
                 )}
@@ -959,6 +968,7 @@ function AppWithConfig({
           setDevtoolsOpen(true);
         }}
       />
+      </div>
 
       <GridPanel
         open={gridOpen}

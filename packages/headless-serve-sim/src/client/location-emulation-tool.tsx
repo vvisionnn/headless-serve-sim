@@ -46,18 +46,23 @@ const TRAIL_MORPH_MS = 650;
 // emit a small style sheet keyed off classnames the components apply.
 // TODO: Convert to Tailwind
 const HOVER_CSS = `
-.lem-toggle:hover { color: #f5f5f7; }
-.lem-toggle:hover .lem-chevron { color: #f5f5f7 !important; }
-.lem-select:hover { background: #161617; border-color: #424245; }
-.lem-select:focus { outline: none; border-color: #2997ff; background: #161617; }
-.lem-primary:hover:not(:disabled) { filter: brightness(1.08); }
-.lem-primary-on:hover:not(:disabled) { background: #2c2c2e !important; filter: none; }
-.lem-ghost:hover:not(:disabled) { background: #2c2c2e; border-color: #424245; color: #f5f5f7; }
+.lem-toggle:hover { color: var(--color-fg); }
+.lem-toggle:hover .lem-chevron { color: var(--color-fg) !important; }
+.lem-select:hover { background: var(--color-hover); border-color: var(--color-divider); }
+.lem-select:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); }
+.lem-primary:hover:not(:disabled) { filter: brightness(1.04); }
+.lem-primary-on:hover:not(:disabled) { background: var(--color-hover) !important; filter: none; }
+.lem-ghost:hover:not(:disabled) { background: var(--color-hover); border-color: var(--color-divider); color: var(--color-fg); }
 .lem-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
-.lem-seg:hover:not([aria-pressed="true"]) { color: #f5f5f7; background: #2c2c2e !important; }
-.lem-speed:hover { background: #2c2c2e; border-color: #424245; color: #f5f5f7; }
-.lem-speed-on:hover { background: #2997ff !important; border-color: #2997ff !important; color: #ffffff !important; }
+.lem-seg:hover:not([aria-pressed="true"]) { color: var(--color-fg); background: var(--color-hover) !important; }
+.lem-speed:hover { background: var(--color-hover); border-color: var(--color-divider); color: var(--color-fg); }
+.lem-speed-on:hover { filter: brightness(1.04); }
 .lem-speed:active { transform: scale(0.97); }
+.lem-toggle:focus-visible,
+.lem-primary:focus-visible,
+.lem-ghost:focus-visible,
+.lem-seg:focus-visible,
+.lem-speed:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); }
 `;
 
 interface ExecResult { stdout: string; stderr: string; exitCode: number }
@@ -313,66 +318,72 @@ export function LocationEmulationTool({
 
   // ── Render ───────────────────────────────────────────────────────────────
   const playing = playback.status === "playing";
+  // Derive the displayed pace from state directly. speedRef is updated in an
+  // effect *after* render, so reading it here would show last render's value
+  // and stay stale while idle (the stats interval only fires while playing).
+  const displaySpeed = defaultSpeed(mode) * multiplier;
   const headerStatus = playing
     ? `${formatDistance(playback.arc)} · ${formatDuration(playback.elapsedMs)}`
     : `${formatDistance(prepared.totalDistance)} total`;
 
   return (
-    <div className="bg-panel border border-divider flex flex-col gap-2 px-2 py-1.5">
+    <div className="bg-panel rounded-card border border-divider overflow-hidden font-system">
       <style>{HOVER_CSS}</style>
       <button
         type="button"
         onClick={() => setOpen((v: boolean) => !v)}
-        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-fg py-2 px-1 -my-1.5 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
+        className="lem-toggle flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full cursor-pointer select-none bg-transparent border-none text-fg text-left [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold text-fg-3 uppercase tracking-[0.08em] leading-none inline-flex items-center">Location</span>
-        <span className="text-[11px] text-fg-2 font-mono inline-flex items-center gap-1.5 justify-self-end leading-none">
-          <span
-            className="size-1.5 [transition:background_0.2s]"
-            style={{
-              background: playing ? "var(--color-success)" : prepared.totalDistance > 0 ? "var(--color-fg-3)" : "transparent",
-            }}
-          />
-          {headerStatus}
+        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">Location</span>
+        <span className="flex items-center gap-2.5 ml-auto">
+          <span className="text-[11px] text-fg-3 font-mono inline-flex items-center gap-1.5 leading-none">
+            <span
+              className="size-1.5 rounded-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+              style={{
+                background: playing ? "var(--color-success)" : prepared.totalDistance > 0 ? "var(--color-fg-3)" : "transparent",
+              }}
+            />
+            {headerStatus}
+          </span>
+          <Chevron open={open} />
         </span>
-        <Chevron open={open} />
       </button>
 
       {open && (
-        <>
-          <div className="flex flex-col gap-1">
+        <div className="border-t border-divider px-3.5 py-3 flex flex-col gap-2">
+          <div className="flex flex-col gap-1.5">
             <div className="relative block">
               <Select
                 label="Trail"
                 value={trailId}
                 options={DEFAULT_TRAILS.map((t) => ({ value: t.id, label: t.name }))}
                 onChange={onTrailChange}
-                className="bg-panel border border-divider text-fg text-[12px] py-1.5 pr-[26px] pl-2 w-full [transition:background_0.12s,border-color_0.12s]"
+                className="lem-select bg-surface-3 rounded-card border border-divider text-fg text-[13px] py-2 pr-[28px] pl-2.5 w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
               />
-              <span className="absolute right-[9px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center" aria-hidden="true">
+              <span className="absolute right-[10px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center" aria-hidden="true">
                 <Chevron open={false} />
               </span>
             </div>
-            <div className="text-[10px] text-fg-3">{trail.description}</div>
+            <div className="text-[11px] text-fg-3 tracking-[-0.01em]">{trail.description}</div>
           </div>
 
-          <div className="relative w-full overflow-hidden bg-page border border-divider [aspect-ratio:16/11]">
+          <div className="relative w-full overflow-hidden bg-page rounded-card border border-divider [aspect-ratio:16/11]">
             <canvas ref={canvasRef} className="w-full h-full block" />
             <ElevationBadges prepared={prepared} />
           </div>
 
           <div className="grid [grid-template-columns:1fr_1fr_1fr] gap-1.5">
             <Stat label="Distance" value={formatDistance(playback.arc)} />
-            <Stat label="Pace" value={formatPace(speedRef.current)} />
+            <Stat label="Pace" value={formatPace(displaySpeed)} />
             <Stat label="Elapsed" value={formatDuration(playback.elapsedMs)} />
           </div>
 
-          <div className="flex gap-1.5">
+          <div className="flex gap-2">
             <button
               type="button"
               onClick={onPlayPause}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 border-none text-[12px] font-semibold cursor-pointer font-[inherit] ${playing ? "lem-primary lem-primary-on bg-surface-2 text-fg" : "lem-primary bg-accent-solid text-white"}`}
+              className={`lem-primary flex-1 flex items-center justify-center gap-1.5 py-2 px-4 rounded-pill border-none text-[13px] font-semibold tracking-[-0.01em] cursor-pointer font-[inherit] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)] ${playing ? "lem-primary-on bg-surface-2 text-fg" : "bg-accent-solid text-white"}`}
               aria-pressed={playing}
               title={playing ? "Pause" : "Play"}
             >
@@ -382,7 +393,7 @@ export function LocationEmulationTool({
             <button
               type="button"
               onClick={onStop}
-              className="lem-ghost flex items-center justify-center gap-1.5 py-2 px-3 border border-divider text-[12px] font-medium bg-transparent text-fg cursor-pointer font-[inherit]"
+              className="lem-ghost flex items-center justify-center gap-1.5 py-2 px-4 rounded-pill border border-divider text-[13px] font-medium tracking-[-0.01em] bg-transparent text-fg cursor-pointer font-[inherit] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
               disabled={playback.status === "idle" && playback.arc === 0}
               title="Stop and clear simulated location"
             >
@@ -412,7 +423,7 @@ export function LocationEmulationTool({
                 const next = SPEED_MULTIPLIERS[(idx + 1) % SPEED_MULTIPLIERS.length]!;
                 setMultiplier(next);
               }}
-              className={`flex items-center justify-center gap-1 px-2.5 border cursor-pointer font-[inherit] text-[11px] font-semibold min-w-[56px] ${multiplier > 1 ? "lem-speed lem-speed-on bg-accent-solid border-accent text-white" : "lem-speed bg-panel border-divider text-fg"}`}
+              className={`lem-speed flex items-center justify-center gap-1 px-3 rounded-pill border cursor-pointer font-[inherit] text-[12px] font-semibold min-w-[56px] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1),transform_0.12s_cubic-bezier(0.4,0,0.6,1)] ${multiplier > 1 ? "lem-speed-on bg-accent-solid border-accent text-white" : "bg-panel border-divider text-fg"}`}
               aria-label={`Speed ${multiplier}× — tap to cycle`}
               title={`Speed ${multiplier}× — tap to cycle`}
             >
@@ -422,11 +433,11 @@ export function LocationEmulationTool({
           </div>
 
           {error && (
-            <div className="bg-panel-deep border border-divider text-danger text-[11px] px-2 py-1.5">
+            <div className="bg-page rounded-card border border-divider text-danger text-[11px] tracking-[-0.01em] px-2.5 py-2">
               {error}
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );
@@ -436,9 +447,9 @@ export function LocationEmulationTool({
 
 const Stat = memo(function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-col gap-0.5 bg-surface-2 border border-divider py-[5px] px-[7px] min-w-0">
-      <div className="text-[9px] uppercase tracking-[0.06em] text-fg-3">{label}</div>
-      <div className="text-[12px] font-mono text-fg overflow-hidden text-ellipsis whitespace-nowrap">{value}</div>
+    <div className="flex flex-col gap-0.5 bg-surface-2 rounded-sm border border-divider py-1.5 px-2 min-w-0">
+      <div className="text-[10px] text-fg-3">{label}</div>
+      <div className="text-[13px] font-mono text-fg overflow-hidden text-ellipsis whitespace-nowrap">{value}</div>
     </div>
   );
 });
@@ -458,7 +469,7 @@ function Segmented<T extends string>({
     <div
       role="group"
       aria-label={ariaLabel}
-      className="flex bg-panel border border-divider p-0.5 gap-0.5"
+      className="flex bg-panel rounded-pill border border-divider p-0.5 gap-0.5"
     >
       {options.map((o) => {
         const active = o.value === value;
@@ -467,7 +478,7 @@ function Segmented<T extends string>({
             key={o.value}
             type="button"
             onClick={() => onChange(o.value)}
-            className={`flex-1 flex items-center justify-center border-none py-[5px] px-2 text-[11px] font-medium cursor-pointer font-[inherit] [transition:background_0.12s,color_0.12s] min-h-[22px] ${active ? "lem-seg lem-seg-active bg-hover text-fg" : "lem-seg bg-transparent text-fg-2"}`}
+            className={`lem-seg flex-1 flex items-center justify-center border-none py-1.5 px-2 rounded-pill text-[11px] font-medium cursor-pointer font-[inherit] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)] min-h-[28px] ${active ? "lem-seg-active bg-hover text-fg" : "bg-transparent text-fg-2"}`}
             aria-pressed={active}
             aria-label={o.icon ? o.label : undefined}
             title={o.icon ? o.label : undefined}
@@ -484,10 +495,10 @@ function ElevationBadges({ prepared }: { prepared: PreparedTrail }) {
   if (prepared.rawMaxAlt - prepared.rawMinAlt < 5) return null;
   return (
     <>
-      <div className="absolute top-2 left-2.5 bg-panel-overlay text-fg text-[10px] font-mono px-1.5 py-0.5 flex items-center tracking-[0.02em] border border-divider">
+      <div className="absolute top-2 left-2.5 bg-panel-overlay rounded-pill text-fg text-[10px] font-mono px-2 py-0.5 flex items-center gap-0.5 tracking-[0.02em] border border-divider">
         <ArrowGlyph dir="up" /> {formatElevation(prepared.rawMaxAlt)}
       </div>
-      <div className="absolute top-2 right-2.5 bg-panel-overlay text-fg text-[10px] font-mono px-1.5 py-0.5 flex items-center tracking-[0.02em] border border-divider">
+      <div className="absolute top-2 right-2.5 bg-panel-overlay rounded-pill text-fg text-[10px] font-mono px-2 py-0.5 flex items-center gap-0.5 tracking-[0.02em] border border-divider">
         <ArrowGlyph dir="down" /> {formatElevation(prepared.rawMinAlt)}
       </div>
     </>

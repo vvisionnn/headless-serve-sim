@@ -26,8 +26,11 @@ export function AxToolbarButton({
       style={
         active
           ? {
-              background: hovered ? "#2c2c2e" : "#161617",
-              color: "#f5f5f7",
+              background: hovered
+                ? "color-mix(in srgb, var(--color-accent-solid) 18%, transparent)"
+                : "var(--color-accent-tint)",
+              color: "var(--color-accent)",
+              transition: "background 0.3s cubic-bezier(0.4, 0, 0.6, 1)",
             }
           : undefined
       }

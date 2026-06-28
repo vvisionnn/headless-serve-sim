@@ -58,12 +58,16 @@ export const AxTarget = memo(function AxTarget({
         top: `${(visibleFrame.y / screen.height) * 100}%`,
         width: `${(visibleFrame.width / screen.width) * 100}%`,
         height: `${(visibleFrame.height / screen.height) * 100}%`,
-        borderColor: selected ? "#2997ff" : highlighted ? "#ffd60a" : "#30d158",
-        background: selected
-          ? "rgba(41,151,255,0.24)"
+        borderColor: selected
+          ? "var(--color-accent-solid)"
           : highlighted
-          ? "rgba(255,214,10,0.28)"
-          : "rgba(48,209,88,0.12)",
+          ? "var(--color-warning)"
+          : "var(--color-success)",
+        background: selected
+          ? "color-mix(in srgb, var(--color-accent-solid) 24%, transparent)"
+          : highlighted
+          ? "color-mix(in srgb, var(--color-warning) 28%, transparent)"
+          : "color-mix(in srgb, var(--color-success) 12%, transparent)",
       }}
     />
   );

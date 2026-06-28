@@ -37,35 +37,36 @@ export function AppDetectionTool({
 
   if (!details) {
     return (
-      <div className="bg-panel border border-divider p-2 text-fg-3 text-[12px] text-center">
+      <div className="bg-panel border border-divider rounded-card px-3 py-2.5 text-fg-3 text-[12px] text-center">
         Waiting for an app to come to the foreground…
       </div>
     );
   }
 
   return (
-    <div className="bg-panel border border-divider flex flex-col gap-2 px-2 py-1.5">
+    <div className="bg-panel border border-divider rounded-card overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="lem-toggle flex items-center gap-2 bg-transparent border-none text-fg py-2 px-1 -my-2 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px]"
+        className="lem-toggle flex items-center gap-3 bg-transparent border-none text-fg px-3.5 py-2.5 cursor-pointer w-full text-left min-h-[44px] [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
         {details.iconDataUrl ? (
           <img
             src={details.iconDataUrl}
-            className="w-10 h-10 shrink-0 object-cover border border-divider"
+            className="w-10 h-10 shrink-0 object-cover border border-divider rounded-card"
             alt=""
           />
         ) : (
-          <div className="w-10 h-10 shrink-0 border border-divider bg-surface-2" />
+          <div className="w-10 h-10 shrink-0 border border-divider bg-surface-2 rounded-card" />
         )}
         <div className="min-w-0 flex-1 leading-tight">
-          <div className="text-[13px] font-semibold text-fg truncate">
+          <div className="text-[11px] font-semibold text-fg-2 uppercase tracking-[0.07em]">Current App</div>
+          <div className="text-[13px] font-semibold text-fg tracking-[-0.01em] truncate">
             {details.displayName ?? details.bundleId}
             {details.loading && <span className="text-fg-3 font-normal"> …</span>}
           </div>
-          <div className="text-[11px] text-fg-2 font-mono truncate" title={details.bundleId}>
+          <div className="text-[11px] text-fg-3 font-mono truncate" title={details.bundleId}>
             {details.bundleId}
           </div>
         </div>
@@ -73,14 +74,14 @@ export function AppDetectionTool({
       </button>
 
       {open && (
-        <>
+        <div className="border-t border-divider px-3.5 py-3 flex flex-col gap-2">
           {details.error && (
-            <div className="bg-surface-2 border border-divider text-danger text-[11px] px-2 py-1.5">
+            <div className="bg-surface-2 border border-divider rounded-card text-danger text-[11px] px-3 py-2">
               {details.error}
             </div>
           )}
 
-          <dl className="m-0 flex flex-col gap-1">
+          <dl className="m-0 flex flex-col gap-2">
             <Row label="Version" value={details.shortVersion ? `${details.shortVersion} (${details.bundleVersion ?? "—"})` : details.loading ? "…" : "—"} />
             <Row label="Min iOS" value={details.minOS ?? (details.loading ? "…" : "—")} />
             <Row label="Executable" value={details.executable ?? (details.loading ? "…" : "—")} />
@@ -106,7 +107,7 @@ export function AppDetectionTool({
               }
             />
           </dl>
-        </>
+        </div>
       )}
     </div>
   );
@@ -125,22 +126,22 @@ function Row({
 }) {
   return (
     <div className="group flex items-baseline gap-2 min-w-0">
-      <dt className="m-0 text-[11px] text-fg-3 w-21 shrink-0">{label}</dt>
+      <dt className="m-0 text-[12px] text-fg-3 w-21 shrink-0">{label}</dt>
       <dd
-        className={`m-0 text-fg flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap relative ${mono ? "font-mono text-[11px]" : "text-[12px]"}`}
+        className={`m-0 text-fg flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap relative ${mono ? "font-mono text-[11px]" : "text-[13px]"}`}
         title={value}
       >
         {value}
         {action && (
           <div
-            className="absolute top-0 right-0 bottom-0 pl-7 flex items-center justify-end bg-[linear-gradient(to_right,rgba(29,29,31,0)_0%,#1d1d1f_55%)] [transition:opacity_0.15s_ease,transform_0.15s_ease] opacity-0 translate-x-1 pointer-events-none group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto"
+            className="absolute top-0 right-0 bottom-0 pl-7 flex items-center justify-end bg-[linear-gradient(to_right,transparent_0%,var(--color-panel)_55%)] [transition:opacity_0.24s_cubic-bezier(0.4,0,0.6,1),transform_0.3s_cubic-bezier(0.4,0,0.6,1)] opacity-0 translate-x-1 pointer-events-none group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:pointer-events-auto"
           >
             <button
               type="button"
               onClick={action.onClick}
               title={action.title}
               aria-label={action.title}
-              className="w-5 h-5 flex items-center justify-center bg-transparent border-none text-fg cursor-pointer p-0"
+              className="w-6 h-6 flex items-center justify-center bg-transparent border-none text-accent rounded-full cursor-pointer p-0 [transition:background-color_0.3s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
             >
               {action.icon}
             </button>

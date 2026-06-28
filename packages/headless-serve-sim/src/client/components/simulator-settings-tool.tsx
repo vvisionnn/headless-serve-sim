@@ -84,14 +84,14 @@ function SettingRow({
   children: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 min-h-[30px]" data-setting-row={label}>
-      <span className="flex shrink-0 items-center gap-2 text-[12px] text-fg whitespace-nowrap">
-        <span className="flex size-[18px] items-center justify-center text-fg">{icon}</span>
+    <div className="flex items-center justify-between gap-2 min-h-[32px]" data-setting-row={label}>
+      <span className="flex shrink-0 items-center gap-2 text-[13px] text-fg-3 whitespace-nowrap">
+        <span className="flex size-[18px] items-center justify-center text-fg-3">{icon}</span>
         {label}
       </span>
       {/* min-w-0 lets the control shrink instead of overflowing the panel
           when it's resized to its narrow end. */}
-      <span className="flex min-w-0 justify-end">{children}</span>
+      <span className="flex min-w-0 justify-end text-fg">{children}</span>
     </div>
   );
 }
@@ -146,18 +146,19 @@ function TextSizeSlider({
   const fill = `${(shown / max) * 100}%`;
   // Filled portion goes muted while disabled so the control doesn't read as
   // live during hydration.
-  const fillColor = disabled ? "#86868b" : "#2997ff";
+  const fillColor = disabled ? "var(--color-fg-3)" : "var(--color-accent-solid)";
 
   const trackClasses =
-    "[&::-webkit-slider-runnable-track]:h-[4px] " +
+    "[&::-webkit-slider-runnable-track]:h-[4px] [&::-webkit-slider-runnable-track]:rounded-pill " +
     "[&::-webkit-slider-runnable-track]:[background:linear-gradient(to_right,var(--slider-fill-color)_var(--slider-fill),var(--color-divider)_var(--slider-fill))] " +
-    "[&::-moz-range-track]:h-[4px] [&::-moz-range-track]:bg-divider " +
-    "[&::-moz-range-progress]:h-[4px] [&::-moz-range-progress]:bg-[var(--slider-fill-color)]";
+    "[&::-moz-range-track]:h-[4px] [&::-moz-range-track]:rounded-pill [&::-moz-range-track]:bg-divider " +
+    "[&::-moz-range-progress]:h-[4px] [&::-moz-range-progress]:rounded-pill [&::-moz-range-progress]:bg-[var(--slider-fill-color)]";
   const thumbClasses =
     "[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:size-[13px] " +
+    "[&::-webkit-slider-thumb]:rounded-full " +
     "[&::-webkit-slider-thumb]:bg-fg [&:disabled::-webkit-slider-thumb]:bg-fg-3 " +
     "[&::-webkit-slider-thumb]:-mt-[4.5px] " +
-    "[&::-moz-range-thumb]:size-[13px] [&::-moz-range-thumb]:border-none " +
+    "[&::-moz-range-thumb]:size-[13px] [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-none " +
     "[&::-moz-range-thumb]:bg-fg [&:disabled::-moz-range-thumb]:bg-fg-3";
 
   return (
@@ -175,11 +176,11 @@ function TextSizeSlider({
         onKeyUp={flush}
         onBlur={flush}
         style={{ "--slider-fill": fill, "--slider-fill-color": fillColor } as CSSProperties}
-        className={`h-[13px] w-full appearance-none bg-transparent outline-none focus-visible:[outline:1.5px_solid_var(--color-accent)] focus-visible:outline-offset-4 ${disabled ? "cursor-default" : "cursor-pointer"} ${trackClasses} ${thumbClasses}`}
+        className={`h-[13px] w-full appearance-none bg-transparent outline-none focus-visible:[outline:2px_solid_var(--color-accent-solid)] focus-visible:outline-offset-4 ${disabled ? "cursor-default" : "cursor-pointer"} ${trackClasses} ${thumbClasses}`}
       />
       <span aria-hidden className="pointer-events-none mt-[3px] flex justify-between px-[5.5px]">
         {TEXT_SIZE_CATEGORIES.map((category) => (
-          <span key={category} className="size-[2px] bg-fg-3" />
+          <span key={category} className="size-[2px] rounded-full bg-fg-3" />
         ))}
       </span>
     </span>
@@ -206,7 +207,7 @@ function SettingSelect({
       options={options}
       disabled={disabled}
       onChange={onChange}
-      className="bg-panel-deep border border-divider text-fg text-[12px] py-0.5 px-2 min-w-0 max-w-[150px] disabled:text-fg-3"
+      className="bg-surface-3 border border-divider rounded-card text-fg text-[12px] py-1 px-2.5 min-w-0 max-w-[150px] outline-none [transition:background_0.3s,border-color_0.3s] [transition-timing-function:cubic-bezier(0.4,0,0.6,1)] focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] disabled:text-fg-3"
     />
   );
 }
@@ -372,30 +373,22 @@ export function SimulatorSettingsTool({ udid }: { udid: string }) {
       open={open}
       onOpenChange={setOpen}
       data-simulator-settings=""
-      summaryClassName="grid [grid-template-columns:auto_1fr_auto] items-center gap-2 text-left"
-      summary={
-        <>
-          <span className="text-[11px] font-semibold text-fg-3 uppercase tracking-[0.08em] leading-none inline-flex items-center">
-            Simulator
-          </span>
-          <span />
-        </>
-      }
+      summary="Simulator"
     >
       {error && (
-        <div className="bg-panel-deep border border-divider text-danger-soft text-[11px] px-2 py-1.5 flex items-center justify-between gap-2">
-          <span className="min-w-0">{error}</span>
+        <div className="bg-panel-deep border border-divider rounded-card text-danger-soft text-[12px] px-3 py-2.5 flex items-center justify-between gap-2 tracking-[-0.01em]">
+          <span className="min-w-0 break-words">{error}</span>
           <button
             type="button"
             onClick={() => void refresh()}
-            className="shrink-0 cursor-pointer border border-divider bg-transparent px-1.5 py-0.5 text-[11px] text-danger-soft hover:bg-hover"
+            className="shrink-0 cursor-pointer rounded-pill border border-divider bg-transparent px-3 py-1 text-[12px] text-danger-soft outline-none [transition:background_0.3s] [transition-timing-function:cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
           >
             Retry
           </button>
         </div>
       )}
 
-      <div className="flex flex-col gap-1.5 pb-1.5">
+      <div className="flex flex-col gap-2">
           <SettingRow icon={I.appearance} label="Appearance">
             <SettingSelect
               label="Appearance"

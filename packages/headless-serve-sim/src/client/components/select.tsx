@@ -128,7 +128,7 @@ export function Select({
             aria-label={label}
             onKeyDown={onPopupKeyDown}
             style={{ top: pos.top, left: pos.left, minWidth: pos.minWidth }}
-            className="fixed max-h-90 overflow-y-auto bg-panel border border-divider p-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)] text-[12px] text-fg z-50"
+            className="fixed max-h-90 overflow-y-auto bg-panel border border-divider rounded-card p-1 shadow-[0_4px_24px_rgba(0,0,0,0.12)] text-[12px] text-fg font-system tracking-[-0.01em] z-50"
           >
             {options.map((o) => (
               <button
@@ -141,7 +141,7 @@ export function Select({
                   setOpen(false);
                   triggerRef.current?.focus();
                 }}
-                className={`block w-full text-left font-[inherit] px-2 py-1 cursor-pointer whitespace-nowrap transition-colors hover:bg-hover focus-visible:bg-hover outline-none ${o.value === value ? "text-accent" : ""}`}
+                className={`block w-full text-left font-[inherit] rounded-sm px-3 py-1.5 cursor-pointer whitespace-nowrap transition-colors [transition-timing-function:cubic-bezier(0.4,0,0.6,1)] duration-300 hover:bg-hover outline-none focus-visible:bg-hover focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] ${o.value === value ? "text-accent" : ""}`}
               >
                 {o.label}
               </button>

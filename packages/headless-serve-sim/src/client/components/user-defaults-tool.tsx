@@ -24,17 +24,17 @@ interface Row {
 // so emit a small sheet keyed off the shared lem-* classnames. Mirrors
 // status-bar-tool.tsx so the look stays consistent.
 const HOVER_CSS = `
-.lem-toggle:hover { color: #f5f5f7; }
-.lem-toggle:hover .lem-chevron { color: #f5f5f7 !important; }
-.lem-select:hover { background: #2c2c2e; border-color: #424245; }
-.lem-select:focus { outline: none; border-color: #2997ff; background: #2c2c2e; }
-.lem-input:hover { background: #2c2c2e; border-color: #424245; }
-.lem-input:focus { outline: none; border-color: #2997ff; background: #2c2c2e; }
-.lem-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.lem-toggle:hover { color: var(--color-accent); }
+.lem-toggle:hover .lem-chevron { color: var(--color-accent) !important; }
+.lem-select:hover { background: var(--color-hover); border-color: var(--color-divider); }
+.lem-select:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); }
+.lem-input:hover { background: var(--color-hover); }
+.lem-input:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); border-color: var(--color-accent-solid); }
+.lem-primary:hover:not(:disabled) { filter: brightness(1.05); }
 .lem-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.lem-ghost:hover:not(:disabled) { background: #2c2c2e; border-color: #424245; color: #f5f5f7; }
+.lem-ghost:hover:not(:disabled) { background: var(--color-hover); }
 .lem-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
-.lem-trash:hover:not(:disabled) { color: #ff453a; }
+.lem-trash:hover:not(:disabled) { color: var(--color-danger); background: var(--color-hover); }
 .lem-trash:disabled { opacity: 0.4; cursor: not-allowed; }
 `;
 
@@ -197,37 +197,34 @@ export function UserDefaultsTool({
 
   if (!bundleId) {
     return (
-      <div className="bg-panel border border-divider p-2 text-fg-3 text-[12px] text-center">
+      <div className="bg-panel-deep border border-divider rounded-card px-3 py-2.5 text-fg-3 text-[12px] text-center tracking-[-0.01em]">
         User Defaults appear once an app is in the foreground.
       </div>
     );
   }
 
   return (
-    <div className="bg-panel border border-divider flex flex-col gap-2 px-2 py-1.5">
+    <div className="bg-panel border border-divider rounded-card overflow-hidden">
       <style>{HOVER_CSS}</style>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-fg py-2 px-1 -my-1.5 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
+        className="lem-toggle flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full bg-transparent border-none text-left cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold text-fg-3 uppercase tracking-[0.08em] leading-none inline-flex items-center">
-          User Defaults
-        </span>
-        <span />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">User Defaults</span>
         <Chevron open={open} />
       </button>
 
       {open && (
-        <>
-          <p className="m-0 text-[10px] leading-[1.5] text-fg-3">
+        <div className="border-t border-divider px-3.5 py-3 flex flex-col gap-2">
+          <p className="m-0 text-[12px] leading-[1.5] text-fg-3">
             Changes may require relaunching the app to take effect.
           </p>
 
           <div className="flex items-end gap-2">
             <label className="flex flex-col gap-1 min-w-0 flex-1">
-              <span className="text-[9px] uppercase tracking-[0.06em] text-fg-3">Domain</span>
+              <span className="text-[12px] text-fg-3">Domain</span>
               <input
                 type="text"
                 value={domain}
@@ -244,7 +241,7 @@ export function UserDefaultsTool({
                 }}
                 placeholder="com.example.app"
                 spellCheck={false}
-                className="lem-input appearance-none bg-panel border border-divider text-fg text-[12px] font-mono py-1.5 px-2 font-[inherit] w-full [transition:background_0.12s,border-color_0.12s]"
+                className="lem-input appearance-none bg-surface-3 border border-divider rounded-card text-fg text-[13px] font-mono py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
                 aria-label="Defaults domain"
               />
             </label>
@@ -252,7 +249,7 @@ export function UserDefaultsTool({
               type="button"
               onClick={load}
               disabled={pending !== null}
-              className="lem-ghost inline-flex items-center gap-1.5 py-1.5 px-2.5 border border-divider text-[12px] font-medium bg-transparent text-fg cursor-pointer font-[inherit] [transition:background_0.12s,border-color_0.12s,color_0.12s]"
+              className="lem-ghost inline-flex items-center gap-1.5 py-2 px-3.5 border border-divider rounded-pill text-[12px] font-medium bg-transparent text-fg cursor-pointer font-[inherit] tracking-[-0.01em] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
               title="Read this domain's defaults"
             >
               <ReloadIcon size={14} strokeWidth={2.4} />
@@ -263,7 +260,7 @@ export function UserDefaultsTool({
           {rows !== null && (
             <div className="flex flex-col gap-1 max-h-[260px] overflow-y-auto [scrollbar-width:thin] py-0.5">
               {rows.length === 0 && (
-                <p className="m-0 text-[11px] text-fg-3 px-0.5 py-1">
+                <p className="m-0 text-[12px] text-fg-3 px-0.5 py-1">
                   No preferences set for this domain.
                 </p>
               )}
@@ -280,25 +277,25 @@ export function UserDefaultsTool({
           )}
 
           {rows !== null && (
-            <div className="flex items-end gap-2 border-t border-divider pt-2">
+            <div className="flex items-end gap-2 border-t border-divider pt-2.5">
               <label className="flex flex-col gap-1 min-w-0 flex-1">
-                <span className="text-[9px] uppercase tracking-[0.06em] text-fg-3">Key</span>
+                <span className="text-[12px] text-fg-3">Key</span>
                 <input
                   type="text"
                   value={newKey}
                   onChange={(e) => setNewKey((e.target as HTMLInputElement).value)}
                   placeholder="NewKey"
                   spellCheck={false}
-                  className="lem-input appearance-none bg-panel border border-divider text-fg text-[12px] font-mono py-1.5 px-2 font-[inherit] w-full [transition:background_0.12s,border-color_0.12s]"
+                  className="lem-input appearance-none bg-surface-3 border border-divider rounded-card text-fg text-[13px] font-mono py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
                   aria-label="New key name"
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-[9px] uppercase tracking-[0.06em] text-fg-3">Type</span>
+                <span className="text-[12px] text-fg-3">Type</span>
                 <TypeSelect value={newType} onChange={setNewType} />
               </label>
               <label className="flex flex-col gap-1 min-w-0 flex-1">
-                <span className="text-[9px] uppercase tracking-[0.06em] text-fg-3">Value</span>
+                <span className="text-[12px] text-fg-3">Value</span>
                 <input
                   type="text"
                   value={newValue}
@@ -308,7 +305,7 @@ export function UserDefaultsTool({
                   }}
                   placeholder={newType === "bool" ? "true / false" : "value"}
                   spellCheck={false}
-                  className="lem-input appearance-none bg-panel border border-divider text-fg text-[12px] font-mono py-1.5 px-2 font-[inherit] w-full [transition:background_0.12s,border-color_0.12s]"
+                  className="lem-input appearance-none bg-surface-3 border border-divider rounded-card text-fg text-[13px] font-mono py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
                   aria-label="New value"
                 />
               </label>
@@ -316,7 +313,7 @@ export function UserDefaultsTool({
                 type="button"
                 onClick={add}
                 disabled={pending !== null || !newKey.trim()}
-                className="lem-primary inline-flex items-center justify-center py-1.5 px-3 border-none text-[12px] font-semibold cursor-pointer font-[inherit] bg-accent-solid text-white"
+                className="lem-primary inline-flex items-center justify-center py-2 px-4 border-none rounded-pill text-[12px] font-semibold cursor-pointer font-[inherit] tracking-[-0.01em] bg-accent-solid text-white [transition:filter_0.3s_cubic-bezier(0.4,0,0.6,1)]"
               >
                 {pending === "__add__" ? "…" : "Add"}
               </button>
@@ -324,11 +321,11 @@ export function UserDefaultsTool({
           )}
 
           {error && (
-            <div className="bg-panel-deep border border-divider text-danger text-[11px] px-2 py-1.5 break-words" role="alert">
+            <div className="bg-surface-2 border border-divider rounded-card text-danger text-[12px] px-2.5 py-2 break-words tracking-[-0.01em]" role="alert">
               {error}
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );
@@ -356,19 +353,19 @@ function DefaultsRow({
   const dirty = draft !== row.value;
 
   return (
-    <div className="flex items-center gap-2 bg-surface-2 border border-divider px-2 py-1.5">
-      <span className="shrink-0 text-[9px] tracking-[0.08em] uppercase text-fg-2 bg-panel border border-divider px-[6px] py-[2px] font-mono">
+    <div className="flex items-center gap-2 bg-surface-2 border border-divider rounded-card px-2.5 py-2">
+      <span className="shrink-0 text-[9px] tracking-[0.04em] uppercase text-fg-2 bg-panel border border-divider rounded-pill px-[8px] py-[2px] font-mono">
         {row.type ?? "json"}
       </span>
       <span
-        className="shrink-0 max-w-[110px] truncate text-[12px] text-fg font-mono"
+        className="shrink-0 max-w-[110px] truncate text-[12px] text-fg-3 font-mono"
         title={row.key}
       >
         {row.key}
       </span>
       <div className="flex-1 min-w-0">
         {row.type === null ? (
-          <code className="block truncate text-[11px] text-fg-3 font-mono" title={row.value}>
+          <code className="block truncate text-[13px] text-fg font-mono" title={row.value}>
             {row.value}
           </code>
         ) : row.type === "bool" ? (
@@ -390,7 +387,7 @@ function DefaultsRow({
             }}
             disabled={busy}
             spellCheck={false}
-            className="lem-input appearance-none bg-panel border border-divider text-fg text-[12px] font-mono py-1 px-2 font-[inherit] w-full [transition:background_0.12s,border-color_0.12s]"
+            className="lem-input appearance-none bg-panel border border-divider rounded-sm text-fg text-[13px] font-mono py-1.5 px-2 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
             aria-label={`Value for ${row.key}`}
           />
         )}
@@ -401,7 +398,7 @@ function DefaultsRow({
         disabled={busy}
         aria-label={`Delete ${row.key}`}
         title="Delete key"
-        className="lem-trash shrink-0 flex items-center justify-center w-6 h-6 border-none p-0 bg-transparent text-fg-2 cursor-pointer [transition:color_0.12s]"
+        className="lem-trash shrink-0 flex items-center justify-center w-7 h-7 border-none rounded-full p-0 bg-transparent text-fg-2 cursor-pointer [transition:color_0.3s_cubic-bezier(0.4,0,0.6,1),background_0.3s_cubic-bezier(0.4,0,0.6,1)]"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <polyline points="3 6 5 6 21 6" />
@@ -428,11 +425,11 @@ function BoolToggle({
       aria-checked={value}
       disabled={disabled}
       onClick={() => onChange(!value)}
-      className="relative inline-flex h-[20px] w-[36px] items-center border border-divider cursor-pointer [transition:background_0.15s] disabled:opacity-40 disabled:cursor-not-allowed"
-      style={{ background: value ? "#30d158" : "#2c2c2e" }}
+      className="relative inline-flex h-[20px] w-[36px] items-center rounded-pill border border-divider cursor-pointer [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)] disabled:opacity-40 disabled:cursor-not-allowed"
+      style={{ background: value ? "var(--color-success)" : "var(--color-hover)" }}
     >
       <span
-        className="inline-block h-[14px] w-[14px] bg-fg [transition:transform_0.15s]"
+        className="inline-block h-[14px] w-[14px] rounded-full bg-white [transition:transform_0.3s_cubic-bezier(0.4,0,0.6,1)]"
         style={{ transform: value ? "translateX(18px)" : "translateX(3px)" }}
       />
     </button>
@@ -453,7 +450,7 @@ function TypeSelect({
         value={value}
         options={SCALAR_TYPES.map((t) => ({ value: t, label: t }))}
         onChange={(v) => onChange(v as DefaultsType)}
-        className="bg-panel border border-divider text-fg text-[12px] py-1.5 pr-[26px] pl-2 [transition:background_0.12s,border-color_0.12s]"
+        className="lem-select bg-surface-3 border border-divider rounded-card text-fg text-[13px] py-2 pr-[26px] pl-2.5 [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
       />
       <span className="absolute right-[9px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center" aria-hidden="true">
         <Chevron open={false} />

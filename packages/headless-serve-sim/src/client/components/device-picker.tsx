@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { deviceKind, runtimeOrder, type SimDevice } from "../utils/devices";
 
 // Inline dropdown — no shadcn / hugeicons dependency so the headless-serve-sim client
-// stays self-contained.
+// stays self-contained. The menu is portaled to <body> with fixed positioning so
+// it escapes the top bar's `overflow:hidden` and the device frame's stacking
+// context (otherwise it gets clipped to the 44px bar and hidden behind the frame).
 export function DevicePicker({
   devices,
   selectedUdid,
@@ -25,12 +28,34 @@ export function DevicePicker({
   trigger: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
+  // Anchor the fixed menu to the trigger; keep it pinned on resize while open.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const r = triggerRef.current?.getBoundingClientRect();
+      if (r) setPos({ top: Math.round(r.bottom + 6), left: Math.round(r.left) });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open]);
+
+  // Outside-click closes — the menu is portaled, so check BOTH the trigger and
+  // the menu (rootRef alone would miss the portaled menu and close on its click).
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (triggerRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
     };
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
@@ -52,7 +77,7 @@ export function DevicePicker({
   const selected = devices.find((d) => d.udid === selectedUdid) ?? null;
 
   return (
-    <div ref={rootRef} className="relative min-w-0">
+    <div ref={triggerRef} className="relative min-w-0">
       <div
         onClick={() => {
           if (!open) onRefresh();
@@ -61,67 +86,73 @@ export function DevicePicker({
       >
         {trigger}
       </div>
-      {open && (
-        <div className="absolute top-[calc(100%+6px)] left-0 min-w-65 max-h-90 overflow-y-auto bg-panel border border-divider p-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)] font-mono text-[13px] text-fg z-20">
-          <div className="flex items-center justify-between px-2 py-1.5 text-[11px] text-fg-2">
-            <span className="font-semibold">Simulators</span>
-            <button
-              onClick={(e) => { e.stopPropagation(); onRefresh(); }}
-              disabled={loading}
-              className="bg-transparent border-none text-accent text-[11px] cursor-pointer p-0"
-            >
-              {loading ? "..." : "Refresh"}
-            </button>
-          </div>
-          {error && <div className="px-2 py-1.5 text-danger text-[11px]">{error}</div>}
-          {selected && (
-            <>
-              <div className="flex items-center gap-2 px-2 py-1.5 text-accent">
-                <span
-                  className="size-1.5 shrink-0"
-                  style={{ background: selected.state === "Booted" ? "var(--color-success)" : "var(--color-divider)" }}
-                />
-                <span className="flex-1">{selected.name}</span>
-              </div>
-              <div className="h-px bg-divider my-1" />
-            </>
-          )}
-          {devices.length === 0 && !loading && !error && (
-            <div className="p-2 text-fg-3 text-[11px] text-center">No available simulators found</div>
-          )}
-          {sortedGroups.map(([runtime, devs]) => (
-            <div key={runtime}>
-              <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold text-fg-3 uppercase tracking-[0.08em]">{runtime}</div>
-              {devs.map((d) => {
-                const isStopping = stoppingUdids.has(d.udid);
-                const isBooted = d.state === "Booted";
-                return (
-                  <div
-                    key={d.udid}
-                    className="flex items-center gap-2 px-2 py-1.5 cursor-pointer transition-colors hover:bg-hover"
-                    onClick={() => { onSelect(d); setOpen(false); }}
-                  >
-                    <span
-                      className="size-1.5 shrink-0"
-                      style={{ background: isBooted ? "var(--color-success)" : "var(--color-divider)" }}
-                    />
-                    <span className="flex-1">{d.name}</span>
-                    {isBooted && (
-                      <span
-                        role="button"
-                        onClick={(e) => { e.stopPropagation(); if (!isStopping) onStop(d.udid); }}
-                        className={`text-[10px] py-px px-1.5 ${isStopping ? "text-fg-2 bg-transparent cursor-default" : "text-danger bg-surface-2 cursor-pointer"}`}
-                      >
-                        {isStopping ? "Stopping..." : "Stop"}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
+      {open && pos &&
+        createPortal(
+          <div
+            ref={menuRef}
+            style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 1000 }}
+            className="min-w-65 max-h-[min(70vh,420px)] overflow-y-auto bg-panel border border-divider rounded-card p-1.5 shadow-[0_8px_28px_rgba(0,0,0,0.18)] font-system text-[13px] tracking-[-0.01em] text-fg"
+          >
+            <div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-fg-3">
+              <span className="font-semibold uppercase tracking-[0.06em]">Simulators</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); onRefresh(); }}
+                disabled={loading}
+                className="bg-transparent border-none text-accent text-[12px] cursor-pointer p-0 transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] rounded-sm"
+              >
+                {loading ? "..." : "Refresh"}
+              </button>
             </div>
-          ))}
-        </div>
-      )}
+            {error && <div className="px-2.5 py-1.5 text-danger text-[12px]">{error}</div>}
+            {selected && (
+              <>
+                <div className="flex items-center gap-2.5 px-2.5 py-2 text-accent">
+                  <span
+                    className="size-1.5 shrink-0 rounded-full"
+                    style={{ background: selected.state === "Booted" ? "var(--color-success)" : "var(--color-divider)" }}
+                  />
+                  <span className="flex-1">{selected.name}</span>
+                </div>
+                <div className="h-px bg-divider my-1" />
+              </>
+            )}
+            {devices.length === 0 && !loading && !error && (
+              <div className="p-2.5 text-fg-3 text-[12px] text-center">No available simulators found</div>
+            )}
+            {sortedGroups.map(([runtime, devs]) => (
+              <div key={runtime}>
+                <div className="px-2.5 pt-2 pb-1 text-[12px] font-semibold text-fg-3 uppercase tracking-[0.06em]">{runtime}</div>
+                {devs.map((d) => {
+                  const isStopping = stoppingUdids.has(d.udid);
+                  const isBooted = d.state === "Booted";
+                  return (
+                    <div
+                      key={d.udid}
+                      className="flex items-center gap-2.5 px-2.5 py-2 cursor-pointer rounded-sm transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] hover:bg-hover"
+                      onClick={() => { onSelect(d); setOpen(false); }}
+                    >
+                      <span
+                        className="size-1.5 shrink-0 rounded-full"
+                        style={{ background: isBooted ? "var(--color-success)" : "var(--color-divider)" }}
+                      />
+                      <span className="flex-1">{d.name}</span>
+                      {isBooted && (
+                        <span
+                          role="button"
+                          onClick={(e) => { e.stopPropagation(); if (!isStopping) onStop(d.udid); }}
+                          className={`text-[11px] py-0.5 px-2 rounded-pill transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] ${isStopping ? "text-fg-2 bg-transparent cursor-default" : "text-danger bg-surface-2 cursor-pointer"}`}
+                        >
+                          {isStopping ? "Stopping..." : "Stop"}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

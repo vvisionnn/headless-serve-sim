@@ -11,11 +11,11 @@ import { SimulatorSettingsTool } from "./simulator-settings-tool";
 import { StatusBarTool } from "./status-bar-tool";
 import { UserDefaultsTool } from "./user-defaults-tool";
 
-// The full-height right inspector. Collapsed by default to a thin rail whose
-// top header matches the top bar (same height + bottom keyline). Expanding
-// reveals the consolidated tool blocks (stacked, hairline-divided) plus
-// launchers for the wide surfaces (Connection Stats, Simulators grid, WebKit
-// DevTools) that need real width and keep their existing overlay behavior.
+// The full-height right inspector. Collapsed by default to a thin rail whose top
+// header matches the top bar. The content panel is laid out at the FULL expanded
+// width at all times and anchored to the right edge; expanding just animates the
+// rail's width (revealing the panel) while the body fades + slides in — so it
+// reads as a panel sliding out, never as content reflowing mid-animation.
 
 export interface InspectorBarProps {
   open: boolean;
@@ -34,9 +34,9 @@ export interface InspectorBarProps {
   onOpenDevtools: () => void;
 }
 
-// Springy width easing (gentle overshoot) shared with the device frame so the
-// two animate in lockstep when the inspector expands/collapses.
-const MOTION = "width 340ms cubic-bezier(0.34, 1.3, 0.6, 1)";
+// Apple's restrained decelerate curve, shared with the device frame so the two
+// animate in lockstep when the inspector expands/collapses. No spring/overshoot.
+const EASE = "cubic-bezier(0.4, 0, 0.6, 1)";
 
 export function InspectorBar({
   open,
@@ -54,48 +54,65 @@ export function InspectorBar({
   onOpenGrid,
   onOpenDevtools,
 }: InspectorBarProps) {
+  const height = topBarHeight + frameHeight;
   return (
     <aside
-      className="relative shrink-0 flex flex-col bg-panel border-l border-divider overflow-hidden font-system"
+      className="relative shrink-0 overflow-hidden bg-panel border-l border-divider font-system"
       style={{
         width: open ? expandedWidth : collapsedWidth,
-        height: topBarHeight + frameHeight,
-        transition: MOTION,
+        height,
+        transition: `width 320ms ${EASE}`,
       }}
       aria-label="Inspector"
     >
-      {/* Header — same height + bottom keyline as the top bar (single hairline grid). */}
+      {/* Fixed-width panel anchored to the right edge — never reflows; the rail
+          width animation reveals it. */}
       <div
-        className="flex items-center justify-center shrink-0 border-b border-divider"
-        style={{ height: topBarHeight }}
+        className="absolute top-0 right-0 flex flex-col"
+        style={{ width: expandedWidth, height }}
       >
-        <button
-          type="button"
-          onClick={onToggle}
-          className="flex h-full w-11 items-center justify-center bg-transparent text-fg-2 hover:bg-hover hover:text-fg [transition:background_0.15s,color_0.15s] cursor-pointer focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent)]"
-          aria-label={open ? "Collapse inspector" : "Expand inspector"}
-          aria-expanded={open}
-          title="Inspector"
+        {/* Header — frosted, same height + bottom keyline as the top bar. The
+            toggle sits at the right so it stays centered in the collapsed rail. */}
+        <div
+          className="flex items-center justify-end shrink-0 border-b border-divider px-1 bg-panel-overlay [backdrop-filter:saturate(1.8)_blur(20px)]"
+          style={{ height: topBarHeight }}
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ transform: open ? "none" : "rotate(180deg)" }}
+          <button
+            type="button"
+            onClick={onToggle}
+            className="flex size-9 items-center justify-center rounded-full bg-transparent text-fg-2 hover:bg-hover hover:text-fg [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1)] cursor-pointer focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+            aria-label={open ? "Collapse inspector" : "Expand inspector"}
+            aria-expanded={open}
+            title="Inspector"
           >
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-        </button>
-      </div>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ transform: open ? "none" : "rotate(180deg)" }}
+            >
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </button>
+        </div>
 
-      {/* Body — only mounted when expanded so collapsed is a clean rail. */}
-      {open && (
-        <div className="flex flex-1 flex-col overflow-y-auto overflow-x-hidden">
+        {/* Body — grouped white cards on a gray canvas with breathing room, so
+            each tool reads as a distinct section. Fades + slides as a unit. */}
+        <div
+          className="flex flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden bg-inset p-3.5 [&>*]:shrink-0"
+          aria-hidden={!open}
+          style={{
+            opacity: open ? 1 : 0,
+            transform: open ? "translateX(0)" : "translateX(28px)",
+            pointerEvents: open ? "auto" : "none",
+            transition: `opacity 260ms ${EASE}, transform 320ms ${EASE}`,
+          }}
+        >
           <AppDetectionTool udid={udid} currentApp={currentApp} />
           <SimulatorSettingsTool udid={udid} />
           <AxTreeTool overlayEnabled={axOverlayEnabled} onToggleOverlay={onToggleAxOverlay} />
@@ -112,7 +129,7 @@ export function InspectorBar({
           <InspectorLauncher label="Simulators" onClick={onOpenGrid} expanded={openOverlay === "grid"} />
           <InspectorLauncher label="WebKit DevTools" onClick={onOpenDevtools} expanded={openOverlay === "devtools"} />
         </div>
-      )}
+      </div>
     </aside>
   );
 }
@@ -132,19 +149,19 @@ function InspectorLauncher({
       onClick={onClick}
       aria-haspopup="dialog"
       aria-expanded={expanded}
-      className="flex w-full cursor-pointer items-center justify-between border-b border-divider bg-transparent px-2 py-1.5 text-left text-[13px] text-fg hover:bg-hover [transition:background_0.15s] focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent)]"
+      className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-card border border-divider bg-panel px-3.5 py-3 text-left text-[13px] font-medium text-fg hover:bg-hover [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
     >
       <span>{label}</span>
       <svg
-        width="14"
-        height="14"
+        width="15"
+        height="15"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="text-fg-3"
+        className="text-fg-3 shrink-0"
       >
         <polyline points="9 18 15 12 9 6" />
       </svg>

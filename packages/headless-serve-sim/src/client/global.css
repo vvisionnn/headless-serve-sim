@@ -3,61 +3,95 @@
 @source "./";
 
 @theme {
-  /* Surfaces — Apple DocC dark register. Layer by fill shift, not shadow. */
-  --color-page: #000000;          /* canvas */
-  --color-panel: #1d1d1f;         /* panels, top bar, inspector, blocks */
-  --color-panel-bg: #1d1d1f;      /* opaque in the dense register (no translucency) */
-  --color-panel-overlay: rgba(20, 20, 22, 0.92);
-  --color-panel-deep: #161617;    /* nested / secondary fill */
-  --color-surface-2: #161617;
-  --color-surface-3: #111111;     /* raised alt */
-  --color-hover: #2c2c2e;         /* row / control hover */
-  --color-divider: #424245;       /* EVERY hairline rule */
+  /* Surfaces — apple.com light, layered by fill shift (not shadow) */
+  --color-page:          #ffffff;   /* canvas */
+  --color-panel:         #ffffff;   /* bars / inspector base (frost via backdrop) */
+  --color-panel-bg:      #ffffff;
+  --color-panel-overlay: rgba(255, 255, 255, 0.8);
+  --color-panel-deep:    #f5f5f7;   /* cards / tool blocks */
+  --color-surface-2:     #f5f5f7;
+  --color-surface-3:     #fafafc;
+  --color-hover:         #e8e8ed;   /* row / control hover on white */
+  --color-divider:       #d2d2d7;   /* EVERY hairline */
+  --color-inset:         #f5f5f7;   /* recessed canvas behind grouped cards (inspector) */
 
-  /* Text — weight/size drives rank, never color */
-  --color-fg: #f5f5f7;            /* primary */
-  --color-fg-2: #a1a1a6;          /* secondary */
-  --color-fg-3: #86868b;          /* muted / captions / eyebrows */
+  /* Text — weight/size ranks, never color */
+  --color-fg:            #1d1d1f;
+  --color-fg-2:          #6e6e73;
+  --color-fg-3:          #86868b;
 
-  /* Accent — one blue for all interactive text/links */
-  --color-accent: #2997ff;
-  --color-accent-solid: #0071e3;  /* the single filled primary button */
-  --color-accent-tint: rgba(0, 113, 227, 0.18); /* selected-row fill */
+  /* One blue */
+  --color-accent:        #0066cc;   /* interactive text / links */
+  --color-accent-solid:  #0071e3;   /* single filled primary + focus ring */
+  --color-accent-tint:   rgba(0, 113, 227, 0.10);
 
-  /* Status / figure colors — crisp, no glow, >=0.6 alpha */
-  --color-success: #30d158;
-  --color-success-emerald: #30d158;
-  --color-danger: #ff453a;
-  --color-danger-soft: #ff6961;
-  --color-warning: #ffd60a;
-  --color-warning-soft: #ffd60a;
+  /* Status — small accents only */
+  --color-success:         #03a10e;
+  --color-success-emerald: #03a10e;
+  --color-danger:          #e30000;
+  --color-danger-soft:     #ff3b30;
+  --color-warning:         #f56300;
+  --color-warning-soft:    #f56300;
+
+  /* Radius — rounding lives on controls, not structure */
+  --radius-pill: 980px;   /* buttons, badges, segmented */
+  --radius-card: 12px;    /* cards, inputs, menus, blocks */
+  --radius-sm:   8px;     /* compact controls, rows */
 
   /* Font families */
   --font-mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-system: "SF Pro Text", -apple-system, system-ui, "Helvetica Neue", sans-serif;
-  --font-display: "SF Pro Display", -apple-system, system-ui, "Helvetica Neue", sans-serif;
+  --font-system: "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-display: "SF Pro Display", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
 
-/* The UI is dark-only, but UA-rendered chrome (select popups, scrollbars,
-   date inputs) defaults to the light scheme. Desktop Chrome masks this by
-   drawing select popups natively per the OS appearance; embedded webviews
-   render them in-page and follow the declared scheme, so without this they
-   show a white option list on the dark panel. */
+/* Apple dark — the same roles, mapped to Apple's canonical dark system colors.
+   Tailwind v4 utilities read these vars, so overriding them here re-themes the
+   whole tree without touching a single utility class. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-page: #000000;
+    --color-panel: #1d1d1f;
+    --color-panel-bg: #1d1d1f;
+    --color-panel-overlay: rgba(29, 29, 31, 0.8);
+    --color-panel-deep: #161617;
+    --color-surface-2: #161617;
+    --color-surface-3: #1d1d1f;
+    --color-hover: #2c2c2e;
+    --color-divider: #424245;
+    --color-inset: #000000;
+    --color-fg: #f5f5f7;
+    --color-fg-2: #a1a1a6;
+    --color-fg-3: #86868b;
+    --color-accent: #2997ff;
+    --color-accent-solid: #0071e3;
+    --color-accent-tint: rgba(41, 151, 255, 0.12);
+    --color-success: #30d158;
+    --color-success-emerald: #30d158;
+    --color-danger: #ff453a;
+    --color-danger-soft: #ff6961;
+    --color-warning: #ff9f0a;
+    --color-warning-soft: #ff9f0a;
+  }
+}
+
+/* Follow the OS scheme: light default, Apple-dark when the OS is dark. UA-rendered
+   chrome (select popups, scrollbars) tracks this too. */
 :root {
-  color-scheme: dark;
+  color-scheme: light dark;
 }
 
 /* Keyboard focus ring for the inline-styled top-bar icon buttons (the toolbar
-   lib uses CSS-in-JS, so :focus-visible can't be expressed inline). */
+   lib uses CSS-in-JS, so :focus-visible can't be expressed inline). Apple's
+   focus is a crisp ring, not a glow. */
 [data-simulator-toolbar] button:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px var(--color-accent);
+  outline: 2px solid var(--color-accent-solid);
+  outline-offset: 1px;
 }
 
 /* Collapsible tool sections (<details>) animate open/close height with a
    CSS-only ::details-content transition. interpolate-size lets `height: auto`
-   participate in the transition; allow-discrete swaps content-visibility at the
-   keyframe boundaries so collapsed content stays out of the a11y tree. */
+   participate; allow-discrete swaps content-visibility at the keyframe
+   boundaries so collapsed content stays out of the a11y tree. Apple easing. */
 @supports (interpolate-size: allow-keywords) {
   :root {
     interpolate-size: allow-keywords;
@@ -68,8 +102,8 @@ details.lem-section::details-content {
   height: 0;
   overflow: clip;
   transition:
-    height 0.28s cubic-bezier(0.4, 0, 0.6, 1),
-    content-visibility 0.28s allow-discrete;
+    height 0.3s cubic-bezier(0.4, 0, 0.6, 1),
+    content-visibility 0.3s allow-discrete;
 }
 
 details.lem-section[open]::details-content {
@@ -101,7 +135,7 @@ details.lem-section > summary::-webkit-details-marker {
   to   { opacity: 1; transform: translateY(0); }
 }
 .doc-row-in {
-  animation: doc-row-in 0.18s ease-out both;
+  animation: doc-row-in 0.18s cubic-bezier(0.4, 0, 0.6, 1) both;
 }
 
 @keyframes hud-pulse {
@@ -113,17 +147,18 @@ details.lem-section > summary::-webkit-details-marker {
   to   { opacity: 1; transform: translateY(0); }
 }
 .hud-in {
-  animation: hud-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: hud-in 0.28s cubic-bezier(0.4, 0, 0.6, 1) both;
 }
 
 .grid-shutdown-btn {
   opacity: 0;
-  transition: opacity 120ms, background 120ms, color 120ms;
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.6, 1), background 0.3s cubic-bezier(0.4, 0, 0.6, 1), color 0.3s cubic-bezier(0.4, 0, 0.6, 1);
 }
-.grid-tile:hover .grid-shutdown-btn { opacity: 1; }
+.grid-tile:hover .grid-shutdown-btn,
+.grid-shutdown-btn:focus-visible { opacity: 1; }
 .grid-shutdown-btn:hover:not(:disabled) {
-  background: #4a1717;
-  color: var(--color-fg);
+  background: var(--color-accent-tint);
+  color: var(--color-danger);
   border-color: var(--color-danger);
 }
 .grid-tile:hover { border-color: var(--color-divider) !important; }

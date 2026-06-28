@@ -75,41 +75,41 @@ export function AppPermissionsTool({
 
   if (!bundleId) {
     return (
-      <div className="bg-panel border border-divider p-2 text-fg-3 text-[12px] text-center">
+      <div className="bg-panel-deep border border-divider rounded-card px-3 py-2.5 text-fg-3 text-[12px] text-center font-system tracking-[-0.01em]">
         Permissions appear once an app is in the foreground.
       </div>
     );
   }
 
   return (
-    <div className="bg-panel border border-divider flex flex-col gap-1 px-2 py-1.5">
+    <div className="bg-panel border border-divider rounded-card overflow-hidden font-system">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="lem-toggle grid [grid-template-columns:auto_1fr_auto] items-center gap-2 bg-transparent border-none text-fg py-1.5 px-1 -my-1 -mx-1 cursor-pointer w-[calc(100%+8px)] text-left min-h-[36px] leading-none"
+        className="lem-toggle flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full cursor-pointer select-none bg-transparent border-none text-left [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold text-fg-3 uppercase tracking-[0.08em] leading-none inline-flex items-center">Permissions</span>
-        <span />
+        <span className="text-[11px] font-semibold text-fg-2 uppercase tracking-[0.07em]">Permissions</span>
         <Chevron open={open} />
       </button>
 
-      {open && error && (
-        <div className="bg-panel-deep border border-divider text-danger-soft text-[11px] px-2 py-1.5 mt-1">
-          {error}
-        </div>
-      )}
-
       {open && (
-        <div className="relative mt-1">
-          <div className="max-h-[260px] overflow-y-auto flex flex-col py-1 [scrollbar-width:thin]">
+        <div className="border-t border-divider px-3.5 py-3 flex flex-col gap-2">
+          {error && (
+            <div className="bg-panel-deep border border-divider rounded-card text-danger text-[12px] px-3 py-2 tracking-[-0.01em]">
+              {error}
+            </div>
+          )}
+
+          <div className="relative">
+          <div className="max-h-[260px] overflow-y-auto flex flex-col [scrollbar-width:thin]">
             {PERMISSION_SERVICES.map(({ key, label }) => {
               const current = state[key];
               return (
-                <div key={key} className="flex items-center justify-between gap-2 px-0.5 py-1 border-b border-divider last:border-b-0">
-                  <span className="text-[12px] text-fg overflow-hidden text-ellipsis whitespace-nowrap flex-1 min-w-0">{label}</span>
+                <div key={key} className="flex items-center justify-between gap-2 py-2 border-b border-divider last:border-b-0">
+                  <span className="text-[13px] text-fg overflow-hidden text-ellipsis whitespace-nowrap flex-1 min-w-0 tracking-[-0.01em]">{label}</span>
                   <div
-                    className="flex gap-0.5 bg-panel-deep border border-divider p-0.5"
+                    className="flex shrink-0 gap-0.5 bg-panel-deep border border-divider rounded-pill p-0.5"
                     role="group"
                     aria-label={label}
                   >
@@ -150,21 +150,20 @@ export function AppPermissionsTool({
               );
             })}
           </div>
-          <div className="absolute top-0 left-0 right-0 h-[14px] pointer-events-none bg-[linear-gradient(to_bottom,#1d1d1f_0%,rgba(29,29,31,0)_100%)]" />
-          <div className="absolute bottom-0 left-0 right-0 h-[14px] pointer-events-none bg-[linear-gradient(to_top,#1d1d1f_0%,rgba(29,29,31,0)_100%)]" />
+          <div className="absolute top-0 left-0 right-0 h-[14px] pointer-events-none bg-[linear-gradient(to_bottom,var(--color-panel)_0%,transparent_100%)]" />
+          <div className="absolute bottom-0 left-0 right-0 h-[14px] pointer-events-none bg-[linear-gradient(to_top,var(--color-panel)_0%,transparent_100%)]" />
         </div>
-      )}
 
-      {open && (
-        <div className="flex justify-end pt-1">
+        <div className="flex justify-end">
           <button
             onClick={resetAll}
             disabled={pending === "__all__"}
-            className="bg-transparent border border-divider text-fg-2 hover:bg-hover text-[10px] px-2 py-[3px] cursor-pointer uppercase tracking-[0.04em]"
+            className="bg-transparent border border-divider text-fg-2 hover:bg-hover rounded-pill text-[11px] px-3 py-1.5 min-h-[32px] cursor-pointer tracking-[-0.01em] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
             title="headless-serve-sim permissions reset all"
           >
             {pending === "__all__" ? "…" : "Reset all"}
           </button>
+        </div>
         </div>
       )}
     </div>
@@ -186,16 +185,21 @@ function PermBtn({
   title: string;
   children: ReactNode;
 }) {
-  const accent = variant === "grant" ? "#30d158" : variant === "revoke" ? "#ff453a" : "#2997ff";
+  const accent =
+    variant === "grant"
+      ? "var(--color-success)"
+      : variant === "revoke"
+        ? "var(--color-danger)"
+        : "var(--color-accent)";
   return (
     <button
       onClick={onClick}
       disabled={pending}
       title={title}
       aria-label={title}
-      className="w-6 h-5.5 flex items-center justify-center border-none p-0 cursor-pointer [transition:background_0.12s,color_0.12s]"
+      className="w-8 h-8 flex items-center justify-center border-none p-0 cursor-pointer rounded-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
       style={{
-        background: active ? `${accent}22` : "transparent",
+        background: active ? `color-mix(in srgb, ${accent} 14%, transparent)` : "transparent",
         color: active ? accent : "var(--color-fg-2)",
         opacity: pending ? 0.5 : 1,
       }}
