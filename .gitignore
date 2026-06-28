@@ -9,3 +9,6 @@ dist/
 *.tsbuildinfo
 /packages/headless-serve-sim/.xcode-build
 *.bun-build
+
+# Generated architecture diagram (kept locally, not tracked)
+docs/architecture.html
