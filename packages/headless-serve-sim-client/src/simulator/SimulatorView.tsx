@@ -165,9 +165,6 @@ export function SimulatorView({
   const lastKeyframeAtRef = useRef<number | null>(null);
   const serverStatsRef = useRef<ServerStreamStats | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  // Cached surface rect for the pointer hot path (see getInputRect): refreshed
-  // lazily and invalidated whenever layout can shift.
-  const inputRectRef = useRef<DOMRect | null>(null);
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number } | null>(null);
   useEffect(() => {
     const el = viewportRef.current;
@@ -175,7 +172,6 @@ export function SimulatorView({
     const ro = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
       if (rect) setViewportSize({ width: rect.width, height: rect.height });
-      inputRectRef.current = null; // surface moved/resized — drop the cached rect
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -673,32 +669,14 @@ export function SimulatorView({
     return relayMode ? relayImgRef.current : imgRef.current;
   }, [relayMode, useAvcc]);
 
-  // Pointer-move handlers fire ~60×/s during a drag; calling
-  // getBoundingClientRect on each one forces a synchronous layout reflow that
-  // competes with frame decode/paint and measurably widens interactive jitter.
-  // The surface rect only changes on resize/scroll/layout, so cache it and
-  // recompute only when invalidated — turning a per-move reflow into ~one per
-  // gesture.
+  // Read the surface rect fresh per pointer event. A panel expand/collapse
+  // moves the frame horizontally without firing a resize/scroll, so any cached
+  // rect would go stale and drift the touch mapping — always read it live.
   const getInputRect = useCallback(() => {
-    let r = inputRectRef.current;
-    if (!r) {
-      r = surfaceRef.current?.getBoundingClientRect()
-        ?? getViewElement()?.getBoundingClientRect()
-        ?? null;
-      inputRectRef.current = r;
-    }
-    return r;
+    return surfaceRef.current?.getBoundingClientRect()
+      ?? getViewElement()?.getBoundingClientRect()
+      ?? null;
   }, [getViewElement]);
-  useEffect(() => {
-    const invalidate = () => { inputRectRef.current = null; };
-    // capture-phase scroll catches scrolling in any ancestor, not just window.
-    window.addEventListener("scroll", invalidate, true);
-    window.addEventListener("resize", invalidate);
-    return () => {
-      window.removeEventListener("scroll", invalidate, true);
-      window.removeEventListener("resize", invalidate);
-    };
-  }, []);
 
   const handleTouch = useCallback(
     (type: "begin" | "move" | "end", event: MouseEvent<HTMLElement>) => {
