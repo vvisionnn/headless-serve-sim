@@ -57,10 +57,9 @@ import {
 } from "./utils/panel-widths";
 import { captureScreenshot, downloadScreenshot, screenshotFilename } from "./utils/screenshot";
 import { simEndpoint } from "./utils/sim-endpoint";
-import {
-  SIMULATOR_RESIZE_MAX_SCALE,
-  roundToDevicePixel,
-} from "./utils/simulator-resize";
+import { SIMULATOR_RESIZE_MAX_SCALE } from "./utils/simulator-resize";
+import { fitDeviceFrame } from "./utils/frame-geometry";
+import { readPersistedFlag, writePersistedFlag } from "./utils/persisted-flag";
 
 // Counter-clockwise cycle, matching Simulator.app's Cmd+Left ("Rotate Left").
 const ROTATE_LEFT_CYCLE: Record<SimulatorOrientation, SimulatorOrientation> = {
@@ -84,21 +83,12 @@ function usePersistedFlag(
   key: string,
   fallback: boolean,
 ): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
-  const [value, setValue] = useState<boolean>(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw == null ? fallback : raw === "1";
-    } catch {
-      return fallback;
-    }
-  });
+  const [value, setValue] = useState<boolean>(() => readPersistedFlag(key, fallback));
   const set = useCallback(
     (next: boolean | ((prev: boolean) => boolean)) => {
       setValue((prev) => {
         const v = typeof next === "function" ? (next as (p: boolean) => boolean)(prev) : next;
-        try {
-          localStorage.setItem(key, v ? "1" : "0");
-        } catch {}
+        writePersistedFlag(key, v);
         return v;
       });
     },
@@ -782,29 +772,20 @@ function AppWithConfig({
   // 2px (top+bottom / left+right) so the bordered box always fits the viewport
   // and all four edges stay visible at any size.
   const ASSEMBLY_BORDER = 2;
-  const frameGeom = useMemo(() => {
-    const aspect = frameAspectRatioValue > 0 ? frameAspectRatioValue : 1;
-    const availH = Math.max(0, viewportHeight - TOP_BAR_HEIGHT - ASSEMBLY_BORDER);
-    const availW = Math.max(0, viewportWidth - sideRailsWidth - ASSEMBLY_BORDER);
-    // Height-bound by default (top bar + frameH == viewport height for portrait);
-    // clamp to width for wide devices; cap upscale so low-res devices (watch /
-    // vision) don't balloon soft on large displays.
-    let h = Math.min(availH, aspect > 0 ? availW / aspect : availH);
-    let w = h * aspect;
-    if (w > availW) {
-      w = availW;
-      h = aspect > 0 ? w / aspect : h;
-    }
-    const upscaleCap = frameMaxWidth * SIMULATOR_RESIZE_MAX_SCALE;
-    if (w > upscaleCap) {
-      w = upscaleCap;
-      h = aspect > 0 ? w / aspect : h;
-    }
-    return {
-      width: Math.max(0, roundToDevicePixel(w)),
-      height: Math.max(0, roundToDevicePixel(h)),
-    };
-  }, [viewportWidth, viewportHeight, sideRailsWidth, frameAspectRatioValue, frameMaxWidth]);
+  const frameGeom = useMemo(
+    () =>
+      fitDeviceFrame({
+        viewportWidth,
+        viewportHeight,
+        topBarHeight: TOP_BAR_HEIGHT,
+        sideRailsWidth,
+        assemblyBorder: ASSEMBLY_BORDER,
+        aspect: frameAspectRatioValue,
+        maxWidth: frameMaxWidth,
+        maxScale: SIMULATOR_RESIZE_MAX_SCALE,
+      }),
+    [viewportWidth, viewportHeight, sideRailsWidth, frameAspectRatioValue, frameMaxWidth],
+  );
 
   return (
     <AxStateProvider endpoint={axOverlayEnabled ? config?.axEndpoint : undefined}>

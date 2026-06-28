@@ -15,6 +15,7 @@ import {
   streamDisplayGeometry,
 } from "./orientation.js";
 import { digitalCrownDeltaFromWheel } from "./digitalCrown.js";
+import { normalizedPoint } from "./touch-geometry.js";
 import { useAvccStream, type AvccFrameInfo } from "./use-avcc-stream.js";
 import { isAvccSupported } from "../avcc-codec.js";
 import {
@@ -682,8 +683,7 @@ export function SimulatorView({
     (type: "begin" | "move" | "end", event: MouseEvent<HTMLElement>) => {
       const rect = getInputRect();
       if (!rect) return;
-      const x = (event.clientX - rect.left) / rect.width;
-      const y = (event.clientY - rect.top) / rect.height;
+      const { x, y } = normalizedPoint(event.clientX, event.clientY, rect);
       sendTouch({ type, x, y });
     },
     [getInputRect, sendTouch],
@@ -968,8 +968,7 @@ export function SimulatorView({
             e.preventDefault();
             const rect = getInputRect();
             if (!rect) return;
-            const x = (e.clientX - rect.left) / rect.width;
-            const y = (e.clientY - rect.top) / rect.height;
+            const { x, y } = normalizedPoint(e.clientX, e.clientY, rect);
 
             if (e.altKey) {
               // Multi-touch mode: begin gesture
@@ -996,8 +995,7 @@ export function SimulatorView({
           onMouseMove={(e) => {
             const rect = getInputRect();
             if (!rect) return;
-            const x = (e.clientX - rect.left) / rect.width;
-            const y = (e.clientY - rect.top) / rect.height;
+            const { x, y } = normalizedPoint(e.clientX, e.clientY, rect);
             lastMousePosRef.current = { x, y };
 
             // Alt-hover preview (no buttons pressed)
@@ -1039,8 +1037,7 @@ export function SimulatorView({
             if (multiTouchActiveRef.current) {
               const rect = getInputRect();
               if (rect) {
-                const x = (e.clientX - rect.left) / rect.width;
-                const y = (e.clientY - rect.top) / rect.height;
+                const { x, y } = normalizedPoint(e.clientX, e.clientY, rect);
                 if (multiTouchShiftRef.current) {
                   const off = panOffsetRef.current;
                   sendMultiTouch({
@@ -1070,8 +1067,7 @@ export function SimulatorView({
             if (edgeGestureRef.current) {
               const rect = getInputRect();
               if (rect) {
-                const x = (e.clientX - rect.left) / rect.width;
-                const y = (e.clientY - rect.top) / rect.height;
+                const { x, y } = normalizedPoint(e.clientX, e.clientY, rect);
                 sendTouch({ type: "end", x, y, edge: HID_EDGE_BOTTOM });
               }
               edgeGestureRef.current = false;
@@ -1093,8 +1089,7 @@ export function SimulatorView({
             if (edgeGestureRef.current) {
               const rect = getInputRect();
               if (rect) {
-                const x = (e.clientX - rect.left) / rect.width;
-                const y = (e.clientY - rect.top) / rect.height;
+                const { x, y } = normalizedPoint(e.clientX, e.clientY, rect);
                 sendTouch({ type: "end", x, y, edge: HID_EDGE_BOTTOM });
               }
               edgeGestureRef.current = false;
@@ -1113,12 +1108,9 @@ export function SimulatorView({
               hideTouchIndicator();
               const t1 = e.touches[0]!;
               const t2 = e.touches[1]!;
-              const fingers = {
-                x1: (t1.clientX - rect.left) / rect.width,
-                y1: (t1.clientY - rect.top) / rect.height,
-                x2: (t2.clientX - rect.left) / rect.width,
-                y2: (t2.clientY - rect.top) / rect.height,
-              };
+              const p1 = normalizedPoint(t1.clientX, t1.clientY, rect);
+              const p2 = normalizedPoint(t2.clientX, t2.clientY, rect);
+              const fingers = { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
               // If a single-touch gesture was already in progress, end it first
               if (!realMultiTouchRef.current && !edgeGestureRef.current) {
                 sendTouch({ type: "end", x: fingers.x1, y: fingers.y1 });
@@ -1133,8 +1125,7 @@ export function SimulatorView({
 
             const touch = e.touches[0];
             if (!touch) return;
-            const x = (touch.clientX - rect.left) / rect.width;
-            const y = (touch.clientY - rect.top) / rect.height;
+            const { x, y } = normalizedPoint(touch.clientX, touch.clientY, rect);
             showTouchIndicator(x, y);
             const edge = homeIndicatorEdge(y);
             if (edge !== undefined) {
@@ -1153,12 +1144,9 @@ export function SimulatorView({
             if (realMultiTouchRef.current && e.touches.length >= 2) {
               const t1 = e.touches[0]!;
               const t2 = e.touches[1]!;
-              const fingers = {
-                x1: (t1.clientX - rect.left) / rect.width,
-                y1: (t1.clientY - rect.top) / rect.height,
-                x2: (t2.clientX - rect.left) / rect.width,
-                y2: (t2.clientY - rect.top) / rect.height,
-              };
+              const p1 = normalizedPoint(t1.clientX, t1.clientY, rect);
+              const p2 = normalizedPoint(t2.clientX, t2.clientY, rect);
+              const fingers = { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
               setFingerIndicators(fingers);
               sendMultiTouch({ type: "move", ...fingers });
               return;
@@ -1166,8 +1154,7 @@ export function SimulatorView({
 
             const touch = e.touches[0];
             if (!touch) return;
-            const x = (touch.clientX - rect.left) / rect.width;
-            const y = (touch.clientY - rect.top) / rect.height;
+            const { x, y } = normalizedPoint(touch.clientX, touch.clientY, rect);
             moveTouchIndicator(x, y);
             if (edgeGestureRef.current) {
               sendTouch({ type: "move", x, y, edge: HID_EDGE_BOTTOM });
@@ -1187,10 +1174,11 @@ export function SimulatorView({
                 // Use last known indicator positions as fallback for the second finger
                 const last = fingerIndicators;
                 if (t1 && last) {
+                  const p1 = normalizedPoint(t1.clientX, t1.clientY, rect);
                   sendMultiTouch({
                     type: "end",
-                    x1: (t1.clientX - rect.left) / rect.width,
-                    y1: (t1.clientY - rect.top) / rect.height,
+                    x1: p1.x,
+                    y1: p1.y,
                     x2: last.x2,
                     y2: last.y2,
                   });
@@ -1206,8 +1194,7 @@ export function SimulatorView({
 
             const touch = e.changedTouches[0];
             if (!touch) return;
-            const x = (touch.clientX - rect.left) / rect.width;
-            const y = (touch.clientY - rect.top) / rect.height;
+            const { x, y } = normalizedPoint(touch.clientX, touch.clientY, rect);
             hideTouchIndicator();
             if (edgeGestureRef.current) {
               sendTouch({ type: "end", x, y, edge: HID_EDGE_BOTTOM });
