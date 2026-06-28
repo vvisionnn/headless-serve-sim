@@ -179,6 +179,10 @@ export function SimulatorView({
   }, []);
   const [fps, setFps] = useState(0);
   const frameCountRef = useRef(0);
+  // Read in the stream effects' 1 Hz intervals without making it a dep (it never
+  // changes at runtime, and listing it would needlessly re-run the socket setup).
+  const hideControlsRef = useRef(hideControls);
+  hideControlsRef.current = hideControls;
   const [showSlowOverlay, setShowSlowOverlay] = useState(false);
   const slowOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -543,7 +547,7 @@ export function SimulatorView({
       // setState when hidden avoids a 1 Hz re-render of this large component
       // landing on top of the steady-state decode/paint loop (a periodic
       // jitter-tail source).
-      if (!hideControls) setFps(frameCountRef.current);
+      if (!hideControlsRef.current) setFps(frameCountRef.current);
       frameCountRef.current = 0;
     }, 1000);
 
@@ -649,7 +653,7 @@ export function SimulatorView({
       // FPS is drained by the socket effect in direct mode (AVCC + MJPEG); only
       // own it here in relay mode, where that effect doesn't run.
       if (relayMode) {
-        if (!hideControls) setFps(frameCountRef.current);
+        if (!hideControlsRef.current) setFps(frameCountRef.current);
         frameCountRef.current = 0;
       }
       checkStaleness();

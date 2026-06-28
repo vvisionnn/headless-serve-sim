@@ -80,8 +80,7 @@ describe("fitDeviceFrame — upscale cap", () => {
       aspect,
       maxWidth: 100000,
     });
-    const availH = 900 - TOP_BAR - BORDER; // 854
-    const availW = 400 - BORDER; // 398
+    // availH = 900 - TOP_BAR - BORDER = 854; availW = 400 - BORDER = 398.
     // height-bound candidate: h = min(854, 398/0.5=796) = 796, w = 398 (== availW, no clamp)
     expect(r.width).toBe(398);
     expect(r.height).toBe(Math.round(398 / aspect)); // 796
