@@ -11,6 +11,7 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 import tailwindPlugin from "bun-plugin-tailwind";
 import { createAxStreamerCache } from "./src/ax";
+import { sampleAppMetrics } from "./src/app-metrics";
 
 const RN_BUNDLE_IDS = new Set<string>([
   "host.exp.Exponent",
@@ -568,6 +569,17 @@ Bun.serve({
           Connection: "keep-alive",
         },
       });
+    }
+
+    // Live per-app CPU/RSS for the foreground app — same contract as the
+    // production middleware, so the Activity rail shows real data in dev too
+    // (without this the chart silently had no source on the dev server).
+    if (url.pathname === "/api/metrics") {
+      const pid = Number(url.searchParams.get("pid"));
+      const result = Number.isInteger(pid) && pid > 0
+        ? sampleAppMetrics(pid, Date.now())
+        : { pid: 0, alive: false, rssBytes: null, cpuPercent: null };
+      return Response.json(result, { headers: { "Cache-Control": "no-store" } });
     }
 
     // Serve the HTML page (fresh on every request — picks up state + rebuild)
