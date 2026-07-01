@@ -1,3 +1,5 @@
+import type { SimulatorOrientation } from "headless-serve-sim-client/simulator";
+
 declare global {
   interface Window {
     __SIM_PREVIEW__?: {
@@ -23,6 +25,20 @@ declare global {
       serveSimBin?: string;
       /** Bearer token required by the /exec shell-exec route. */
       execToken?: string;
+      /**
+       * Device name (e.g. "iPad Pro 13-inch (M5)") baked in at page-serve time.
+       * Lets the first paint resolve the device *type* — and thus the frame's
+       * size cap — before the browser's async `simctl list` finishes, so an
+       * iPad frame doesn't start at the iPhone cap and grow a moment later.
+       */
+      deviceName?: string;
+      /**
+       * Live screen geometry baked in at page-serve time (from the helper's
+       * /config). Lets the first paint size the device frame to the real device
+       * instead of a generic fallback that resizes when the control-socket
+       * config arrives a moment later.
+       */
+      screenConfig?: { width: number; height: number; orientation?: SimulatorOrientation };
     };
   }
 }

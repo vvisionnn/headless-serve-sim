@@ -300,11 +300,58 @@ export function rewriteStateForRequestHost(
   };
 }
 
+/** The helper's live screen geometry (from its `/config` route). */
+export interface HelperScreenConfig {
+  width: number;
+  height: number;
+  orientation?: string;
+}
+
+/**
+ * Validate the helper's `/config` JSON. Returns null unless it carries positive
+ * pixel dimensions, so a helper that answered before it knew the screen size
+ * ({width:0}) is treated as "unknown" and the client keeps its generic fallback.
+ */
+export function parseScreenConfig(raw: unknown): HelperScreenConfig | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { width, height, orientation } = raw as Record<string, unknown>;
+  if (typeof width !== "number" || typeof height !== "number") return null;
+  if (!(width > 0) || !(height > 0)) return null;
+  return {
+    width,
+    height,
+    ...(typeof orientation === "string" ? { orientation } : {}),
+  };
+}
+
+/**
+ * Pull the live screen config from the helper's `/config` so the very first
+ * paint sizes the device frame correctly (no post-load resize). Best-effort: a
+ * slow or absent helper resolves to null and the client uses its generic
+ * fallback exactly as before, so the page never blocks on it.
+ */
+export async function fetchHelperScreenConfig(
+  helperUrl: string,
+  timeoutMs = 250,
+): Promise<HelperScreenConfig | null> {
+  try {
+    const res = await fetch(`${helperUrl}/config`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return null;
+    return parseScreenConfig(await res.json());
+  } catch {
+    return null;
+  }
+}
+
 export function previewConfigForState(
   state: ServeSimState,
   base: string,
   serveSimBin: string,
   execToken: string,
+  screenConfig?: HelperScreenConfig | null,
+  deviceName?: string | null,
 ): ServeSimState & {
   basePath: string;
   logsEndpoint: string;
@@ -318,10 +365,14 @@ export function previewConfigForState(
   gridMemoryEndpoint: string;
   previewEndpoint: string;
   execToken: string;
+  screenConfig?: HelperScreenConfig;
+  deviceName?: string;
 } {
   const gridApiBase = (base === "" ? "" : base) + "/grid/api";
   return {
     ...state,
+    ...(screenConfig ? { screenConfig } : {}),
+    ...(deviceName ? { deviceName } : {}),
     basePath: base,
     logsEndpoint: endpoint(base, "/logs", state.device),
     appStateEndpoint: endpoint(base, "/appstate", state.device),
@@ -534,6 +585,20 @@ function listAllSimulators(): SimctlDevice[] {
   } catch {
     return [];
   }
+}
+
+// udid → device name, cached for the server's lifetime (a simulator's name
+// never changes under a fixed udid). Lets the preview page bake the device name
+// into __SIM_PREVIEW__ so the client knows the device *type* on the first paint
+// — otherwise `deviceType` defaults to "iphone" until the browser's async
+// `simctl list` resolves, and an iPad frame renders at the iPhone size cap and
+// then grows a few seconds later.
+const deviceNameCache = new Map<string, string>();
+function resolveDeviceName(udid: string): string | undefined {
+  const cached = deviceNameCache.get(udid);
+  if (cached !== undefined) return cached;
+  for (const sim of listAllSimulators()) deviceNameCache.set(sim.udid, sim.name);
+  return deviceNameCache.get(udid);
 }
 
 // Default per-simulator footprint when we have no running sim to measure
@@ -838,31 +903,49 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
     if (url === base || url === base + "/") {
       const states = readServeSimStates();
       const state = selectServeSimState(states, selectedDevice);
-      let html = loadHtml();
+      const baseHtml = loadHtml();
+
+      const sendHtml = (html: string) => {
+        res.writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+        });
+        res.end(html);
+      };
 
       if (!state) {
         // Empty-state UI still polls /exec (boot/list helpers), so the page
         // needs the bearer token even before a helper attaches. Inject a
         // minimal config with just the basePath + token.
         const minimal = JSON.stringify({ basePath: base, execToken });
-        html = html.replace(
-          "<!--__SIM_PREVIEW_CONFIG__-->",
-          `<script>window.__SIM_PREVIEW__=${minimal}</script>`,
+        sendHtml(
+          baseHtml.replace(
+            "<!--__SIM_PREVIEW_CONFIG__-->",
+            `<script>window.__SIM_PREVIEW__=${minimal}</script>`,
+          ),
         );
+        return;
       }
 
-      if (state) {
+      // Pull the helper's live screen config so __SIM_PREVIEW__ carries the real
+      // device geometry — the frame then sizes correctly on the first paint
+      // instead of rendering a generic fallback and resizing when the config
+      // arrives over the control socket a moment later. Best-effort, so a slow
+      // helper never blocks the page (fetchHelperScreenConfig resolves to null).
+      (async () => {
         const remoteState = rewriteStateForRequestHost(state, req.headers?.host);
-        const config = JSON.stringify(previewConfigForState(remoteState, base, serveSimBin, execToken));
-        const configScript = `<script>window.__SIM_PREVIEW__=${config}</script>`;
-        html = html.replace("<!--__SIM_PREVIEW_CONFIG__-->", configScript);
-      }
-
-      res.writeHead(200, {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "no-store",
-      });
-      res.end(html);
+        const screenConfig = await fetchHelperScreenConfig(state.url);
+        const deviceName = resolveDeviceName(state.device);
+        const config = JSON.stringify(
+          previewConfigForState(remoteState, base, serveSimBin, execToken, screenConfig, deviceName),
+        );
+        sendHtml(
+          baseHtml.replace(
+            "<!--__SIM_PREVIEW_CONFIG__-->",
+            `<script>window.__SIM_PREVIEW__=${config}</script>`,
+          ),
+        );
+      })();
       return;
     }
 

@@ -59,6 +59,7 @@ import { captureScreenshot, downloadScreenshot, screenshotFilename } from "./uti
 import { simEndpoint } from "./utils/sim-endpoint";
 import { SIMULATOR_RESIZE_MAX_SCALE } from "./utils/simulator-resize";
 import { fitDeviceFrame } from "./utils/frame-geometry";
+import { resolveActiveScreenConfig } from "./utils/screen-config";
 import { readPersistedFlag, writePersistedFlag } from "./utils/persisted-flag";
 import { previewConfigKey } from "./utils/preview-config";
 
@@ -304,6 +305,10 @@ function AppWithConfig({
   fetchDevices,
 }: AppWithConfigProps) {
   const selectedDevice = devices.find((d) => d.udid === config.device) ?? null;
+  // Prefer the live device-list name; fall back to the name baked into
+  // __SIM_PREVIEW__ so the device type — and thus the frame's size cap — is
+  // correct on the first paint, before the async `simctl list` resolves.
+  const resolvedDeviceName = selectedDevice?.name ?? config.deviceName ?? null;
 
   useEffect(() => {
     document.title = selectedDevice?.name
@@ -311,7 +316,7 @@ function AppWithConfig({
       : "Simulator Preview";
   }, [selectedDevice?.name]);
 
-  const deviceType: DeviceType = getDeviceType(selectedDevice?.name);
+  const deviceType: DeviceType = getDeviceType(resolvedDeviceName);
   const devtools = useWebKitDevtools(config.devtoolsEndpoint ?? simEndpoint("devtools"), devtoolsOpen);
 
   useEffect(() => {
@@ -368,7 +373,12 @@ function AppWithConfig({
   // connect + on every dimension/orientation change) instead of a 1s /config poll.
   const [wsStreamConfig, setWsStreamConfig] = useState<StreamConfig | null>(null);
   const streamConfig = wsStreamConfig;
-  const activeStreamConfig = liveStreamConfig ?? streamConfig ?? fallbackScreenSize(deviceType, selectedDevice?.name);
+  const activeStreamConfig = resolveActiveScreenConfig({
+    live: liveStreamConfig,
+    ws: streamConfig,
+    injected: config.screenConfig,
+    fallback: fallbackScreenSize(deviceType, resolvedDeviceName),
+  });
   const frameMaxWidth = simulatorMaxWidth(deviceType, activeStreamConfig);
   const frameDisplayConfig = displayStreamConfig(activeStreamConfig);
   const frameAspectRatioValue = frameDisplayConfig
