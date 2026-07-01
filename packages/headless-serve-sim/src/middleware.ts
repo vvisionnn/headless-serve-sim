@@ -345,6 +345,24 @@ export async function fetchHelperScreenConfig(
   }
 }
 
+/**
+ * Serialize a value as JSON that is safe to embed inside an inline `<script>`.
+ * `JSON.stringify` leaves `<`, `>`, `&` and the JS line terminators U+2028/U+2029
+ * unescaped, so a value containing `</script>` (e.g. a maliciously renamed
+ * simulator) would break out of the tag and run as markup — XSS, and the page
+ * carries the `/exec` bearer token. Replacing those with `\uXXXX` escapes is
+ * value-preserving (inside a JS string literal `<` === `<`) and the result
+ * is still valid JSON, so `JSON.parse` on the client reads the identical object.
+ */
+export function htmlSafeJson(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
 export function previewConfigForState(
   state: ServeSimState,
   base: string,
@@ -917,7 +935,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         // Empty-state UI still polls /exec (boot/list helpers), so the page
         // needs the bearer token even before a helper attaches. Inject a
         // minimal config with just the basePath + token.
-        const minimal = JSON.stringify({ basePath: base, execToken });
+        const minimal = htmlSafeJson({ basePath: base, execToken });
         sendHtml(
           baseHtml.replace(
             "<!--__SIM_PREVIEW_CONFIG__-->",
@@ -936,7 +954,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         const remoteState = rewriteStateForRequestHost(state, req.headers?.host);
         const screenConfig = await fetchHelperScreenConfig(state.url);
         const deviceName = resolveDeviceName(state.device);
-        const config = JSON.stringify(
+        const config = htmlSafeJson(
           previewConfigForState(remoteState, base, serveSimBin, execToken, screenConfig, deviceName),
         );
         sendHtml(
