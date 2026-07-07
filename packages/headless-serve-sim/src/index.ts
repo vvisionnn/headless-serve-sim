@@ -8,7 +8,7 @@ import { join, resolve } from "path";
 import { STATE_DIR, stateFileForDevice, listStateFiles } from "./state";
 import { textToKeyEvents, UnsupportedCharacterError, sendKeyEventsToWs } from "./text-to-keys";
 import { dirnameOf, sleepSync, isPortFree, servePreview } from "./runtime";
-import { findBootedDevice, resolveDevice } from "./device";
+import { findBootedDevice, pickDefaultStreamDevices, resolveDevice } from "./device";
 import { document } from "./document-import";
 import { permissions } from "./permissions";
 import { statusBar } from "./status-bar";
@@ -229,34 +229,6 @@ function helperSpawnEnv(): NodeJS.ProcessEnv {
 
 // ─── Device helpers ───
 
-/**
- * Pick a sensible default device to boot when the user runs `headless-serve-sim` with
- * no booted simulator. Prefers an available iPhone on the newest iOS runtime.
- */
-function pickDefaultDevice(): { udid: string; name: string } | null {
-  try {
-    const output = execSync("xcrun simctl list devices -j", { encoding: "utf-8" });
-    const data = JSON.parse(output) as {
-      devices: Record<string, Array<{ udid: string; name: string; state: string; isAvailable?: boolean }>>;
-    };
-    const iosRuntimes = Object.keys(data.devices)
-      .filter((k) => /SimRuntime\.iOS-/i.test(k))
-      .sort((a, b) => {
-        const va = (a.match(/iOS-(\d+)-(\d+)/) ?? []).slice(1).map(Number);
-        const vb = (b.match(/iOS-(\d+)-(\d+)/) ?? []).slice(1).map(Number);
-        return (vb[0] ?? 0) - (va[0] ?? 0) || (vb[1] ?? 0) - (va[1] ?? 0);
-      });
-    for (const runtime of iosRuntimes) {
-      const devices = data.devices[runtime] ?? [];
-      const iphone = devices.find(
-        (d) => d.isAvailable !== false && /^iPhone\b/i.test(d.name),
-      );
-      if (iphone) return { udid: iphone.udid, name: iphone.name };
-    }
-  } catch {}
-  return null;
-}
-
 function getDeviceName(udid: string): string | null {
   try {
     const output = execSync("xcrun simctl list devices -j", { encoding: "utf-8" });
@@ -368,6 +340,16 @@ function bootDevice(udid: string, headed: boolean): void {
   } catch {}
 }
 
+function shutdownDeviceQuietly(udid: string): void {
+  try {
+    execSync(`xcrun simctl shutdown ${udid}`, {
+      encoding: "utf-8",
+      stdio: "ignore",
+      timeout: 30_000,
+    });
+  } catch {}
+}
+
 function getLocalNetworkIP(): string | null {
   const interfaces = networkInterfaces();
   for (const ifaces of Object.values(interfaces)) {
@@ -399,8 +381,7 @@ async function ensureBooted(udid: string, headed: boolean): Promise<void> {
     });
   } catch (err: any) {
     if (!isDeviceBooted(udid)) {
-      console.error(`Device ${udid} failed to reach booted state: ${err.stderr || err.message}`);
-      process.exit(1);
+      throw new Error(`Device ${udid} failed to reach booted state: ${err.stderr || err.message}`);
     }
   }
 }
@@ -552,7 +533,7 @@ async function spawnHelperAttached(opts: SpawnHelperOptions): Promise<{
   return { ready, child, log };
 }
 
-/** Boot + spawn helper with retry logic. Returns pid on success, exits on failure. */
+/** Boot + spawn helper with retry logic. Returns pid on success, throws on failure. */
 async function startHelper(
   udid: string,
   port: number,
@@ -609,8 +590,7 @@ async function startHelper(
   }
 
   const reason = lastLog ? `Helper failed:\n${lastLog}` : "Helper process failed to start";
-  console.error(reason);
-  process.exit(1);
+  throw new Error(reason);
 }
 
 // ─── Commands ───
@@ -618,27 +598,25 @@ async function startHelper(
 /** Foreground follow mode (default). Stays attached, cleans up on Ctrl+C. */
 async function follow(devices: string[], startPort: number, quiet: boolean, headed: boolean) {
   debugCli("follow devices=%o startPort=%d headed=%s", devices, startPort, headed);
+  const existingDefault = devices.length === 0 ? readState() : null;
+  const defaultCandidates = devices.length > 0 || existingDefault ? null : pickDefaultStreamDevices();
   const udids = devices.length > 0
     ? devices.map(resolveDevice)
-    : (() => {
-        const booted = findBootedDevice();
-        if (booted) return [booted];
-        const fallback = pickDefaultDevice();
-        if (!fallback) {
-          console.error("No device specified and no available iOS simulator found.");
-          process.exit(1);
-        }
-        if (!quiet) {
-          console.log(`No booted simulator — booting ${fallback.name}...`);
-        }
-        return [fallback.udid];
-      })();
+    : existingDefault
+      ? [existingDefault.device]
+    : (defaultCandidates ?? []).map((candidate) => candidate.udid);
+  if (devices.length === 0 && udids.length === 0) {
+    console.error("No device specified and no shutdown iPhone simulator found. Pass a device explicitly to stream a booted simulator.");
+    process.exit(1);
+  }
 
   const children = new Map<string, ChildProcess>();
   const states: ServerState[] = [];
   let port = startPort;
 
-  for (const udid of udids) {
+  for (let index = 0; index < udids.length; index++) {
+    const udid = udids[index]!;
+    const defaultCandidate = defaultCandidates?.find((candidate) => candidate.udid === udid);
     // Return existing server if already running
     const existing = readState(udid);
     if (existing) {
@@ -650,11 +628,32 @@ async function follow(devices: string[], startPort: number, quiet: boolean, head
         console.log(`  WebSocket: ${existing.wsUrl}`);
       }
       states.push(existing);
+      if (defaultCandidates) break;
       continue;
     }
 
     port = await findAvailablePort(port);
-    const { pid, child } = await startHelper(udid, port, { detach: false, headed });
+    if (defaultCandidate && !quiet) {
+      console.log(`Booting isolated simulator ${defaultCandidate.name} (${defaultCandidate.udid})...`);
+    }
+    let started: { pid: number; child?: ChildProcess };
+    try {
+      started = await startHelper(udid, port, { detach: false, headed });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (defaultCandidates) {
+        if (!quiet) {
+          console.error(
+            `Skipping ${defaultCandidate?.name ?? udid}: ${message}`,
+          );
+        }
+        shutdownDeviceQuietly(udid);
+        continue;
+      }
+      console.error(message);
+      process.exit(1);
+    }
+    const { pid, child } = started;
 
     if (child) {
       children.set(udid, child);
@@ -672,6 +671,12 @@ async function follow(devices: string[], startPort: number, quiet: boolean, head
     }
 
     port++;
+    if (defaultCandidates) break;
+  }
+
+  if (defaultCandidates && states.length === 0) {
+    console.error("No shutdown iPhone simulator could be booted. Pass a device explicitly to stream a booted simulator.");
+    process.exit(1);
   }
 
   // Machine-readable JSON to stdout
@@ -738,35 +743,57 @@ async function follow(devices: string[], startPort: number, quiet: boolean, head
 /** Detach mode (--detach). Spawns helpers and returns their states. */
 async function detach(devices: string[], startPort: number, headed: boolean): Promise<ServerState[]> {
   debugCli("detach devices=%o startPort=%d headed=%s", devices, startPort, headed);
+  const existingDefault = devices.length === 0 ? readState() : null;
+  const defaultCandidates = devices.length > 0 || existingDefault ? null : pickDefaultStreamDevices();
   const udids = devices.length > 0
     ? devices.map(resolveDevice)
-    : (() => {
-        const booted = findBootedDevice();
-        if (booted) return [booted];
-        const fallback = pickDefaultDevice();
-        if (!fallback) {
-          console.error("No device specified and no available iOS simulator found.");
-          process.exit(1);
-        }
-        return [fallback.udid];
-      })();
+    : existingDefault
+      ? [existingDefault.device]
+    : (defaultCandidates ?? []).map((candidate) => candidate.udid);
+  if (devices.length === 0 && udids.length === 0) {
+    console.error("No device specified and no shutdown iPhone simulator found. Pass a device explicitly to stream a booted simulator.");
+    process.exit(1);
+  }
 
   const states: ServerState[] = [];
   let port = startPort;
 
-  for (const udid of udids) {
+  for (let index = 0; index < udids.length; index++) {
+    const udid = udids[index]!;
     const existing = readState(udid);
     if (existing) {
       states.push(existing);
+      if (defaultCandidates) break;
       continue;
     }
 
     port = await findAvailablePort(port);
-    await startHelper(udid, port, { detach: true, headed });
+    try {
+      await startHelper(udid, port, { detach: true, headed });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (defaultCandidates) {
+        console.error(
+          `Skipping ${defaultCandidates.find((candidate) => candidate.udid === udid)?.name ?? udid}: ${
+            message
+          }`,
+        );
+        shutdownDeviceQuietly(udid);
+        continue;
+      }
+      console.error(message);
+      process.exit(1);
+    }
 
     states.push(makeServerState(readState(udid)!.pid, port, udid, headed));
 
     port++;
+    if (defaultCandidates) break;
+  }
+
+  if (defaultCandidates && states.length === 0) {
+    console.error("No shutdown iPhone simulator could be booted. Pass a device explicitly to stream a booted simulator.");
+    process.exit(1);
   }
 
   return states;
@@ -1867,7 +1894,7 @@ program
   .description("Stream iOS Simulator to the browser")
   .helpOption("-h, --help", "Show this help")
   // The default command: start the preview server (or stream / list / kill).
-  .argument("[devices...]", "Simulator(s) to target (udid or name; default: booted)")
+  .argument("[devices...]", "Simulator(s) to target (udid or name; default: shutdown iPhone)")
   .option("-p, --port <port>", "Starting port (preview default: 3200, stream default: 3100)", (v) => parseInt(v, 10))
   .option(
     "--host <addr>",
@@ -1892,7 +1919,7 @@ program
 Examples:
   headless-serve-sim                              Open simulator preview at localhost:3200
   headless-serve-sim -p 8080                      Preview on a custom port
-  headless-serve-sim --no-preview                 Auto-detect booted sim, stream in foreground
+  headless-serve-sim --no-preview                 Boot a shutdown iPhone and stream it in foreground
   headless-serve-sim --no-preview "iPhone 16 Pro" Stream a specific device (no preview)
   headless-serve-sim --detach                     Start streaming in background (daemon)
   headless-serve-sim --list                       Show all running streams

@@ -81,8 +81,8 @@ export function BootEmptyState({
   }
   for (const list of grouped.values()) {
     list.sort((a, b) => {
-      const ab = a.state === "Booted" ? 0 : 1;
-      const bb = b.state === "Booted" ? 0 : 1;
+      const ab = a.state === "Shutdown" ? 0 : a.state === "Booted" ? 1 : 2;
+      const bb = b.state === "Shutdown" ? 0 : b.state === "Booted" ? 1 : 2;
       if (ab !== bb) return ab - bb;
       return deviceKind(a.name) - deviceKind(b.name) || a.name.localeCompare(b.name);
     });
@@ -96,7 +96,7 @@ export function BootEmptyState({
       <div className="flex flex-col items-center gap-3 text-center">
         <h1 className="font-display text-[24px] font-semibold tracking-[-0.01em] m-0 text-fg">No headless-serve-sim stream running</h1>
         <p className="text-fg-2 text-[15px] tracking-[-0.01em] max-w-120">
-          Pick a simulator to boot, or start one yourself with{" "}
+          Pick a shutdown simulator to boot, or start one yourself with{" "}
           <code className="bg-surface-2 rounded-pill px-2 py-0.5 text-[13px]">bunx headless-serve-sim --detach</code>.
         </p>
         <div className="w-full max-w-90 mt-2 bg-panel-deep rounded-card border border-divider font-mono text-[13px] text-fg text-left max-h-[70vh] overflow-y-auto min-h-0">
