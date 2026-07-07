@@ -565,6 +565,9 @@ function AppWithConfig({
   // SimulatorView emits Connection Stats here; the panel registers its sink so
   // only the panel re-renders on the 1 Hz cadence, not this whole tree.
   const serverStatsRef = useRef<ServerStreamStats | null>(null);
+  useEffect(() => {
+    serverStatsRef.current = null;
+  }, [config.device, config.streamUrl]);
   const statsSinkRef = useRef<((snap: ConnectionStats) => void) | null>(null);
   const handleConnectionStats = useCallback((snap: ConnectionStats) => {
     // Merge server-pushed adaptive state (arrives on this WS, tag 0x83) into the

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   ConnectionStatsAccumulator,
+  parseServerStreamStats,
   summarize,
   type FrameSample,
 } from "../connection-stats";
@@ -121,5 +122,44 @@ describe("summarize", () => {
 
   test("handles a flat series", () => {
     expect(summarize([5, 5, 5])).toEqual({ min: 5, avg: 5, max: 5, last: 5 });
+  });
+});
+
+describe("parseServerStreamStats", () => {
+  test("maps adaptive stats and queue diagnostics from the wire payload", () => {
+    const payload = new TextEncoder().encode(JSON.stringify({
+      mode: "perf",
+      targetBitrate: 12_000_000,
+      maxQP: 46,
+      congested: false,
+      serverFps: 60,
+      queueBytes: 8192,
+      queueMs: 5,
+      droppedFrames: 2,
+    }));
+
+    expect(parseServerStreamStats(payload)).toEqual({
+      mode: "perf",
+      targetBitrateBps: 12_000_000,
+      maxQP: 46,
+      congested: false,
+      serverFps: 60,
+      queueBytes: 8192,
+      queueMs: 5,
+      droppedFrames: 2,
+    });
+  });
+
+  test("defaults queue diagnostics for older helpers", () => {
+    const payload = new TextEncoder().encode(JSON.stringify({
+      mode: "perf",
+      targetBitrate: 12_000_000,
+      maxQP: 46,
+      congested: false,
+      serverFps: 60,
+    }));
+
+    expect(parseServerStreamStats(payload)?.queueMs).toBe(0);
+    expect(parseServerStreamStats(payload)?.droppedFrames).toBe(0);
   });
 });

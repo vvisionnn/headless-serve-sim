@@ -254,6 +254,7 @@ function AdaptiveSection({ stats }: { stats: ConnectionStats | null }) {
   const srv = stats?.server ?? null;
   const kfMs = stats?.keyframeIntervalMs ?? null;
   const recoveries = stats?.recoveries ?? 0;
+  const serverDrops = srv?.droppedFrames ?? 0;
   return (
     <div className="flex flex-col gap-2.5 rounded-card border border-divider bg-surface-2 px-3 py-2.5">
       <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">Adaptive</span>
@@ -266,6 +267,8 @@ function AdaptiveSection({ stats }: { stats: ConnectionStats | null }) {
         <StatRow label="Target" value={srv ? fmtBitrateChip(srv.targetBitrateBps) : "—"} accent={srv ? C_BITRATE : undefined} />
         <StatRow label="Enc fps" value={srv ? String(srv.serverFps) : "—"} />
         <StatRow label="Max QP" value={srv ? String(srv.maxQP) : "—"} />
+        <StatRow label="Queue" value={srv ? `${srv.queueMs}ms` : "—"} accent={srv && srv.queueMs > 50 ? C_JITTER : undefined} />
+        <StatRow label="Server drop" value={String(serverDrops)} accent={serverDrops > 0 ? C_JITTER : undefined} />
         <StatRow label="Keyframe" value={kfMs != null ? `${(kfMs / 1000).toFixed(1)}s` : "—"} />
         <StatRow label="Recover" value={String(recoveries)} accent={recoveries > 0 ? C_JITTER : undefined} />
       </div>

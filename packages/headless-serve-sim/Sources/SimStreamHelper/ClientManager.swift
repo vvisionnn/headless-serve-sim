@@ -14,6 +14,7 @@ final class ClientManager {
     /// Latest JPEG frame data, replaced on each new frame
     private var latestFrame: Data?
     private var mjpegClients: [ObjectIdentifier: MJPEGClient] = [:]
+    private var mjpegClientCount = 0
     private var nextClientId = 0
 
     /// AVCC (H.264) stream clients + the cached avcC description envelope so
@@ -109,6 +110,7 @@ final class ClientManager {
         let client = MJPEGClient(id: nextClientId)
         nextClientId += 1
         let key = ObjectIdentifier(client)
+        configLock.lock(); mjpegClientCount += 1; configLock.unlock()
         queue.async {
             self.mjpegClients[key] = client
             print("[clients] MJPEG client connected (\(self.mjpegClients.count) total)")
@@ -127,10 +129,18 @@ final class ClientManager {
 
     func removeMJPEGClient(_ client: MJPEGClient) {
         let key = ObjectIdentifier(client)
+        configLock.lock(); mjpegClientCount = max(0, mjpegClientCount - 1); configLock.unlock()
         queue.async {
             self.mjpegClients.removeValue(forKey: key)
             print("[clients] MJPEG client disconnected (\(self.mjpegClients.count) total)")
         }
+    }
+
+    /// True when at least one viewer is consuming the MJPEG stream.
+    func hasMJPEGClients() -> Bool {
+        configLock.lock()
+        defer { configLock.unlock() }
+        return mjpegClientCount > 0
     }
 
     // MARK: - AVCC Client Management
@@ -201,6 +211,15 @@ final class ClientManager {
             for (_, client) in self.avccClients { maxHW = max(maxHW, client.sampleHighWater()) }
         }
         return maxHW
+    }
+
+    /// Number of server-side AVCC chunks dropped since the last sample.
+    func sampleAvccDropped() -> Int {
+        var dropped = 0
+        queue.sync {
+            for (_, client) in self.avccClients { dropped += client.sampleDropped() }
+        }
+        return dropped
     }
 
     /// Push an adaptive stream-stats snapshot to every input WebSocket (tag
@@ -307,6 +326,7 @@ final class ClientManager {
             self.wsSessions.removeAll()
         }
         configLock.lock(); avccClientCount = 0; configLock.unlock()
+        configLock.lock(); mjpegClientCount = 0; configLock.unlock()
     }
 }
 
@@ -347,6 +367,7 @@ final class AVCCClient {
     private var queuedBytes = 0
     private var closed = false
     private var needKeyframe = false
+    private var droppedSinceSample = 0
     /// High-water mark of `queuedBytes` since the last sample — the congestion
     /// signal the adaptive controller reads.
     private var highWater = 0
@@ -382,6 +403,7 @@ final class AVCCClient {
             if queuedBytes >= highWaterBytes {
                 // Behind: drop this frame rather than grow an unplayable
                 // backlog, and ask for a keyframe to resync cleanly.
+                droppedSinceSample += 1
                 let fire = !needKeyframe
                 needKeyframe = true
                 let cb = onNeedKeyframe
@@ -432,6 +454,13 @@ final class AVCCClient {
         let hw = highWater
         highWater = queuedBytes
         return hw
+    }
+
+    func sampleDropped() -> Int {
+        cond.lock(); defer { cond.unlock() }
+        let dropped = droppedSinceSample
+        droppedSinceSample = 0
+        return dropped
     }
 
     func close() {

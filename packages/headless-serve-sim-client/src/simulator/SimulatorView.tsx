@@ -165,6 +165,9 @@ export function SimulatorView({
   const keyframeIntervalRef = useRef<number | null>(null);
   const lastKeyframeAtRef = useRef<number | null>(null);
   const serverStatsRef = useRef<ServerStreamStats | null>(null);
+  useEffect(() => {
+    serverStatsRef.current = null;
+  }, [url]);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number } | null>(null);
   useEffect(() => {

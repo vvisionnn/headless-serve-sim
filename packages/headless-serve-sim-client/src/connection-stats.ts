@@ -42,6 +42,12 @@ export interface ServerStreamStats {
   congested: boolean;
   /** Server-side encode rate (frames/sec). */
   serverFps: number;
+  /** Max queued bytes behind the viewer socket since the previous server tick. */
+  queueBytes: number;
+  /** Estimated send-queue delay at the current target bitrate. */
+  queueMs: number;
+  /** Server-side AVCC chunks dropped since the previous server tick. */
+  droppedFrames: number;
 }
 
 /** Emitted outward by SimulatorView — the pure snapshot plus live codec, client
@@ -69,6 +75,9 @@ export function parseServerStreamStats(payload: Uint8Array): ServerStreamStats |
       maxQP: number;
       congested: boolean;
       serverFps: number;
+      queueBytes?: number;
+      queueMs?: number;
+      droppedFrames?: number;
     };
     return {
       mode: s.mode,
@@ -76,6 +85,9 @@ export function parseServerStreamStats(payload: Uint8Array): ServerStreamStats |
       maxQP: s.maxQP,
       congested: s.congested,
       serverFps: s.serverFps,
+      queueBytes: Number.isFinite(s.queueBytes) ? s.queueBytes! : 0,
+      queueMs: Number.isFinite(s.queueMs) ? s.queueMs! : 0,
+      droppedFrames: Number.isFinite(s.droppedFrames) ? s.droppedFrames! : 0,
     };
   } catch {
     return null;

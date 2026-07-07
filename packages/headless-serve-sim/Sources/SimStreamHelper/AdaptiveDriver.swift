@@ -60,6 +60,7 @@ final class AdaptiveDriver {
     private func tick() {
         guard clientManager.hasAvccClients() else { return }
         let congestion = clientManager.sampleAvccCongestion()
+        let dropped = clientManager.sampleAvccDropped()
         lock.lock()
         let out = controller.tick(congestionBytes: congestion, highWaterBytes: highWaterBytes)
         let modeStr = mode.rawValue
@@ -72,12 +73,18 @@ final class AdaptiveDriver {
         encoder.setMaxQP(out.maxQP)
 
         let serverFps = Int((Double(delta) / tickSeconds).rounded())
+        let queueMs = out.bitrate > 0
+            ? Int((Double(congestion) * 8_000.0 / Double(out.bitrate)).rounded())
+            : 0
         clientManager.broadcastStreamStats([
             "mode": modeStr,
             "targetBitrate": out.bitrate,
             "maxQP": out.maxQP,
             "congested": out.congested,
             "serverFps": serverFps,
+            "queueBytes": congestion,
+            "queueMs": queueMs,
+            "droppedFrames": dropped,
         ])
     }
 }

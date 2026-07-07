@@ -44,7 +44,7 @@ print("[main] Device UDID: \(deviceUDID)")
 print("[main] Port: \(port)")
 print("[main] Stream mode: \(streamMode.rawValue)")
 
-let avccHighWaterBytes = 512 * 1024
+let avccHighWaterBytes = 256 * 1024
 let httpServer = HTTPServer(deviceUDID: deviceUDID, port: port)
 let frameCapture = FrameCapture()
 let videoEncoder = VideoEncoder(quality: 0.7)
@@ -66,6 +66,8 @@ var screenHeight = 0
 var encoderReady = false
 var encoding = false // backpressure flag (MJPEG)
 var h264Encoding = false // backpressure flag (H.264)
+var lastJpegEncodeMs: UInt64 = 0
+let jpegSeedIntervalMs: UInt64 = 1_000
 // Set when an AVCC client connects; the next H.264 frame is forced to an IDR
 // so the freshly-configured decoder has a keyframe to start from.
 var forceKeyframe = false
@@ -177,9 +179,21 @@ let frameHandler: (CVPixelBuffer, CMTime) -> Void = { pixelBuffer, timestamp in
         adaptiveDriver.updateResolution(width: w, height: h)
     }
 
-    if encoderReady, !encoding {
-        // Backpressure: skip frame if encoder is still working on the previous one
+    let nowMs = DispatchTime.now().uptimeNanoseconds / 1_000_000
+    let wantsJpeg = httpServer.clientManager.hasMJPEGClients()
+        || httpServer.clientManager.hasAvccClients()
+        || lastJpegEncodeMs == 0
+    let jpegDue = httpServer.clientManager.hasMJPEGClients()
+        || lastJpegEncodeMs == 0
+        || (nowMs &- lastJpegEncodeMs) >= jpegSeedIntervalMs
+
+    if encoderReady, wantsJpeg, jpegDue, !encoding {
+        // Backpressure: skip frame if encoder is still working on the previous one.
+        // AVCC viewers only need an occasional JPEG seed for instant first paint;
+        // encoding every frame as both JPEG and H.264 competes with the low-latency
+        // path for CPU and pixel-buffer locks.
         encoding = true
+        lastJpegEncodeMs = nowMs
         encodeQueue.async {
             videoEncoder.encode(pixelBuffer: pixelBuffer)
             encoding = false
