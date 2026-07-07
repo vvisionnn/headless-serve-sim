@@ -5,6 +5,8 @@ import {
   isAvccSupported,
 } from "../avcc-codec.js";
 
+const MAX_DECODE_QUEUE_SIZE = 4;
+
 /** Per-frame telemetry handed to `onFrame` for the Connection Stats panel. */
 export interface AvccFrameInfo {
   /** Encoded byte size of the chunk that produced this frame (0 for the seed). */
@@ -76,6 +78,8 @@ export function useAvccStream({
     let painted = false;
     let timestamp = 0;
     let currentCodec: string | null = null;
+    let currentDescription: Uint8Array | null = null;
+    let decoderGeneration = 0;
     let dropped = 0;
     let recoveries = 0;
     // True until the next keyframe decodes. While set, deltas are skipped so we
@@ -88,7 +92,12 @@ export function useAvccStream({
     // FIFO of in-flight decodes: outputs arrive in decode order (no B-frames in
     // this low-latency P-frame stream), so each output pairs with the oldest
     // pending entry to recover its size, decode latency, and keyframe flag.
-    const pendingDecodes: { bytes: number; t0: number; keyframe: boolean }[] = [];
+    const pendingDecodes: {
+      bytes: number;
+      t0: number;
+      keyframe: boolean;
+      generation: number;
+    }[] = [];
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let connController: AbortController | null = null;
     let reconnecting = false;
@@ -140,18 +149,19 @@ export function useAvccStream({
     };
 
     let decoder: VideoDecoder | null = null;
-    const makeDecoder = () =>
+    const makeDecoder = (generation: number) =>
       new VideoDecoderCtor({
         output: (frame) => {
           try {
-            if (stopped) return;
+            if (stopped || generation !== decoderGeneration) return;
             const pend = pendingDecodes.shift();
+            if (!pend || pend.generation !== generation) return;
             paint(frame, frame.displayWidth, frame.displayHeight, {
-              bytes: pend?.bytes ?? 0,
-              decodeMs: pend ? performance.now() - pend.t0 : null,
+              bytes: pend.bytes,
+              decodeMs: performance.now() - pend.t0,
               codec: currentCodec,
               dropped,
-              keyframe: pend?.keyframe ?? false,
+              keyframe: pend.keyframe,
               recoveries,
             });
           } finally {
@@ -159,12 +169,62 @@ export function useAvccStream({
           }
         },
         error: (err) => {
+          if (stopped || generation !== decoderGeneration) return;
           onError?.(`decoder: ${err.message}`);
           // A WebCodecs decoder can't be reconfigured after an error — it must be
           // recreated. Reconnect so the server re-primes config + a fresh IDR.
           reconnect();
         },
       });
+
+    const closeDecoder = () => {
+      if (decoder && decoder.state !== "closed") {
+        try { decoder.close(); } catch {}
+      }
+      decoder = null;
+      pendingDecodes.length = 0;
+      decoderGeneration++;
+    };
+
+    const configureDecoder = (description: Uint8Array) => {
+      currentDescription = description.slice();
+      currentCodec = avcCodecString(currentDescription);
+      closeDecoder();
+      decoder = makeDecoder(decoderGeneration);
+      awaitingKeyframe = true;
+      try {
+        decoder.configure({
+          codec: currentCodec,
+          description: currentDescription,
+          optimizeForLatency: true,
+          hardwareAcceleration: "prefer-hardware",
+        });
+      } catch (e) {
+        onError?.(`config: ${(e as Error).message}`);
+        closeDecoder();
+      }
+    };
+
+    const resetDecoderForKeyframe = () => {
+      recoveries++;
+      awaitingKeyframe = true;
+      closeDecoder();
+      if (currentDescription && currentCodec) {
+        decoder = makeDecoder(decoderGeneration);
+        try {
+          decoder.configure({
+            codec: currentCodec,
+            description: currentDescription,
+            optimizeForLatency: true,
+            hardwareAcceleration: "prefer-hardware",
+          });
+        } catch (e) {
+          onError?.(`config: ${(e as Error).message}`);
+          closeDecoder();
+        }
+      }
+      requestKeyframe();
+    };
 
     const handleChunk = (
       type: "description" | "keyframe" | "delta" | "seed",
@@ -194,22 +254,9 @@ export function useAvccStream({
         return;
       }
       if (type === "description") {
-        if (!decoder || decoder.state === "closed") decoder = makeDecoder();
-        currentCodec = avcCodecString(payload);
         // A reconfigure invalidates any in-flight decodes for the old config and
         // requires a fresh IDR before any delta will decode.
-        pendingDecodes.length = 0;
-        awaitingKeyframe = true;
-        try {
-          decoder.configure({
-            codec: currentCodec,
-            description: payload,
-            optimizeForLatency: true,
-            hardwareAcceleration: "prefer-hardware",
-          });
-        } catch (e) {
-          onError?.(`config: ${(e as Error).message}`);
-        }
+        configureDecoder(payload);
         return;
       }
       // keyframe | delta
@@ -217,6 +264,14 @@ export function useAvccStream({
       if (type === "delta" && awaitingKeyframe) {
         // Skip deltas until a keyframe resyncs the decoder — feeding them now
         // would composite on a stale/absent reference (ghosting).
+        return;
+      }
+      if (type === "delta" && decoder.decodeQueueSize > MAX_DECODE_QUEUE_SIZE) {
+        // Do not let WebCodecs queue become hidden latency. Dropping a P-frame
+        // invalidates following deltas, so switch to drop-until-IDR and ask the
+        // server for a fresh keyframe instead of playing delayed frames.
+        dropped++;
+        resetDecoderForKeyframe();
         return;
       }
       try {
@@ -229,13 +284,17 @@ export function useAvccStream({
           }),
         );
         if (type === "keyframe") awaitingKeyframe = false;
-        pendingDecodes.push({ bytes: payload.byteLength, t0, keyframe: type === "keyframe" });
+        pendingDecodes.push({
+          bytes: payload.byteLength,
+          t0,
+          keyframe: type === "keyframe",
+          generation: decoderGeneration,
+        });
         timestamp += 16667; // ~60fps tick; not displayed, just monotonic.
       } catch {
         // Undecodable chunk — drop to drop-until-IDR and pull a fresh keyframe.
         dropped++;
-        awaitingKeyframe = true;
-        requestKeyframe();
+        resetDecoderForKeyframe();
       }
     };
 
@@ -243,13 +302,10 @@ export function useAvccStream({
       if (stopped || reconnecting) return;
       reconnecting = true;
       recoveries++;
-      if (decoder && decoder.state !== "closed") {
-        try { decoder.close(); } catch {}
-      }
-      decoder = null;
+      closeDecoder();
       currentCodec = null;
+      currentDescription = null;
       awaitingKeyframe = true;
-      pendingDecodes.length = 0;
       demuxer.reset();
       connController?.abort();
       if (retryTimer) clearTimeout(retryTimer);
@@ -305,10 +361,7 @@ export function useAvccStream({
       if (retryTimer) clearTimeout(retryTimer);
       connController?.abort();
       demuxer.reset();
-      if (decoder && decoder.state !== "closed") {
-        try { decoder.close(); } catch {}
-      }
-      decoder = null;
+      closeDecoder();
     };
   }, [url, enabled, canvasRef, onFirstFrame, onFrame, onError, onRequestKeyframe, onProgress]);
 }
