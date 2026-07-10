@@ -97,12 +97,12 @@ describe("memoryRange", () => {
   });
 
   test("empty values centers on fallbackRss (memLo treated as 0)", () => {
-    const rss = 300 * 1024 * 1024;
-    const { yMin, yMax } = memoryRange([], rss);
-    // memHi=rss, memLo=0 -> mid = rss/2; span floored.
-    const expectedSpan = Math.max(rss - 0, MEM_MIN_SPAN) * 1.15;
-    let expMin = rss / 2 - expectedSpan / 2;
-    let expMax = rss / 2 + expectedSpan / 2;
+    const memory = 300 * 1024 * 1024;
+    const { yMin, yMax } = memoryRange([], memory);
+    // memHi=memory, memLo=0 -> mid = memory/2; span floored.
+    const expectedSpan = Math.max(memory - 0, MEM_MIN_SPAN) * 1.15;
+    let expMin = memory / 2 - expectedSpan / 2;
+    let expMax = memory / 2 + expectedSpan / 2;
     if (expMin < 0) {
       expMax -= expMin;
       expMin = 0;

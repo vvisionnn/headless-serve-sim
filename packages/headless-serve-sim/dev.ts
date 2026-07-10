@@ -11,7 +11,6 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 import tailwindPlugin from "bun-plugin-tailwind";
 import { createAxStreamerCache } from "./src/ax";
-import { sampleAppMetrics } from "./src/app-metrics";
 
 const RN_BUNDLE_IDS = new Set<string>([
   "host.exp.Exponent",
@@ -157,6 +156,7 @@ function previewConfigForState(state: ServeSimState) {
     basePath: "/",
     logsEndpoint: endpoint("logs", state.device),
     appStateEndpoint: endpoint("appstate", state.device),
+    metricsEndpoint: endpoint("api/metrics", state.device),
     axEndpoint: endpoint("ax", state.device),
     serveSimBin: SERVE_SIM_BIN,
   };
@@ -331,7 +331,7 @@ ${clientError ? `<pre style="position:fixed;inset:0;z-index:9999;background:#1a0
 Bun.serve({
   port: PORT,
   idleTimeout: 255, // SSE / MJPEG streams are long-lived
-  fetch(req) {
+  async fetch(req) {
     const url = new URL(req.url);
     const selectedDevice = url.searchParams.get("device");
 
@@ -571,15 +571,33 @@ Bun.serve({
       });
     }
 
-    // Live per-app CPU/RSS for the foreground app — same contract as the
-    // production middleware, so the Activity rail shows real data in dev too
-    // (without this the chart silently had no source on the dev server).
+    // Same device-scoped native metrics proxy as production middleware.
     if (url.pathname === "/api/metrics") {
-      const pid = Number(url.searchParams.get("pid"));
-      const result = Number.isInteger(pid) && pid > 0
-        ? sampleAppMetrics(pid, Date.now())
-        : { pid: 0, alive: false, rssBytes: null, cpuPercent: null };
-      return Response.json(result, { headers: { "Cache-Control": "no-store" } });
+      const state = selectServeSimState(readServeSimStates(), selectedDevice);
+      if (!state) {
+        return Response.json(
+          { error: "No headless-serve-sim device" },
+          { status: 404, headers: { "Cache-Control": "no-store" } },
+        );
+      }
+      try {
+        const upstream = await fetch(`http://127.0.0.1:${state.port}/metrics`, {
+          cache: "no-store",
+          signal: AbortSignal.timeout(2_000),
+        });
+        return new Response(upstream.body, {
+          status: upstream.status,
+          headers: {
+            "Content-Type": upstream.headers.get("content-type") ?? "application/json",
+            "Cache-Control": "no-store",
+          },
+        });
+      } catch {
+        return Response.json(
+          { error: "App metrics helper unavailable" },
+          { status: 502, headers: { "Cache-Control": "no-store" } },
+        );
+      }
     }
 
     // Serve the HTML page (fresh on every request — picks up state + rebuild)

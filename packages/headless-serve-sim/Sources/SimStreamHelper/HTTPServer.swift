@@ -6,6 +6,8 @@ import Swifter
 final class HTTPServer {
     let clientManager = ClientManager()
     private let server = HttpServer()
+    private let processMetricsSampler = ProcessMetricsSampler()
+    private let processPidResolver: SimulatorAppPidResolver
     private let port: UInt16
     private let deviceUDID: String
     private let corsHeaders = [
@@ -17,6 +19,7 @@ final class HTTPServer {
     init(deviceUDID: String, port: UInt16 = 3100) {
         self.deviceUDID = deviceUDID
         self.port = port
+        self.processPidResolver = SimulatorAppPidResolver(deviceUDID: deviceUDID)
     }
 
     func start() throws {
@@ -120,6 +123,34 @@ final class HTTPServer {
         // Health endpoint
         server["/health"] = { [weak self] _ in
             return self?.jsonResponse(["status": "ok"]) ?? .internalServerError
+        }
+
+        // Real foreground-app resource metrics. The helper resolves the
+        // frontmost app itself so callers cannot supply an unrelated host PID,
+        // and samples Darwin's per-process counters without shelling out.
+        server["/metrics"] = { [weak self] _ in
+            guard let self else { return .internalServerError }
+            do {
+                let app = try AccessibilityBridge.shared.frontmostApp(udid: self.deviceUDID)
+                guard let process = resolveForegroundProcess(
+                    app: app,
+                    resolvePid: { self.processPidResolver.resolve(bundleId: $0) }
+                )
+                else {
+                    return self.jsonResponse(self.processMetricsSampler.unavailable().jsonObject)
+                }
+                let metrics = self.processMetricsSampler.sample(
+                    bundleId: process.bundleId,
+                    pid: process.pid
+                )
+                return self.jsonResponse(metrics.jsonObject)
+            } catch AccessibilityError.noFrontmostApplication {
+                return self.jsonResponse(
+                    self.processMetricsSampler.unavailable(state: .noForegroundApp).jsonObject
+                )
+            } catch {
+                return self.jsonResponse(self.processMetricsSampler.unavailable().jsonObject)
+            }
         }
 
         // Accessibility tree (replaces a global `axe describe-ui` install).

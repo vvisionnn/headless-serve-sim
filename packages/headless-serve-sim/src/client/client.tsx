@@ -803,7 +803,7 @@ function AppWithConfig({
           size) — same border as the bars, no shadow. Internal seams come from
           the bars' own keylines. */}
       <div className="flex border border-divider">
-      {/* Left rail — live CPU/MEM gauges, mirrored against the right inspector. */}
+      {/* Left rail — native foreground-app resource metrics. */}
       <MetricsBar
         open={metricsOpen}
         onToggle={() => setMetricsOpen((o) => !o)}
@@ -811,7 +811,7 @@ function AppWithConfig({
         expandedWidth={RAIL_EXPANDED_WIDTH}
         topBarHeight={TOP_BAR_HEIGHT}
         frameHeight={frameGeom.height}
-        pid={currentApp?.pid}
+        metricsEndpoint={config.metricsEndpoint ?? simEndpoint("api/metrics")}
         enabled={streaming}
       />
       <div

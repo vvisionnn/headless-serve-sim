@@ -22,12 +22,12 @@ export function splitValueUnit(s: string): [string, string] {
 // The memory gauge auto-ranges around its own min/max with a MEM_MIN_SPAN floor
 // (so an idle app's flat trace still reads as a band, not a glued-to-axis
 // line), inflates by 1.15, and clamps the floor to 0. With no samples yet it
-// centers on the latest RSS reading.
+// centers on the latest memory reading.
 export function memoryRange(
   values: number[],
-  fallbackRss: number,
+  fallbackBytes: number,
 ): { yMin: number; yMax: number } {
-  const memHi = values.length ? Math.max(...values) : fallbackRss;
+  const memHi = values.length ? Math.max(...values) : fallbackBytes;
   const memLo = values.length ? Math.min(...values) : 0;
   const memMid = (memHi + memLo) / 2;
   const memSpan = Math.max(memHi - memLo, MEM_MIN_SPAN) * 1.15;

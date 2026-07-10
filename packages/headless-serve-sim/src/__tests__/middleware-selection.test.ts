@@ -49,6 +49,7 @@ describe("previewConfigForState", () => {
       basePath: "/preview",
       logsEndpoint: "/preview/logs?device=DEVICE-B",
       appStateEndpoint: "/preview/appstate?device=DEVICE-B",
+      metricsEndpoint: "/preview/api/metrics?device=DEVICE-B",
       axEndpoint: "/preview/ax?device=DEVICE-B",
       devtoolsEndpoint: "/preview/devtools?device=DEVICE-B",
       serveSimBin: "/bin/headless-serve-sim",

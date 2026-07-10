@@ -1,6 +1,5 @@
 import { readdirSync, readFileSync, existsSync, unlinkSync, watch, type FSWatcher } from "fs";
 import { execSync, spawn, exec, execFile, type ChildProcess, type ExecException } from "child_process";
-import { sampleAppMetrics } from "./app-metrics";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createServer as createNetServer } from "net";
@@ -374,6 +373,7 @@ export function previewConfigForState(
   basePath: string;
   logsEndpoint: string;
   appStateEndpoint: string;
+  metricsEndpoint: string;
   axEndpoint: string;
   devtoolsEndpoint: string;
   serveSimBin: string;
@@ -394,6 +394,7 @@ export function previewConfigForState(
     basePath: base,
     logsEndpoint: endpoint(base, "/logs", state.device),
     appStateEndpoint: endpoint(base, "/appstate", state.device),
+    metricsEndpoint: endpoint(base, "/api/metrics", state.device),
     axEndpoint: endpoint(base, "/ax", state.device),
     devtoolsEndpoint: endpoint(base, "/devtools", state.device),
     serveSimBin,
@@ -977,20 +978,37 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
       return;
     }
 
-    // Live per-app metrics: CPU% + RSS for the foreground app's host PID
-    // (supplied by the client from the /appstate feed). Simulator apps are
-    // ordinary host processes, so a plain `ps` reads them directly.
+    // Device-scoped proxy to the helper's native foreground-app sampler. The
+    // helper resolves the frontmost PID itself and reads Darwin process
+    // counters, so the browser cannot select an unrelated host process.
     if (url === base + "/api/metrics") {
-      const query = qIndex === -1 ? "" : rawUrl.slice(qIndex + 1);
-      const pid = Number(new URLSearchParams(query).get("pid"));
-      res.writeHead(200, {
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store",
-      });
-      const result = Number.isInteger(pid) && pid > 0
-        ? sampleAppMetrics(pid, Date.now())
-        : { pid: 0, alive: false, rssBytes: null, cpuPercent: null };
-      res.end(JSON.stringify(result));
+      const state = selectServeSimState(readServeSimStates(), selectedDevice);
+      if (!state) {
+        res.writeHead(404, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        res.end(JSON.stringify({ error: "No headless-serve-sim device" }));
+        return;
+      }
+      void (async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2_000);
+        try {
+          const upstream = await fetch(`http://127.0.0.1:${state.port}/metrics`, {
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          const body = Buffer.from(await upstream.arrayBuffer());
+          res.writeHead(upstream.status, {
+            "Content-Type": upstream.headers.get("content-type") ?? "application/json",
+            "Cache-Control": "no-store",
+          });
+          res.end(body);
+        } catch {
+          res.writeHead(502, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+          res.end(JSON.stringify({ error: "App metrics helper unavailable" }));
+        } finally {
+          clearTimeout(timer);
+        }
+      })();
       return;
     }
 

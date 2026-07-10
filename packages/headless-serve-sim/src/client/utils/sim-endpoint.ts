@@ -13,6 +13,7 @@ declare global {
       logsEndpoint?: string;
       axEndpoint?: string;
       appStateEndpoint?: string;
+      metricsEndpoint?: string;
       devtoolsEndpoint?: string;
       gridApiEndpoint?: string;
       gridStartEndpoint?: string;
