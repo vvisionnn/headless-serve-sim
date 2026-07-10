@@ -59,7 +59,9 @@
   "scripts": {
     "build": "bun run build.ts",
     "build:swift": "./build.sh",
+    "benchmark:stream-quality": "bun run scripts/stream-quality-benchmark.ts",
     "test:adaptive": "DEVELOPER_DIR=$(xcode-select -p) swiftc Sources/SimStreamHelper/AdaptiveController.swift scripts/adaptive-controller-selftest.swift -o /tmp/adaptive-selftest && /tmp/adaptive-selftest",
+    "test:snapshot": "swiftc Sources/SimStreamHelper/FrameSnapshotter.swift scripts/frame-snapshot-selftest.swift -o /tmp/frame-snapshot-selftest && /tmp/frame-snapshot-selftest",
     "dev": "bun run dev.ts"
   },
   "devDependencies": {

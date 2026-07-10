@@ -11,7 +11,7 @@ import ObjectiveC
 /// for event-driven capture with zero jitter. Maintains a 5fps idle floor
 /// for late-joining clients.
 ///
-/// Pipeline: IOSurface (shared memory) → CVPixelBuffer (zero-copy) → H.264 encode
+/// Pipeline: IOSurface callback → owned `FrameSnapshotter` buffer → encoders
 final class FrameCapture {
     private var onFrame: ((CVPixelBuffer, CMTime) -> Void)?
     private var frameCount: UInt64 = 0

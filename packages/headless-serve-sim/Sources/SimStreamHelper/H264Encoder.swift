@@ -8,9 +8,8 @@ import VideoToolbox
 ///
 /// Submission is fire-and-forget: the caller hands a `CVPixelBuffer` in and
 /// the encoded chunk comes back via `onEncoded` on VideoToolbox's own queue.
-/// The incoming buffer wraps SimulatorKit's live framebuffer IOSurface, which
-/// SimulatorKit recycles in place — VT encodes asynchronously, so we deep-copy
-/// into a private pooled buffer before submitting to avoid a torn frame race.
+/// The incoming buffer is an owned `FrameSnapshotter` result, so it cannot be
+/// changed by SimulatorKit while VideoToolbox holds it asynchronously.
 final class H264Encoder {
     struct Encoded {
         /// avcC parameter-set blob — emitted once on the first IDR per session.
@@ -25,7 +24,6 @@ final class H264Encoder {
 
     private let lock = NSLock()
     private var session: VTCompressionSession?
-    private var pool: CVPixelBufferPool?
     private var width: Int32 = 0
     private var height: Int32 = 0
     private let fps: Int32
@@ -57,7 +55,7 @@ final class H264Encoder {
             height = h
             rebuildSession()
         }
-        guard let session, let copy = copyBuffer(source) else {
+        guard let session else {
             lock.unlock()
             completion?()
             return
@@ -72,7 +70,7 @@ final class H264Encoder {
 
         let status = VTCompressionSessionEncodeFrame(
             session,
-            imageBuffer: copy,
+            imageBuffer: source,
             presentationTimeStamp: pts,
             duration: .invalid,
             frameProperties: frameProps,
@@ -94,7 +92,6 @@ final class H264Encoder {
             VTCompressionSessionInvalidate(session)
             self.session = nil
         }
-        pool = nil
     }
 
     /// Live-update the target bitrate (and its peak cap). Called by the adaptive
@@ -127,32 +124,6 @@ final class H264Encoder {
         if #available(macOS 12.0, *) {
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxAllowedFrameQP, value: NSNumber(value: qp))
         }
-    }
-
-    /// Deep-copy `source` (which wraps the recycled framebuffer IOSurface)
-    /// into a private pooled buffer that VT can hold past this call.
-    private func copyBuffer(_ source: CVPixelBuffer) -> CVPixelBuffer? {
-        guard let pool else { return nil }
-        var out: CVPixelBuffer?
-        guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &out) == kCVReturnSuccess,
-              let dst = out else { return nil }
-
-        CVPixelBufferLockBaseAddress(source, .readOnly)
-        CVPixelBufferLockBaseAddress(dst, [])
-        defer {
-            CVPixelBufferUnlockBaseAddress(dst, [])
-            CVPixelBufferUnlockBaseAddress(source, .readOnly)
-        }
-        guard let src = CVPixelBufferGetBaseAddress(source),
-              let dstAddr = CVPixelBufferGetBaseAddress(dst) else { return nil }
-        let srcStride = CVPixelBufferGetBytesPerRow(source)
-        let dstStride = CVPixelBufferGetBytesPerRow(dst)
-        let rows = CVPixelBufferGetHeight(source)
-        let copyBytes = min(srcStride, dstStride)
-        for row in 0..<rows {
-            memcpy(dstAddr + row * dstStride, src + row * srcStride, copyBytes)
-        }
-        return dst
     }
 
     private func rebuildSession() {
@@ -226,16 +197,6 @@ final class H264Encoder {
             emittedDescription = false
         }
 
-        // Pool feeding the deep-copy; BGRA matches the framebuffer surface.
-        let attrs: [String: Any] = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: Int(width),
-            kCVPixelBufferHeightKey as String: Int(height),
-            kCVPixelBufferIOSurfacePropertiesKey as String: [:],
-        ]
-        var newPool: CVPixelBufferPool?
-        CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, attrs as CFDictionary, &newPool)
-        pool = newPool
     }
 
     private func extract(from sample: CMSampleBuffer) -> Encoded? {

@@ -47,6 +47,7 @@ print("[main] Stream mode: \(streamMode.rawValue)")
 let avccHighWaterBytes = 256 * 1024
 let httpServer = HTTPServer(deviceUDID: deviceUDID, port: port)
 let frameCapture = FrameCapture()
+let frameSnapshotter = FrameSnapshotter()
 let videoEncoder = VideoEncoder(quality: 0.7)
 let h264Encoder = H264Encoder(fps: 60, maxQP: streamMode == .quality ? 40 : 48)
 let hidInjector = HIDInjector()
@@ -180,14 +181,24 @@ let frameHandler: (CVPixelBuffer, CMTime) -> Void = { pixelBuffer, timestamp in
     }
 
     let nowMs = DispatchTime.now().uptimeNanoseconds / 1_000_000
-    let wantsJpeg = httpServer.clientManager.hasMJPEGClients()
-        || httpServer.clientManager.hasAvccClients()
+    let hasMJPEGClients = httpServer.clientManager.hasMJPEGClients()
+    let hasAvccClients = httpServer.clientManager.hasAvccClients()
+    let wantsJpeg = hasMJPEGClients
+        || hasAvccClients
         || lastJpegEncodeMs == 0
-    let jpegDue = httpServer.clientManager.hasMJPEGClients()
+    let jpegDue = hasMJPEGClients
         || lastJpegEncodeMs == 0
         || (nowMs &- lastJpegEncodeMs) >= jpegSeedIntervalMs
+    let encodeJpeg = encoderReady && wantsJpeg && jpegDue && !encoding
 
-    if encoderReady, wantsJpeg, jpegDue, !encoding {
+    // Close the recycled-IOSurface lifetime boundary synchronously, before any
+    // encoder queueing or first-use VideoToolbox setup. Both encoders share this
+    // one owned copy; neither can observe SimulatorKit painting the next frame.
+    guard encodeJpeg || hasAvccClients,
+          let snapshot = frameSnapshotter.snapshot(pixelBuffer)
+    else { return }
+
+    if encodeJpeg {
         // Backpressure: skip frame if encoder is still working on the previous one.
         // AVCC viewers only need an occasional JPEG seed for instant first paint;
         // encoding every frame as both JPEG and H.264 competes with the low-latency
@@ -195,7 +206,7 @@ let frameHandler: (CVPixelBuffer, CMTime) -> Void = { pixelBuffer, timestamp in
         encoding = true
         lastJpegEncodeMs = nowMs
         encodeQueue.async {
-            videoEncoder.encode(pixelBuffer: pixelBuffer)
+            videoEncoder.encode(pixelBuffer: snapshot)
             encoding = false
         }
     }
@@ -203,13 +214,13 @@ let frameHandler: (CVPixelBuffer, CMTime) -> Void = { pixelBuffer, timestamp in
     // H.264 path runs only while at least one AVCC viewer is connected, so an
     // all-MJPEG session pays no VideoToolbox cost. Its own backpressure flag
     // lets it skip independently of the JPEG encoder.
-    if httpServer.clientManager.hasAvccClients() {
+    if hasAvccClients {
         h264Queue.async {
             if h264Encoding { return }
             h264Encoding = true
             let force = forceKeyframe
             forceKeyframe = false
-            h264Encoder.encode(pixelBuffer, forceKeyframe: force) {
+            h264Encoder.encode(snapshot, forceKeyframe: force) {
                 h264Queue.async {
                     h264Encoding = false
                 }

@@ -264,6 +264,25 @@ bun run --filter headless-serve-sim build:swift   # rebuild the Swift helper
 bun run --filter headless-serve-sim dev           # watch mode
 ```
 
+### Stream quality benchmark
+
+Run the black-box stream recorder against a dedicated, already-running simulator helper:
+
+```sh
+bun run --filter headless-serve-sim benchmark:stream-quality -- \
+  --url http://127.0.0.1:3100 \
+  --udid <dedicated-simulator-udid> \
+  --format avcc \
+  --output /tmp/stream-quality
+```
+
+The benchmark requires `ffmpeg`. It opens a deterministic 60 Hz motion pattern in the target simulator,
+records the public stream, decodes every frame, and exits non-zero if it finds a
+torn, unclassifiable, or undecodable frame, average FPS below 55, a
+one-second window below 50 FPS, or bandwidth above 8 Mbps. Use `--format mjpeg` to
+measure the fallback path; override the thresholds explicitly when comparing a
+different performance budget.
+
 ## License
 
 Apache-2.0
