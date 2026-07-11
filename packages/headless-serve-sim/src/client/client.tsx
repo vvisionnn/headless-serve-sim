@@ -21,6 +21,7 @@ import {
   type StreamConfig,
   type ConnectionStats,
   type ServerStreamStats,
+  type SimulatorRecordingSource,
 } from "headless-serve-sim-client/simulator";
 
 import { AppearanceIcon, ReloadIcon } from "./icons";
@@ -34,6 +35,7 @@ import { MetricsBar } from "./components/metrics-bar";
 import { ConnectionStatsPanel } from "./components/connection-stats-panel";
 import { ResizeHandle } from "./components/resize-handle";
 import { InspectorBar } from "./components/inspector-bar";
+import { LogsPanel } from "./components/logs-panel";
 import { WebKitDevtoolsPanel } from "./components/webkit-devtools-panel";
 import { useMediaDrop } from "./hooks/use-media-drop";
 import { useMjpegStream } from "./hooks/use-mjpeg-stream";
@@ -54,6 +56,7 @@ import {
   CONNECTION_STATS_PANEL_WIDTH,
   DEVTOOLS_PANEL_WIDTH,
   GRID_PANEL_WIDTH,
+  LOGS_PANEL_WIDTH,
 } from "./utils/panel-widths";
 import { captureScreenshot, downloadScreenshot, screenshotFilename } from "./utils/screenshot";
 import { simEndpoint } from "./utils/sim-endpoint";
@@ -154,76 +157,6 @@ function App() {
     };
     return () => es.close();
   }, []);
-
-  // Stream simctl logs into the browser console with colors + grouping
-  useEffect(() => {
-    if (!config?.logsEndpoint) return;
-    const es = new EventSource(config.logsEndpoint);
-
-    const procColors = new Map<string, string>();
-    const palette = [
-      "#8be9fd", "#50fa7b", "#ffb86c", "#ff79c6", "#bd93f9",
-      "#f1fa8c", "#6272a4", "#ff5555", "#69ff94", "#d6acff",
-      "#ffffa5", "#a4ffff", "#ff6e6e", "#caa9fa", "#5af78e",
-    ];
-    function colorFor(name: string): string {
-      let c = procColors.get(name);
-      if (!c) {
-        let h = 0;
-        for (let i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0;
-        c = palette[Math.abs(h) % palette.length]!;
-        procColors.set(name, c);
-      }
-      return c;
-    }
-
-    let lastProc = "";
-    let groupOpen = false;
-
-    es.onmessage = (event) => {
-      try {
-        const entry = JSON.parse(event.data);
-        const proc = entry.processImagePath?.split("/").pop() ?? entry.senderImagePath?.split("/").pop() ?? "";
-        const subsystem = entry.subsystem ?? "";
-        const category = entry.category ?? "";
-        const msg = entry.eventMessage ?? "";
-        if (!msg) return;
-
-        if (proc !== lastProc) {
-          if (groupOpen) console.groupEnd();
-          const color = colorFor(proc);
-          console.groupCollapsed(
-            `%c${proc}${subsystem ? ` %c${subsystem}${category ? ":" + category : ""}` : ""}`,
-            `color:${color};font-weight:bold`,
-            ...(subsystem ? ["color:#888;font-weight:normal"] : []),
-          );
-          groupOpen = true;
-          lastProc = proc;
-        }
-
-        const level = (entry.messageType ?? "").toLowerCase();
-        const tag = subsystem && proc === lastProc
-          ? `%c${category || subsystem}%c `
-          : "";
-        const tagStyles = tag
-          ? ["color:#888;font-style:italic", "color:inherit"]
-          : [];
-
-        if (level === "fault" || level === "error") {
-          console.log(`${tag}%c${msg}`, ...tagStyles, "color:#ff5555");
-        } else if (level === "debug") {
-          console.log(`${tag}%c${msg}`, ...tagStyles, "color:#6272a4");
-        } else {
-          console.log(`${tag}%c${msg}`, ...tagStyles, "color:inherit");
-        }
-      } catch {}
-    };
-
-    return () => {
-      if (groupOpen) console.groupEnd();
-      es.close();
-    };
-  }, [config?.logsEndpoint]);
 
   if (!config) {
     return (
@@ -543,6 +476,7 @@ function AppWithConfig({
   // Subscribe to app-state SSE.
   const [currentApp, setCurrentApp] = useState<{ bundleId: string; isReactNative: boolean; pid?: number } | null>(null);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(false);
   const [streamMode, setStreamMode] = useState<"perf" | "quality">("perf");
   const { width: devtoolsPanelWidth, onPointerDown: onDevtoolsResize } = useResizableWidth(
     "headless-serve-sim:devtools-panel-width",
@@ -561,6 +495,12 @@ function AppWithConfig({
     CONNECTION_STATS_PANEL_WIDTH,
     280,
     560,
+  );
+  const { width: logsPanelWidth, onPointerDown: onLogsResize } = useResizableWidth(
+    "headless-serve-sim:logs-panel-width",
+    LOGS_PANEL_WIDTH,
+    420,
+    1400,
   );
   // SimulatorView emits Connection Stats here; the panel registers its sink so
   // only the panel re-renders on the 1 Hz cadence, not this whole tree.
@@ -616,6 +556,7 @@ function AppWithConfig({
   }, [sendKey]);
 
   const simContainerRef = useRef<HTMLDivElement | null>(null);
+  const recordingSourceRef = useRef<SimulatorRecordingSource | null>(null);
   const [simFocused, setSimFocused] = useState(true);
   const simFocusedRef = useRef(true);
   simFocusedRef.current = simFocused;
@@ -898,6 +839,7 @@ function AppWithConfig({
             onScreenConfigChange={onScreenConfigChange}
             statsEnabled={statsOpen}
             onConnectionStats={handleConnectionStats}
+            recordingSourceRef={recordingSourceRef}
           />
           {axOverlayEnabled && <AxDomOverlay />}
           {mediaDrop.isDragOver && (
@@ -972,24 +914,36 @@ function AppWithConfig({
         expandedWidth={RAIL_EXPANDED_WIDTH}
         topBarHeight={TOP_BAR_HEIGHT}
         frameHeight={frameGeom.height}
-        openOverlay={statsOpen ? "stats" : gridOpen ? "grid" : devtoolsOpen ? "devtools" : null}
+        openOverlay={statsOpen ? "stats" : logsOpen ? "logs" : gridOpen ? "grid" : devtoolsOpen ? "devtools" : null}
         udid={config.device}
+        deviceType={deviceType}
+        streaming={streaming}
+        recordingSourceRef={recordingSourceRef}
         execToken={config.execToken}
         currentApp={currentApp}
         axOverlayEnabled={axOverlayEnabled}
         onToggleAxOverlay={() => setAxOverlayEnabled((enabled) => !enabled)}
         onOpenStats={() => {
+          setLogsOpen(false);
           setGridOpen(false);
           setDevtoolsOpen(false);
           setStatsOpen(true);
         }}
+        onOpenLogs={() => {
+          setStatsOpen(false);
+          setGridOpen(false);
+          setDevtoolsOpen(false);
+          setLogsOpen(true);
+        }}
         onOpenGrid={() => {
           setStatsOpen(false);
+          setLogsOpen(false);
           setDevtoolsOpen(false);
           setGridOpen(true);
         }}
         onOpenDevtools={() => {
           setStatsOpen(false);
+          setLogsOpen(false);
           setGridOpen(false);
           setDevtoolsOpen(true);
         }}
@@ -1044,6 +998,19 @@ function AppWithConfig({
         visible={statsOpen}
         onPointerDown={onConnectionStatsResize}
         ariaLabel="Resize connection stats panel"
+      />
+
+      <LogsPanel
+        open={logsOpen}
+        onClose={() => setLogsOpen(false)}
+        endpoint={config.logsEndpoint}
+        width={logsPanelWidth}
+      />
+      <ResizeHandle
+        panelWidth={logsPanelWidth}
+        visible={logsOpen}
+        onPointerDown={onLogsResize}
+        ariaLabel="Resize logs panel"
       />
 
     </div>

@@ -5,11 +5,11 @@ import { join } from "path";
 /**
  * Integration test for the AVCC (H.264) stream endpoint.
  *
- * Skipped automatically when no iOS simulator is booted. On a booted sim it
- * exercises the Swift helper's /stream.avcc path end-to-end: connect, then
- * verify the length-prefixed AVCC envelope carries a decoder description
- * (SPS/PPS) and at least one keyframe — i.e. VideoToolbox actually produced a
- * decodable H.264 stream rather than the endpoint silently emitting nothing.
+ * Uses HEADLESS_SERVE_SIM_E2E_UDID when set; otherwise it auto-detects a booted
+ * iOS simulator and skips when none is available. It exercises the Swift
+ * helper's /stream.avcc path end-to-end: connect, then verify the length-prefixed
+ * AVCC envelope carries a decoder description (SPS/PPS) and at least one
+ * keyframe — i.e. VideoToolbox produced a decodable H.264 stream.
  */
 
 const CLI_PATH = join(import.meta.dir, "../../src/index.ts");
@@ -50,7 +50,7 @@ function* parseEnvelope(buffer: Uint8Array): Generator<{ tag: number; consumed: 
   }
 }
 
-const bootedUdid = firstBootedIosSim();
+const bootedUdid = process.env.HEADLESS_SERVE_SIM_E2E_UDID ?? firstBootedIosSim();
 const describeWithSim = bootedUdid ? describe : describe.skip;
 
 describeWithSim(`headless-serve-sim AVCC endpoint (booted sim ${bootedUdid ?? "<skipped>"})`, () => {

@@ -8,6 +8,7 @@ import type { IncomingMessage, ServerResponse } from "http";
 import { createAxStreamerCache } from "./ax";
 import { debugMw } from "./debug";
 import { createExecUpgradeHandler, type UiRequestHandler } from "./exec-ws";
+import { parseSimLogLevel, startSimulatorLogStream } from "./sim-log-stream";
 import { UI_OPTIONS, getUiStatus, normalizeUiValue, setUiOption } from "./ui-settings";
 
 type SimReq = IncomingMessage;
@@ -392,7 +393,7 @@ export function previewConfigForState(
     ...(screenConfig ? { screenConfig } : {}),
     ...(deviceName ? { deviceName } : {}),
     basePath: base,
-    logsEndpoint: endpoint(base, "/logs", state.device),
+    logsEndpoint: `${endpoint(base, "/logs", state.device)}&token=${encodeURIComponent(execToken)}`,
     appStateEndpoint: endpoint(base, "/appstate", state.device),
     metricsEndpoint: endpoint(base, "/api/metrics", state.device),
     axEndpoint: endpoint(base, "/ax", state.device),
@@ -1469,6 +1470,19 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
 
     // SSE: simctl log stream
     if (url === base + "/logs") {
+      const params = new URLSearchParams(qIndex === -1 ? "" : rawUrl.slice(qIndex + 1));
+      const token = params.get("token") ?? "";
+      if (!safeEqualString(token, execToken)) {
+        res.writeHead(401, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Unauthorized");
+        return;
+      }
+      const level = parseSimLogLevel(params.get("level"));
+      if (!level) {
+        res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Invalid log level");
+        return;
+      }
       const states = readServeSimStates();
       const state = selectServeSimState(states, selectedDevice);
       if (!state) {
@@ -1484,33 +1498,10 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         "X-Accel-Buffering": "no",
       });
       res.write(":\n\n");
-
-      const child: ChildProcess = spawn("xcrun", [
-        "simctl", "spawn", udid, "log", "stream",
-        "--style", "ndjson",
-        "--level", "info",
-      ], { stdio: ["ignore", "pipe", "ignore"] });
-
-      let buf = "";
-      child.stdout!.on("data", (chunk: Buffer) => {
-        buf += chunk.toString();
-        let nl: number;
-        while ((nl = buf.indexOf("\n")) !== -1) {
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
-          if (line) res.write("data: " + line + "\n\n");
-        }
-        // Drop a runaway partial line so a malformed/never-terminated
-        // log entry can't grow `buf` without bound.
-        if (buf.length > SSE_LINE_BUFFER_LIMIT) buf = "";
-      });
-
-      child.on("error", () => { try { res.end(); } catch {} });
-      child.on("close", () => res.end());
-      req.on("close", () => {
-        child.stdout?.destroy();
-        child.kill();
-      });
+      const stop = startSimulatorLogStream({ udid, level, response: res });
+      req.once("aborted", stop);
+      req.once("close", stop);
+      res.once("close", stop);
       return;
     }
 

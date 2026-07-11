@@ -1,14 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { execSync, spawnSync } from "child_process";
+import { execFileSync, execSync, spawnSync } from "child_process";
 import { join } from "path";
 
 /**
  * Integration test for the accessibility endpoint.
  *
- * Skipped automatically when no iOS simulator is booted. On machines with a
- * booted sim, this exercises the Swift helper's /ax path end-to-end so deep or
- * cyclic AX trees fail as endpoint crashes/timeouts instead of slipping by as
- * compile-only changes.
+ * Uses HEADLESS_SERVE_SIM_E2E_UDID when set; otherwise it auto-detects a booted
+ * iOS simulator and skips when none is available. This exercises the Swift
+ * helper's /ax path end-to-end so deep or cyclic AX trees fail as endpoint
+ * crashes/timeouts instead of slipping by as compile-only changes.
  */
 
 const CLI_PATH = join(import.meta.dir, "../../src/index.ts");
@@ -35,14 +35,14 @@ function firstBootedIosSim(): string | null {
   return null;
 }
 
-const bootedUdid = firstBootedIosSim();
+const bootedUdid = process.env.HEADLESS_SERVE_SIM_E2E_UDID ?? firstBootedIosSim();
 const describeWithSim = bootedUdid ? describe : describe.skip;
 
 describeWithSim(`headless-serve-sim accessibility endpoint (booted sim ${bootedUdid ?? "<skipped>"})`, () => {
   let axUrl: string;
 
   beforeAll(() => {
-    try { execSync(`bun run ${CLI_PATH} --kill ${bootedUdid}`, { stdio: "pipe" }); } catch {}
+    try { execFileSync("bun", ["run", CLI_PATH, "--kill", bootedUdid!], { stdio: "pipe" }); } catch {}
 
     // Random high port avoids collisions with the user's running headless-serve-sim
     // (default 3100) and with concurrent test runs on the same machine. The
@@ -66,7 +66,12 @@ describeWithSim(`headless-serve-sim accessibility endpoint (booted sim ${bootedU
   }, 120_000);
 
   afterAll(() => {
-    try { execSync(`bun run ${CLI_PATH} --kill ${bootedUdid}`, { stdio: "pipe", timeout: 30_000 }); } catch {}
+    try {
+      execFileSync("bun", ["run", CLI_PATH, "--kill", bootedUdid!], {
+        stdio: "pipe",
+        timeout: 30_000,
+      });
+    } catch {}
   }, 60_000);
 
   test("returns a bounded accessibility tree without crashing the helper", async () => {

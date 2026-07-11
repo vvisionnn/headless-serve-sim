@@ -1,3 +1,8 @@
+import type { MutableRefObject } from "react";
+import type {
+  DeviceType,
+  SimulatorRecordingSource,
+} from "headless-serve-sim-client/simulator";
 import { LocationEmulationTool } from "../location-emulation-tool";
 import { execOnHost } from "../utils/exec";
 import { AppActionsTool } from "./app-actions-tool";
@@ -7,6 +12,7 @@ import { AxTreeTool } from "./ax-tree-tool";
 import { CameraTool } from "./camera-tool";
 import { ImportDocumentTool } from "./import-document-tool";
 import { ScreenshotTool } from "./screenshot-tool";
+import { ScreenRecordingTool } from "./screen-recording-tool";
 import { SimulatorSettingsTool } from "./simulator-settings-tool";
 import { StatusBarTool } from "./status-bar-tool";
 import { UserDefaultsTool } from "./user-defaults-tool";
@@ -24,14 +30,18 @@ export interface InspectorBarProps {
   expandedWidth: number;
   topBarHeight: number;
   frameHeight: number;
-  openOverlay: "stats" | "grid" | "devtools" | null;
+  openOverlay: "stats" | "logs" | "grid" | "devtools" | null;
   udid: string;
+  deviceType: DeviceType;
+  streaming: boolean;
+  recordingSourceRef: MutableRefObject<SimulatorRecordingSource | null>;
   /** Live exec token; rotates on server restart so the settings tool re-auths. */
   execToken?: string;
   currentApp: { bundleId: string; isReactNative: boolean; pid?: number } | null;
   axOverlayEnabled: boolean;
   onToggleAxOverlay: () => void;
   onOpenStats: () => void;
+  onOpenLogs: () => void;
   onOpenGrid: () => void;
   onOpenDevtools: () => void;
 }
@@ -49,11 +59,15 @@ export function InspectorBar({
   frameHeight,
   openOverlay,
   udid,
+  deviceType,
+  streaming,
+  recordingSourceRef,
   execToken,
   currentApp,
   axOverlayEnabled,
   onToggleAxOverlay,
   onOpenStats,
+  onOpenLogs,
   onOpenGrid,
   onOpenDevtools,
 }: InspectorBarProps) {
@@ -131,6 +145,12 @@ export function InspectorBar({
           <AxTreeTool overlayEnabled={axOverlayEnabled} onToggleOverlay={onToggleAxOverlay} />
           <CameraTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
           <ScreenshotTool udid={udid} />
+          <ScreenRecordingTool
+            sourceRef={recordingSourceRef}
+            deviceType={deviceType}
+            deviceKey={udid}
+            streaming={streaming}
+          />
           <ImportDocumentTool udid={udid} />
           <LocationEmulationTool udid={udid} exec={execOnHost} />
           <StatusBarTool udid={udid} />
@@ -139,6 +159,7 @@ export function InspectorBar({
           <AppPermissionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
 
           <InspectorLauncher label="Connection Stats" onClick={onOpenStats} expanded={openOverlay === "stats"} />
+          <InspectorLauncher label="Logs" onClick={onOpenLogs} expanded={openOverlay === "logs"} />
           <InspectorLauncher label="Simulators" onClick={onOpenGrid} expanded={openOverlay === "grid"} />
           <InspectorLauncher label="WebKit DevTools" onClick={onOpenDevtools} expanded={openOverlay === "devtools"} />
         </div>

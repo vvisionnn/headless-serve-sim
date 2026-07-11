@@ -3,9 +3,10 @@ import { execFileSync, execSync } from "child_process";
 import { existsSync } from "fs";
 import { join } from "path";
 
-// Drives the built CLI's `ui` verb against whatever simulator is already
-// booted. Each assertion reads the underlying preference store the simulator
-// actually consults — com.apple.Accessibility, com.apple.mediaaccessibility,
+// Drives the built CLI's `ui` verb against HEADLESS_SERVE_SIM_E2E_UDID when set,
+// or the first booted iOS simulator otherwise. Each assertion reads the
+// underlying preference store the simulator actually consults —
+// com.apple.Accessibility, com.apple.mediaaccessibility,
 // com.apple.UIKit — or `simctl ui` for the options it natively reports,
 // rather than trusting the value the CLI itself echoes back.
 
@@ -26,7 +27,7 @@ function bootedUdid(): string | null {
   return null;
 }
 
-const udid = bootedUdid();
+const udid = process.env.HEADLESS_SERVE_SIM_E2E_UDID ?? bootedUdid();
 
 // `simctl ui` hangs *intermittently per-call* on GitHub's shared macOS
 // runners — a probe can succeed and the very next call hang for minutes — so
@@ -61,7 +62,8 @@ const describeIfSim = udid && existsSync(CLI) && simctlUiUsable() ? describe : d
 
 // Timeouts on every child call so a wedged simulator fails the test instead
 // of hanging the CI job.
-const EXEC_TIMEOUT_MS = 15_000;
+const EXEC_TIMEOUT_MS = 30_000;
+const TEST_TIMEOUT_MS = 120_000;
 
 function cli(...args: string[]): string {
   return execFileSync("node", [CLI, "ui", ...args, "-d", udid!], {
@@ -110,14 +112,14 @@ describeIfSim("headless-serve-sim ui (simulator-wide options)", () => {
     // Nine sequential CLI round-trips (each spawning node + simctl/the in-sim
     // helper) blow past bun's default 5s hook budget on a cold simulator; the
     // per-call EXEC_TIMEOUT_MS still bounds a wedged reset.
-  }, 90_000);
+  }, 180_000);
 
   test("appearance switches dark and back", () => {
     cli("appearance", "dark");
     expect(simctlUi("appearance")).toBe("dark");
     cli("appearance", "light");
     expect(simctlUi("appearance")).toBe("light");
-  });
+  }, TEST_TIMEOUT_MS);
 
   test("liquid glass writes the UIKit legibility preference", () => {
     cli("liquid-glass", "tinted");
@@ -125,7 +127,7 @@ describeIfSim("headless-serve-sim ui (simulator-wide options)", () => {
     expect(cli("liquid-glass")).toBe("tinted");
     cli("liquid-glass", "clear");
     expect(simDefault("com.apple.UIKit", "UIViewGlassLegibilitySetting")).toBe("0");
-  });
+  }, TEST_TIMEOUT_MS);
 
   test("color filters set the media-accessibility display filter", () => {
     const cases = [
@@ -152,21 +154,21 @@ describeIfSim("headless-serve-sim ui (simulator-wide options)", () => {
       simDefault("com.apple.mediaaccessibility", "__Color__.MADisplayFilterCategoryEnabled"),
     ).toBe("0");
     expect(simDefault("com.apple.Accessibility", "GrayscaleDisplay")).toBe("0");
-  }, 30_000);
+  }, TEST_TIMEOUT_MS);
 
   test("text size sets the content size category", () => {
     cli("text-size", "accessibility-medium");
     expect(simctlUi("content_size")).toBe("accessibility-medium");
     cli("text-size", "large");
     expect(simctlUi("content_size")).toBe("large");
-  });
+  }, TEST_TIMEOUT_MS);
 
   test("increase contrast toggles through simctl ui", () => {
     cli("increase-contrast", "on");
     expect(simctlUi("increase_contrast")).toBe("enabled");
     cli("increase-contrast", "off");
     expect(simctlUi("increase_contrast")).toBe("disabled");
-  });
+  }, TEST_TIMEOUT_MS);
 
   test.each([
     ["reduce-motion", "ReduceMotionEnabled"],
@@ -180,7 +182,7 @@ describeIfSim("headless-serve-sim ui (simulator-wide options)", () => {
     cli(option, "off");
     expect(simDefault("com.apple.Accessibility", key)).toBe("0");
     expect(cli(option)).toBe("off");
-  }, 15_000);
+  }, TEST_TIMEOUT_MS);
 
   test("status reports every option as json", () => {
     const status = JSON.parse(cli("status", "--json")) as Record<string, string>;
@@ -195,5 +197,5 @@ describeIfSim("headless-serve-sim ui (simulator-wide options)", () => {
       "text-size",
       "voiceover",
     ]);
-  });
+  }, TEST_TIMEOUT_MS);
 });

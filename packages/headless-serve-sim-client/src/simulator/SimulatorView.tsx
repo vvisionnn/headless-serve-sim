@@ -5,6 +5,7 @@ import {
   useState,
   type CSSProperties,
   type MouseEvent,
+  type MutableRefObject,
 } from "react";
 import type { StreamConfig } from "../types.js";
 import {
@@ -18,6 +19,10 @@ import { digitalCrownDeltaFromWheel } from "./digitalCrown.js";
 import { normalizedPoint } from "./touch-geometry.js";
 import { useAvccStream, type AvccFrameInfo } from "./use-avcc-stream.js";
 import { isAvccSupported } from "../avcc-codec.js";
+import {
+  RecordingTouchTracker,
+  type RecordingTouchPoint,
+} from "./recording-touches.js";
 import {
   ConnectionStatsAccumulator,
   parseServerStreamStats,
@@ -100,6 +105,24 @@ export interface SimulatorViewProps {
   /** Perf/quality streaming mode. When set (direct mode), pushed to the server
    * over /ws so it switches adaptive bounds live. */
   streamMode?: "perf" | "quality";
+  /** Provides fresh screen and touch snapshots to a browser-side recorder. */
+  recordingSourceRef?: MutableRefObject<SimulatorRecordingSource | null>;
+}
+
+export type SimulatorRecordingTouch = RecordingTouchPoint;
+
+export interface SimulatorRecordingSnapshot {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  orientation?: StreamConfig["orientation"];
+  surfaceWidth: number;
+  surfaceHeight: number;
+  touches: readonly SimulatorRecordingTouch[];
+}
+
+export interface SimulatorRecordingSource {
+  snapshot(nowMs?: number): SimulatorRecordingSnapshot | null;
 }
 
 /**
@@ -135,6 +158,7 @@ export function SimulatorView({
   statsEnabled,
   onConnectionStats,
   streamMode,
+  recordingSourceRef,
 }: SimulatorViewProps) {
   const relayMode = !!onStreamTouch;
   // AVCC decode is independent of input relay: the H.264 pipeline only needs
@@ -147,11 +171,13 @@ export function SimulatorView({
   const relayImgRef = useRef<HTMLImageElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const inputLayerRef = useRef<HTMLDivElement | null>(null);
+  const [recordingTouchTracker] = useState(() => new RecordingTouchTracker());
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [screenSize, setScreenSize] = useState<StreamConfig | null>(null);
   const screenSizeRef = useRef<StreamConfig | null>(null);
+  useEffect(() => () => recordingTouchTracker.dispose(), [recordingTouchTracker]);
   const onScreenConfigChangeRef = useRef(onScreenConfigChange);
   onScreenConfigChangeRef.current = onScreenConfigChange;
   // Connection Stats: the accumulator only exists while `statsEnabled`; the
@@ -215,7 +241,8 @@ export function SimulatorView({
   useEffect(() => {
     screenSizeRef.current = null;
     setScreenSize(null);
-  }, [url]);
+    recordingTouchTracker.dispose();
+  }, [url, recordingTouchTracker]);
 
   const updateScreenConfig = useCallback((config: StreamConfig | null | undefined) => {
     if (!config || config.width <= 0 || config.height <= 0) return;
@@ -677,6 +704,35 @@ export function SimulatorView({
     return relayMode ? relayImgRef.current : imgRef.current;
   }, [relayMode, useAvcc]);
 
+  useEffect(() => {
+    if (!recordingSourceRef) return;
+    const source: SimulatorRecordingSource = {
+      snapshot(nowMs) {
+        const element = getViewElement();
+        const surface = surfaceRef.current;
+        if (!element || !surface || !connectedRef.current) return null;
+        const isImage = element instanceof HTMLImageElement;
+        const width = isImage ? element.naturalWidth : element.width;
+        const height = isImage ? element.naturalHeight : element.height;
+        const rect = surface.getBoundingClientRect();
+        if (width <= 0 || height <= 0 || rect.width <= 0 || rect.height <= 0) return null;
+        return {
+          source: element,
+          width,
+          height,
+          orientation: screenSizeRef.current?.orientation,
+          surfaceWidth: rect.width,
+          surfaceHeight: rect.height,
+          touches: recordingTouchTracker.snapshot(nowMs),
+        };
+      },
+    };
+    recordingSourceRef.current = source;
+    return () => {
+      if (recordingSourceRef.current === source) recordingSourceRef.current = null;
+    };
+  }, [getViewElement, recordingSourceRef, recordingTouchTracker]);
+
   // Read the surface rect fresh per pointer event. A panel expand/collapse
   // moves the frame horizontally without firing a resize/scroll, so any cached
   // rect would go stale and drift the touch mapping — always read it live.
@@ -787,6 +843,7 @@ export function SimulatorView({
 
   const showTouchIndicator = useCallback((x: number, y: number) => {
     touchActiveRef.current = true;
+    recordingTouchTracker.setActive([{ x, y, kind: "single" }]);
     const el = touchIndicatorRef.current;
     if (el) {
       cancelAnimationFrame(rafIdRef.current);
@@ -796,10 +853,11 @@ export function SimulatorView({
         el.style.display = "block";
       });
     }
-  }, []);
+  }, [recordingTouchTracker]);
 
   const moveTouchIndicator = useCallback((x: number, y: number) => {
     if (!touchActiveRef.current) return;
+    recordingTouchTracker.setActive([{ x, y, kind: "single" }]);
     const el = touchIndicatorRef.current;
     if (el) {
       cancelAnimationFrame(rafIdRef.current);
@@ -808,16 +866,18 @@ export function SimulatorView({
         el.style.top = `${y * 100}%`;
       });
     }
-  }, []);
+  }, [recordingTouchTracker]);
 
   const hideTouchIndicator = useCallback(() => {
+    const wasActive = touchActiveRef.current;
     touchActiveRef.current = false;
+    if (wasActive) recordingTouchTracker.end();
     const el = touchIndicatorRef.current;
     if (el) {
       cancelAnimationFrame(rafIdRef.current);
       el.style.display = "none";
     }
-  }, []);
+  }, [recordingTouchTracker]);
 
   const lastHomeClickRef = useRef(0);
   const homeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -938,6 +998,7 @@ export function SimulatorView({
         ) : (
           <img
             ref={imgRef}
+            crossOrigin="anonymous"
             src={relayMode ? undefined : streamUrl}
             draggable={false}
             onLoad={(e) => {
@@ -952,6 +1013,7 @@ export function SimulatorView({
         {relayMode && !useAvcc && (
           <img
             ref={relayImgRef}
+            crossOrigin="anonymous"
             draggable={false}
             onLoad={(e) => {
               const el = e.currentTarget;
@@ -965,6 +1027,7 @@ export function SimulatorView({
         {/* Interactive overlay — captures all pointer events */}
         <div
           ref={inputLayerRef}
+          data-testid="simulator-input"
           style={{
             position: "absolute",
             inset: 0,
@@ -985,6 +1048,10 @@ export function SimulatorView({
               // For pan mode, lock the offset between fingers
               panOffsetRef.current = { dx: 1.0 - x - x, dy: 1.0 - y - y };
               setFingerIndicators(fingers);
+              recordingTouchTracker.setActive([
+                { x: fingers.x1, y: fingers.y1, kind: "multi" },
+                { x: fingers.x2, y: fingers.y2, kind: "multi" },
+              ]);
               sendMultiTouch({ type: "begin", ...fingers });
               return;
             }
@@ -1029,6 +1096,10 @@ export function SimulatorView({
                 fingers = { x1: x, y1: y, x2: 1.0 - x, y2: 1.0 - y };
               }
               setFingerIndicators(fingers);
+              recordingTouchTracker.setActive([
+                { x: fingers.x1, y: fingers.y1, kind: "multi" },
+                { x: fingers.x2, y: fingers.y2, kind: "multi" },
+              ]);
               sendMultiTouch({ type: "move", ...fingers });
               return;
             }
@@ -1047,22 +1118,34 @@ export function SimulatorView({
                 const { x, y } = normalizedPoint(e.clientX, e.clientY, rect);
                 if (multiTouchShiftRef.current) {
                   const off = panOffsetRef.current;
-                  sendMultiTouch({
+                  const fingers = {
                     type: "end",
                     x1: x,
                     y1: y,
                     x2: x + off.dx,
                     y2: y + off.dy,
-                  });
+                  } as const;
+                  sendMultiTouch(fingers);
+                  recordingTouchTracker.end([
+                    { x: fingers.x1, y: fingers.y1, kind: "multi" },
+                    { x: fingers.x2, y: fingers.y2, kind: "multi" },
+                  ]);
                 } else {
-                  sendMultiTouch({
+                  const fingers = {
                     type: "end",
                     x1: x,
                     y1: y,
                     x2: 1.0 - x,
                     y2: 1.0 - y,
-                  });
+                  } as const;
+                  sendMultiTouch(fingers);
+                  recordingTouchTracker.end([
+                    { x: fingers.x1, y: fingers.y1, kind: "multi" },
+                    { x: fingers.x2, y: fingers.y2, kind: "multi" },
+                  ]);
                 }
+              } else {
+                recordingTouchTracker.end();
               }
               multiTouchActiveRef.current = false;
               // Keep showing preview if alt is still held
@@ -1070,6 +1153,11 @@ export function SimulatorView({
               return;
             }
 
+            const singleRect = getInputRect();
+            if (singleRect) {
+              const point = normalizedPoint(e.clientX, e.clientY, singleRect);
+              recordingTouchTracker.setActive([{ ...point, kind: "single" }]);
+            }
             hideTouchIndicator();
             if (edgeGestureRef.current) {
               const rect = getInputRect();
@@ -1086,6 +1174,10 @@ export function SimulatorView({
             if (multiTouchActiveRef.current) {
               if (fingerIndicators) {
                 sendMultiTouch({ type: "end", ...fingerIndicators });
+                recordingTouchTracker.end([
+                  { x: fingerIndicators.x1, y: fingerIndicators.y1, kind: "multi" },
+                  { x: fingerIndicators.x2, y: fingerIndicators.y2, kind: "multi" },
+                ]);
               }
               multiTouchActiveRef.current = false;
               setFingerIndicators(null);
@@ -1126,6 +1218,10 @@ export function SimulatorView({
               multiTouchActiveRef.current = true;
               edgeGestureRef.current = false;
               setFingerIndicators(fingers);
+              recordingTouchTracker.setActive([
+                { x: fingers.x1, y: fingers.y1, kind: "multi" },
+                { x: fingers.x2, y: fingers.y2, kind: "multi" },
+              ]);
               sendMultiTouch({ type: "begin", ...fingers });
               return;
             }
@@ -1155,6 +1251,10 @@ export function SimulatorView({
               const p2 = normalizedPoint(t2.clientX, t2.clientY, rect);
               const fingers = { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
               setFingerIndicators(fingers);
+              recordingTouchTracker.setActive([
+                { x: fingers.x1, y: fingers.y1, kind: "multi" },
+                { x: fingers.x2, y: fingers.y2, kind: "multi" },
+              ]);
               sendMultiTouch({ type: "move", ...fingers });
               return;
             }
@@ -1182,15 +1282,26 @@ export function SimulatorView({
                 const last = fingerIndicators;
                 if (t1 && last) {
                   const p1 = normalizedPoint(t1.clientX, t1.clientY, rect);
-                  sendMultiTouch({
+                  const fingers = {
                     type: "end",
                     x1: p1.x,
                     y1: p1.y,
                     x2: last.x2,
                     y2: last.y2,
-                  });
+                  } as const;
+                  sendMultiTouch(fingers);
+                  recordingTouchTracker.end([
+                    { x: fingers.x1, y: fingers.y1, kind: "multi" },
+                    { x: fingers.x2, y: fingers.y2, kind: "multi" },
+                  ]);
                 } else if (last) {
                   sendMultiTouch({ type: "end", ...last });
+                  recordingTouchTracker.end([
+                    { x: last.x1, y: last.y1, kind: "multi" },
+                    { x: last.x2, y: last.y2, kind: "multi" },
+                  ]);
+                } else {
+                  recordingTouchTracker.end();
                 }
                 realMultiTouchRef.current = false;
                 multiTouchActiveRef.current = false;
@@ -1202,6 +1313,7 @@ export function SimulatorView({
             const touch = e.changedTouches[0];
             if (!touch) return;
             const { x, y } = normalizedPoint(touch.clientX, touch.clientY, rect);
+            recordingTouchTracker.setActive([{ x, y, kind: "single" }]);
             hideTouchIndicator();
             if (edgeGestureRef.current) {
               sendTouch({ type: "end", x, y, edge: HID_EDGE_BOTTOM });

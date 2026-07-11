@@ -4,9 +4,9 @@ import { existsSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
-// Drives the built CLI against whatever simulator is already booted (the CI
-// `sim-test.yml` job boots one before running this directory). Each assertion
-// reads the underlying state store the simulator actually consults — TCC.db,
+// Drives the built CLI against HEADLESS_SERVE_SIM_E2E_UDID when set, or the
+// first booted simulator otherwise. Each assertion reads the underlying state
+// store the simulator actually consults — TCC.db,
 // the BulletinBoard plist, locationd's clients.plist — rather than trusting
 // `xcrun simctl privacy`, which is the whole reason this command exists.
 
@@ -36,13 +36,13 @@ function bootedUdid(): string | null {
   return null;
 }
 
-const udid = bootedUdid();
+const udid = process.env.HEADLESS_SERVE_SIM_E2E_UDID ?? bootedUdid();
 // Needs both a booted iOS sim and the built CLI. CI builds headless-serve-sim before
 // running this directory; locally, run `bun run build.ts` first or it skips.
 const describeIfSim = udid && existsSync(CLI) ? describe : describe.skip;
 
 function cli(...args: string[]): string {
-  return execFileSync("node", [CLI, "permissions", ...args], { encoding: "utf-8" });
+  return execFileSync("node", [CLI, "permissions", ...args, "-d", udid!], { encoding: "utf-8" });
 }
 
 function libDir(): string {
@@ -108,6 +108,20 @@ function locationAuth(bundleId: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+async function waitForLocationAuth(
+  bundleId: string,
+  expected: number,
+  timeoutMs = 15_000,
+): Promise<number | null> {
+  const deadline = Date.now() + timeoutMs;
+  let value = locationAuth(bundleId);
+  while (value !== expected && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    value = locationAuth(bundleId);
+  }
+  return value;
+}
+
 // Each case shells the built CLI a few times, and a cold `simctl privacy`
 // call (location) can take several seconds on a fresh CI sim — comfortably
 // past bun's 5s default. The beforeAll reset-all also cascades through every
@@ -170,14 +184,14 @@ describeIfSim("headless-serve-sim permissions (real simulator)", () => {
     expect(bulletinXml()).not.toContain(FAKE_BUNDLE);
   }, T);
 
-  test("grant location --value always writes Authorization=4", () => {
+  test("grant location --value always writes Authorization=4", async () => {
     cli("grant", "location", REAL_APP, "--value", "always");
-    expect(locationAuth(REAL_APP)).toBe(4);
+    expect(await waitForLocationAuth(REAL_APP, 4)).toBe(4);
   }, T);
 
-  test("revoke location downgrades Authorization to never (1)", () => {
+  test("revoke location downgrades Authorization to never (1)", async () => {
     cli("revoke", "location", REAL_APP);
-    expect(locationAuth(REAL_APP)).toBe(1);
+    expect(await waitForLocationAuth(REAL_APP, 1)).toBe(1);
     cli("reset", "location", REAL_APP);
   }, T);
 
@@ -189,10 +203,11 @@ describeIfSim("headless-serve-sim permissions (real simulator)", () => {
     expect(bulletinXml()).not.toContain(FAKE_BUNDLE);
   }, T);
 
-  test("list reports state under the CLI's own permission names", () => {
+  test("list reports state under the CLI's own permission names", async () => {
     cli("grant", "camera", FAKE_BUNDLE);
     cli("grant", "notifications", FAKE_BUNDLE);
     cli("grant", "location", REAL_APP, "--value", "always");
+    expect(await waitForLocationAuth(REAL_APP, 4)).toBe(4);
     const fake = JSON.parse(cli("list", FAKE_BUNDLE));
     expect(fake.tcc.camera).toBe(2);
     expect(fake.notifications.allowsNotifications).toBe(true);

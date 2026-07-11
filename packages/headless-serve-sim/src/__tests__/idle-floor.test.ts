@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { execSync, spawnSync } from "child_process";
+import { execFileSync, execSync, spawnSync } from "child_process";
 import { readdirSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -18,9 +18,8 @@ import { join } from "path";
  *      — i.e. the ~5 fps idle floor is live.
  *   3. Every parsed JPEG starts with the SOI magic bytes 0xFFD8.
  *
- * Skipped automatically if no iOS simulator is currently booted, so the
- * suite stays green on machines/CI jobs without a booted sim. When the
- * publish-headless-serve-sim CI job boots one explicitly, the test runs there.
+ * Uses HEADLESS_SERVE_SIM_E2E_UDID when set; otherwise it auto-detects the
+ * first booted iOS simulator and skips when none is available.
  */
 
 const CLI_PATH = join(import.meta.dir, "../../src/index.ts");
@@ -50,7 +49,7 @@ function firstBootedIosSim(): string | null {
   return null;
 }
 
-const bootedUdid = firstBootedIosSim();
+const bootedUdid = process.env.HEADLESS_SERVE_SIM_E2E_UDID ?? firstBootedIosSim();
 const describeWithSim = bootedUdid ? describe : describe.skip;
 
 // ── Multipart parser (standalone copy to keep this package self-contained). ──
@@ -117,8 +116,8 @@ describeWithSim(`headless-serve-sim idle frame floor (booted sim ${bootedUdid ??
   let streamUrl: string;
 
   beforeAll(() => {
-    // Try kill any prior state — best effort.
-    try { execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" }); } catch {}
+    // Try to kill prior state for only this test device — best effort.
+    try { execFileSync("bun", ["run", CLI_PATH, "--kill", bootedUdid!], { stdio: "pipe" }); } catch {}
 
     // stderr is inherited so any diagnostic from headless-serve-sim or the Swift helper
     // lands directly in the test output — critical when the subprocess hangs
@@ -149,7 +148,7 @@ describeWithSim(`headless-serve-sim idle frame floor (booted sim ${bootedUdid ??
   }, 60_000);
 
   afterAll(() => {
-    try { execSync(`bun run ${CLI_PATH} --kill`, { stdio: "pipe" }); } catch {}
+    try { execFileSync("bun", ["run", CLI_PATH, "--kill", bootedUdid!], { stdio: "pipe" }); } catch {}
   }, 30_000);
 
   test("first frame arrives quickly even on an idle simulator", async () => {

@@ -1,7 +1,12 @@
 export { SimulatorStream } from "./SimulatorStream.js";
 export type { SimulatorStreamProps } from "./SimulatorStream.js";
 export { SimulatorView } from "./SimulatorView.js";
-export type { SimulatorViewProps } from "./SimulatorView.js";
+export type {
+  SimulatorRecordingSnapshot,
+  SimulatorRecordingSource,
+  SimulatorRecordingTouch,
+  SimulatorViewProps,
+} from "./SimulatorView.js";
 export { SimulatorFrame } from "./SimulatorFrame.js";
 export type { SimulatorFrameProps } from "./SimulatorFrame.js";
 export { SimulatorToolbar } from "./SimulatorToolbar.js";

@@ -1,0 +1,38 @@
+{
+  "status": "complete",
+  "simulator": {
+    "name": "headless-serve-sim-features-e2e-20260711-113452",
+    "udid": "E0F1DFE7-F408-4343-BFB8-F936F9DDC751",
+    "createdByWorkflow": true,
+    "deleted": true,
+    "preexistingUdids": [
+      "C638CB35-DCD9-4625-8323-ED9495A5723E",
+      "2FE58F28-0807-492A-8D3A-2D85D68A63CA",
+      "88E762B7-4337-4D42-9867-A5F33BC70161",
+      "0D7A14E3-28A6-4120-8FE1-6AF788E8D8F1",
+      "BBA18719-1AC9-4AD5-B0AE-7630F9AB5445",
+      "D053FB55-1E67-4C65-94D3-25AC5B9230B6",
+      "65ED683A-EE71-4AE7-800D-7950AA834B3C",
+      "88F76A1C-FEA1-4A8B-BCE5-DA02400BE22A",
+      "E66553ED-FC7C-45FF-9A9E-460A4D8DF15E"
+    ]
+  },
+  "processes": [],
+  "verification": {
+    "focusedTests": "pass: final adversarial regression set 29 tests / 108 expectations; earlier complete feature set 61 tests / 173 expectations",
+    "build": "pass: browser bundles, CLI, dylib, camera helper, and accessibility helper",
+    "fullTests": "pass: 590 tests / 3430 expectations / 61 files, 0 failures; all real-simulator tests explicitly targeted the workflow UDID",
+    "typecheck": "pass",
+    "lint": "pass: 0 warnings and 0 errors",
+    "e2e": "pass: logs bounds/search/process/level/pause/clear/reconnect and single-child ownership; MP4 frame/touches, WebM landscape, download/decoding, reload cleanup, and restart",
+    "adversarialReview": "pass: post-fix independent review found no remaining P0/P1 defects"
+  },
+  "artifacts": [
+    "artifacts/logs-panel.png",
+    "artifacts/recording-frame-touches.mp4",
+    "artifacts/recording-contact-sheet.png",
+    "artifacts/recording-landscape.webm",
+    "artifacts/recording-landscape-frame.png",
+    "artifacts/recording-tool-result.png"
+  ]
+}

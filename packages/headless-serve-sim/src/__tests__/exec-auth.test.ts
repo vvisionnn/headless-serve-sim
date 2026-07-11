@@ -91,3 +91,27 @@ describe("/exec auth", () => {
     });
   }, 30_000);
 });
+
+describe("/logs auth", () => {
+  test("rejects missing and incorrect EventSource tokens before device lookup", async () => {
+    await withServer(async (origin) => {
+      for (const query of [
+        "device=NOT-RUNNING",
+        "device=NOT-RUNNING&token=wrong-token",
+      ]) {
+        const response = await fetch(`${origin}/logs?${query}`);
+        expect(response.status).toBe(401);
+        expect(await response.text()).toBe("Unauthorized");
+      }
+    });
+  });
+
+  test("rejects an unsupported capture level before device lookup", async () => {
+    await withServer(async (origin) => {
+      const response = await fetch(
+        `${origin}/logs?device=NOT-RUNNING&token=${TOKEN}&level=fault`,
+      );
+      expect(response.status).toBe(400);
+    });
+  });
+});

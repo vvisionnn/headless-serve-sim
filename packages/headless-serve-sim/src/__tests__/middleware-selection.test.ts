@@ -47,7 +47,7 @@ describe("previewConfigForState", () => {
     expect(previewConfigForState(state, "/preview", "/bin/headless-serve-sim", "token-xyz")).toEqual({
       ...state,
       basePath: "/preview",
-      logsEndpoint: "/preview/logs?device=DEVICE-B",
+      logsEndpoint: "/preview/logs?device=DEVICE-B&token=token-xyz",
       appStateEndpoint: "/preview/appstate?device=DEVICE-B",
       metricsEndpoint: "/preview/api/metrics?device=DEVICE-B",
       axEndpoint: "/preview/ax?device=DEVICE-B",
@@ -60,6 +60,13 @@ describe("previewConfigForState", () => {
       previewEndpoint: "/preview",
       execToken: "token-xyz",
     });
+  });
+
+  test("URL-encodes a caller-provided EventSource token", () => {
+    expect(
+      previewConfigForState(states[0]!, "/preview", "/bin/headless-serve-sim", "token with&symbols")
+        .logsEndpoint,
+    ).toBe("/preview/logs?device=DEVICE-A&token=token%20with%26symbols");
   });
 });
 
