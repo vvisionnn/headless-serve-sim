@@ -9,6 +9,7 @@ import {
   type SimulatorRecordingTouch,
   type SimulatorOrientation,
 } from "headless-serve-sim-client/simulator";
+import type { PreparedDeviceFrameArtwork } from "./device-frame-artwork";
 
 export type RecordingFormat = "auto" | "mp4" | "webm";
 
@@ -41,6 +42,7 @@ export interface RecordingLayout {
   frameRotationDegrees: number;
   frameSpec: DeviceFrameSpec | null;
   frameRect: RecordingRect | null;
+  artworkRect: RecordingRect | null;
   frameScale: number;
   screenRadius: number;
   outerRadius: number;
@@ -101,6 +103,7 @@ export interface CanvasScreenRecorderOptions {
   source: RecordingSource;
   format?: RecordingFormat;
   deviceFrame?: DeviceFrameSpec | DeviceType | null;
+  deviceFrameArtwork?: PreparedDeviceFrameArtwork | null;
   includeTouches?: boolean;
   fps?: number;
   videoBitsPerSecond?: number;
@@ -216,11 +219,19 @@ export function createRecordingLayout(
   if (frameSpec) {
     const native = frameSpec.nativeScreen;
     const insets = frameSpec.insetsPx;
-    const outerWidth = insets.left + native.width + insets.right;
-    const outerHeight = insets.top + native.height + insets.bottom;
+    const chromeWidth = insets.left + native.width + insets.right;
+    const chromeHeight = insets.top + native.height + insets.bottom;
+    const chromeRect = frameSpec.artwork?.chromeRectPx ?? {
+      x: 0,
+      y: 0,
+      width: chromeWidth,
+      height: chromeHeight,
+    };
+    const boundsWidth = frameSpec.artwork?.width ?? chromeWidth;
+    const boundsHeight = frameSpec.artwork?.height ?? chromeHeight;
     const canonicalScreen = {
-      x: insets.left,
-      y: insets.top,
+      x: chromeRect.x + insets.left,
+      y: chromeRect.y + insets.top,
       width: native.width,
       height: native.height,
     };
@@ -231,29 +242,40 @@ export function createRecordingLayout(
       left: 0,
     };
     const canonicalFrame = {
-      x: outerInsets.left,
-      y: outerInsets.top,
-      width: outerWidth - outerInsets.left - outerInsets.right,
-      height: outerHeight - outerInsets.top - outerInsets.bottom,
+      x: chromeRect.x + outerInsets.left,
+      y: chromeRect.y + outerInsets.top,
+      width: chromeRect.width - outerInsets.left - outerInsets.right,
+      height: chromeRect.height - outerInsets.top - outerInsets.bottom,
     };
+    const canonicalArtwork = frameSpec.artwork
+      ? { x: 0, y: 0, width: boundsWidth, height: boundsHeight }
+      : null;
     const nativeIsLandscape = native.width > native.height;
     const displayIsLandscape = display.width > display.height;
     const frameRotationDegrees = rotationDegreesForOrientation(source.orientation) ||
       (nativeIsLandscape !== displayIsLandscape ? 90 : 0);
     const rotatedScreen = rotateRecordingRect(
       canonicalScreen,
-      outerWidth,
-      outerHeight,
+      boundsWidth,
+      boundsHeight,
       frameRotationDegrees,
     );
     const rotatedFrame = rotateRecordingRect(
       canonicalFrame,
-      outerWidth,
-      outerHeight,
+      boundsWidth,
+      boundsHeight,
       frameRotationDegrees,
     );
-    const frameWidth = Math.abs(frameRotationDegrees) === 90 ? outerHeight : outerWidth;
-    const frameHeight = Math.abs(frameRotationDegrees) === 90 ? outerWidth : outerHeight;
+    const rotatedArtwork = canonicalArtwork
+      ? rotateRecordingRect(
+          canonicalArtwork,
+          boundsWidth,
+          boundsHeight,
+          frameRotationDegrees,
+        )
+      : null;
+    const frameWidth = Math.abs(frameRotationDegrees) === 90 ? boundsHeight : boundsWidth;
+    const frameHeight = Math.abs(frameRotationDegrees) === 90 ? boundsWidth : boundsHeight;
     const frameScale = Math.max(
       display.width / rotatedScreen.width,
       display.height / rotatedScreen.height,
@@ -266,24 +288,32 @@ export function createRecordingLayout(
       width: rotatedFrame.width * frameScale,
       height: rotatedFrame.height * frameScale,
     };
+    const shadowRect = rotatedArtwork
+      ? {
+          x: rotatedArtwork.x * frameScale,
+          y: rotatedArtwork.y * frameScale,
+          width: rotatedArtwork.width * frameScale,
+          height: rotatedArtwork.height * frameScale,
+        }
+      : undecoratedFrame;
     const decoration = frameDecorationMetrics(undecoratedFrame);
     let decoratedLeft = 0;
     let decoratedTop = 0;
     let decoratedRight = scaledFrameWidth;
     let decoratedBottom = scaledFrameHeight;
     for (const shadow of decoration.shadows) {
-      decoratedLeft = Math.min(decoratedLeft, undecoratedFrame.x - 2 * shadow.blur);
+      decoratedLeft = Math.min(decoratedLeft, shadowRect.x - 2 * shadow.blur);
       decoratedTop = Math.min(
         decoratedTop,
-        undecoratedFrame.y + shadow.offsetY - 2 * shadow.blur,
+        shadowRect.y + shadow.offsetY - 2 * shadow.blur,
       );
       decoratedRight = Math.max(
         decoratedRight,
-        undecoratedFrame.x + undecoratedFrame.width + 2 * shadow.blur,
+        shadowRect.x + shadowRect.width + 2 * shadow.blur,
       );
       decoratedBottom = Math.max(
         decoratedBottom,
-        undecoratedFrame.y + undecoratedFrame.height + shadow.offsetY + 2 * shadow.blur,
+        shadowRect.y + shadowRect.height + shadow.offsetY + 2 * shadow.blur,
       );
     }
     const rawWidth = decoratedRight - decoratedLeft + 2 * decoration.padding;
@@ -298,12 +328,12 @@ export function createRecordingLayout(
       width: rect.width * frameScale,
       height: rect.height * frameScale,
     });
-    const canonicalCutout = frameCutoutRect(frameSpec);
+    const canonicalCutout = frameCutoutRect(frameSpec, chromeRect.x, chromeRect.y);
     const cutoutRect = canonicalCutout
       ? place(rotateRecordingRect(
           canonicalCutout,
-          outerWidth,
-          outerHeight,
+          boundsWidth,
+          boundsHeight,
           frameRotationDegrees,
         ))
       : null;
@@ -321,6 +351,7 @@ export function createRecordingLayout(
       frameRotationDegrees,
       frameSpec,
       frameRect: place(rotatedFrame),
+      artworkRect: rotatedArtwork ? place(rotatedArtwork) : null,
       frameScale,
       screenRadius: Math.max(...Object.values(frameSpec.screenRadiiPx)) * frameScale,
       outerRadius: Math.max(frameSpec.outerRadiiPx.x, frameSpec.outerRadiiPx.y) * frameScale,
@@ -343,11 +374,35 @@ export function createRecordingLayout(
     frameRotationDegrees: rotationDegreesForOrientation(source.orientation),
     frameSpec: null,
     frameRect: null,
+    artworkRect: null,
     frameScale: 1,
     screenRadius: 0,
     outerRadius: 0,
     cutoutRect: null,
   };
+}
+
+function preparedArtworkMatchesFrame(
+  frame: DeviceFrameSpec,
+  artwork: PreparedDeviceFrameArtwork | null,
+): artwork is PreparedDeviceFrameArtwork {
+  return Boolean(
+    artwork && frame.artwork &&
+    artwork.deviceTypeIdentifier === frame.deviceTypeIdentifier &&
+    artwork.chromeIdentifier === frame.chromeIdentifier &&
+    artwork.width === frame.artwork.width &&
+    artwork.height === frame.artwork.height,
+  );
+}
+
+export function effectiveRecordingDeviceFrame(
+  deviceFrame: DeviceFrameSpec | DeviceType | null,
+  artwork: PreparedDeviceFrameArtwork | null,
+): DeviceFrameSpec | DeviceType | null {
+  if (typeof deviceFrame !== "object" || !deviceFrame?.artwork) return deviceFrame;
+  return preparedArtworkMatchesFrame(deviceFrame, artwork)
+    ? deviceFrame
+    : { ...deviceFrame, artwork: undefined };
 }
 
 function genericDeviceFrameSpec(deviceType: DeviceType): DeviceFrameSpec | null {
@@ -414,13 +469,17 @@ function rotateRecordingRect(
   return rect;
 }
 
-function frameCutoutRect(frame: DeviceFrameSpec): RecordingRect | null {
+function frameCutoutRect(
+  frame: DeviceFrameSpec,
+  offsetX = 0,
+  offsetY = 0,
+): RecordingRect | null {
   if (frame.cutout === "none") return null;
   const screen = frame.nativeScreen;
   if (frame.cutoutRectPx) {
     return {
-      x: frame.insetsPx.left + frame.cutoutRectPx.x,
-      y: frame.insetsPx.top + frame.cutoutRectPx.y,
+      x: offsetX + frame.insetsPx.left + frame.cutoutRectPx.x,
+      y: offsetY + frame.insetsPx.top + frame.cutoutRectPx.y,
       width: frame.cutoutRectPx.width,
       height: frame.cutoutRectPx.height,
     };
@@ -428,8 +487,8 @@ function frameCutoutRect(frame: DeviceFrameSpec): RecordingRect | null {
   const width = screen.width * (frame.cutout === "dynamic-island" ? 123.333 / 391 : 209 / 390);
   const height = screen.height * (frame.cutout === "dynamic-island" ? 36 / 845 : 32 / 844);
   return {
-    x: frame.insetsPx.left + (screen.width - width) / 2,
-    y: frame.insetsPx.top +
+    x: offsetX + frame.insetsPx.left + (screen.width - width) / 2,
+    y: offsetY + frame.insetsPx.top +
       (frame.cutout === "dynamic-island" ? screen.height * (13.667 / 845) : 0),
     width,
     height,
@@ -447,13 +506,13 @@ function roundedRectPath(
   ctx.beginPath();
   ctx.moveTo(rect.x + r, rect.y);
   ctx.lineTo(right - r, rect.y);
-  ctx.quadraticCurveTo(right, rect.y, right, rect.y + r);
+  ctx.arcTo(right, rect.y, right, rect.y + r, r);
   ctx.lineTo(right, bottom - r);
-  ctx.quadraticCurveTo(right, bottom, right - r, bottom);
+  ctx.arcTo(right, bottom, right - r, bottom, r);
   ctx.lineTo(rect.x + r, bottom);
-  ctx.quadraticCurveTo(rect.x, bottom, rect.x, bottom - r);
+  ctx.arcTo(rect.x, bottom, rect.x, bottom - r, r);
   ctx.lineTo(rect.x, rect.y + r);
-  ctx.quadraticCurveTo(rect.x, rect.y, rect.x + r, rect.y);
+  ctx.arcTo(rect.x, rect.y, rect.x + r, rect.y, r);
   ctx.closePath();
 }
 
@@ -477,33 +536,48 @@ function paintFrameBase(
   ctx: CanvasRenderingContext2D,
   layout: RecordingLayout,
   shadowScale: number,
+  artwork: PreparedDeviceFrameArtwork | null,
 ): void {
   const outer = layout.frameRect;
   if (!outer || !layout.frameSpec) return;
   const decoration = frameDecorationMetrics(outer);
   for (const shadow of decoration.shadows) {
     ctx.save();
-    ctx.fillStyle = "#09090b";
     ctx.shadowColor = shadow.color;
     ctx.shadowBlur = shadow.blur * shadowScale;
-    ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = shadow.offsetY * shadowScale;
-    roundedRectPath(ctx, outer, layout.outerRadius);
-    ctx.fill();
+    if (artwork && layout.artworkRect) {
+      const shift = layout.width + layout.artworkRect.width + 4 * shadow.blur;
+      ctx.shadowOffsetX = shift * shadowScale;
+      paintPreparedArtwork(ctx, layout, artwork, -shift);
+    } else {
+      ctx.fillStyle = "#09090b";
+      ctx.shadowOffsetX = 0;
+      roundedRectPath(ctx, outer, layout.outerRadius);
+      ctx.fill();
+    }
     ctx.restore();
   }
-  ctx.fillStyle = "#09090b";
-  roundedRectPath(ctx, outer, layout.outerRadius);
-  ctx.fill();
+  if (!artwork) {
+    ctx.fillStyle = "#09090b";
+    roundedRectPath(ctx, outer, layout.outerRadius);
+    ctx.fill();
+  }
 }
 
-function paintFrameChrome(ctx: CanvasRenderingContext2D, layout: RecordingLayout): void {
+function paintFrameChrome(
+  ctx: CanvasRenderingContext2D,
+  layout: RecordingLayout,
+  hasArtwork: boolean,
+): void {
   const outer = layout.frameRect;
   if (!outer || !layout.frameSpec) return;
-  ctx.strokeStyle = "#646468";
-  ctx.lineWidth = Math.max(1, 1.5 * layout.frameScale);
-  roundedRectPath(ctx, outer, layout.outerRadius);
-  ctx.stroke();
+  if (!hasArtwork) {
+    ctx.strokeStyle = "#646468";
+    ctx.lineWidth = Math.max(1, 1.5 * layout.frameScale);
+    roundedRectPath(ctx, outer, layout.outerRadius);
+    ctx.stroke();
+  }
 
   if (layout.cutoutRect) {
     ctx.fillStyle = "#000";
@@ -544,8 +618,43 @@ export function paintRecordingFrame(
   ctx: CanvasRenderingContext2D,
   layout: RecordingLayout,
   snapshot: RecordingSnapshot,
+  artwork: PreparedDeviceFrameArtwork | null = null,
 ): boolean {
-  return paintRecordingFrameAtScale(ctx, layout, snapshot, 1);
+  return paintRecordingFrameAtScale(ctx, layout, snapshot, 1, artwork);
+}
+
+function compatibleArtwork(
+  layout: RecordingLayout,
+  artwork: PreparedDeviceFrameArtwork | null,
+): artwork is PreparedDeviceFrameArtwork {
+  const spec = layout.frameSpec;
+  return Boolean(
+    artwork && spec?.artwork && layout.artworkRect &&
+    preparedArtworkMatchesFrame(spec, artwork),
+  );
+}
+
+function paintPreparedArtwork(
+  ctx: CanvasRenderingContext2D,
+  layout: RecordingLayout,
+  artwork: PreparedDeviceFrameArtwork,
+  offsetX = 0,
+): void {
+  const original = layout.artworkRect!;
+  const rect = { ...original, x: original.x + offsetX };
+  const rotation = layout.frameRotationDegrees;
+  if (rotation === 0) {
+    ctx.drawImage(artwork.source, rect.x, rect.y, rect.width, rect.height);
+    return;
+  }
+  ctx.save();
+  ctx.translate(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  ctx.rotate((rotation * Math.PI) / 180);
+  const sideways = Math.abs(rotation) === 90;
+  const width = sideways ? rect.height : rect.width;
+  const height = sideways ? rect.width : rect.height;
+  ctx.drawImage(artwork.source, -width / 2, -height / 2, width, height);
+  ctx.restore();
 }
 
 function paintRecordingFrameAtScale(
@@ -553,6 +662,7 @@ function paintRecordingFrameAtScale(
   layout: RecordingLayout,
   snapshot: RecordingSnapshot,
   shadowScale: number,
+  artwork: PreparedDeviceFrameArtwork | null,
 ): boolean {
   const geometry = streamDisplayGeometry(snapshot);
   const display = geometry.displayConfig;
@@ -561,7 +671,9 @@ function paintRecordingFrameAtScale(
   ctx.clearRect(0, 0, layout.width, layout.height);
   ctx.fillStyle = recordingBackground(layout);
   ctx.fillRect(0, 0, layout.width, layout.height);
-  paintFrameBase(ctx, layout, shadowScale);
+  const hasArtwork = compatibleArtwork(layout, artwork);
+  paintFrameBase(ctx, layout, shadowScale, hasArtwork ? artwork : null);
+  if (hasArtwork) paintPreparedArtwork(ctx, layout, artwork);
 
   const contentRect = containRect(
     { x: 0, y: 0, width: display.width, height: display.height },
@@ -600,7 +712,7 @@ function paintRecordingFrameAtScale(
 
   paintTouches(ctx, snapshot, contentRect);
   ctx.restore();
-  paintFrameChrome(ctx, layout);
+  paintFrameChrome(ctx, layout, hasArtwork);
   return true;
 }
 
@@ -609,6 +721,7 @@ export function paintRecordingSnapshot(
   canvasLayout: RecordingLayout,
   deviceFrame: DeviceFrameSpec | DeviceType | null,
   snapshot: RecordingSnapshot,
+  artwork: PreparedDeviceFrameArtwork | null = null,
 ): boolean {
   const frameLayout = createRecordingLayout(snapshot, deviceFrame);
   const target = containRect(
@@ -622,7 +735,7 @@ export function paintRecordingSnapshot(
   ctx.fillRect(0, 0, canvasLayout.width, canvasLayout.height);
   ctx.translate(target.x, target.y);
   ctx.scale(scale, scale);
-  const painted = paintRecordingFrameAtScale(ctx, frameLayout, snapshot, scale);
+  const painted = paintRecordingFrameAtScale(ctx, frameLayout, snapshot, scale, artwork);
   ctx.restore();
   return painted;
 }
@@ -693,7 +806,13 @@ export class CanvasScreenRecorder {
       throw new Error(`no supported ${format.toUpperCase()} recording format`);
     }
 
-    this.layout = createRecordingLayout(snapshot, this.options.deviceFrame ?? null);
+    this.layout = createRecordingLayout(
+      snapshot,
+      effectiveRecordingDeviceFrame(
+        this.options.deviceFrame ?? null,
+        this.options.deviceFrameArtwork ?? null,
+      ),
+    );
     this.canvas = this.platform.createCanvas(this.layout.width, this.layout.height);
     this.context = this.canvas.getContext("2d", { alpha: false });
     if (!this.context) throw new Error("2D canvas is not available");
@@ -790,10 +909,14 @@ export class CanvasScreenRecorder {
     return paintRecordingSnapshot(
       this.context,
       this.layout,
-      this.options.deviceFrame ?? null,
+      effectiveRecordingDeviceFrame(
+        this.options.deviceFrame ?? null,
+        this.options.deviceFrameArtwork ?? null,
+      ),
       this.options.includeTouches === false && snapshot.touches.length > 0
         ? { ...snapshot, touches: [] }
         : snapshot,
+      this.options.deviceFrameArtwork ?? null,
     );
   }
 

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   CanvasScreenRecorder,
   createRecordingLayout,
+  effectiveRecordingDeviceFrame,
   paintRecordingFrame,
   paintRecordingSnapshot,
   recordingExtension,
@@ -12,6 +13,7 @@ import {
   type ScreenRecorderPlatform,
 } from "../client/screen-recorder";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
+import type { PreparedDeviceFrameArtwork } from "../client/device-frame-artwork";
 
 const IPHONE_17_PRO_FRAME: DeviceFrameSpec = {
   deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
@@ -36,6 +38,42 @@ const IPHONE_16E_FRAME: DeviceFrameSpec = {
   cutout: "notch",
   cutoutRectPx: { x: 321, y: 0, width: 528, height: 102 },
   chromeIdentifier: "com.apple.dt.devicekit.chrome.phone13",
+};
+
+const REAL_IPHONE_17_PRO_FRAME: DeviceFrameSpec = {
+  ...IPHONE_17_PRO_FRAME,
+  artwork: {
+    width: 1368,
+    height: 2730,
+    chromeRectPx: { x: 27, y: 0, width: 1314, height: 2730 },
+    slices: {
+      topLeft: { pngDataUrl: "tl", width: 330, height: 330 },
+      top: { pngDataUrl: "top", width: 3, height: 330 },
+      topRight: { pngDataUrl: "tr", width: 330, height: 330 },
+      right: { pngDataUrl: "right", width: 330, height: 3 },
+      bottomRight: { pngDataUrl: "br", width: 330, height: 330 },
+      bottom: { pngDataUrl: "bottom", width: 3, height: 330 },
+      bottomLeft: { pngDataUrl: "bl", width: 330, height: 330 },
+      left: { pngDataUrl: "left", width: 330, height: 3 },
+    },
+    controls: [{
+      name: "power",
+      image: { pngDataUrl: "power", width: 48, height: 303 },
+      onTop: false,
+      anchor: "right",
+      align: "leading",
+      normalOffsetPx: { x: -24, y: 786 },
+      rolloverOffsetPx: { x: -9, y: 786 },
+    }],
+  },
+};
+
+const REAL_IPHONE_17_PRO_ARTWORK: PreparedDeviceFrameArtwork = {
+  source: { id: "real-frame" } as unknown as CanvasImageSource,
+  width: 1368,
+  height: 2730,
+  deviceTypeIdentifier: REAL_IPHONE_17_PRO_FRAME.deviceTypeIdentifier,
+  chromeIdentifier: REAL_IPHONE_17_PRO_FRAME.chromeIdentifier,
 };
 
 interface RecordingContextState {
@@ -96,6 +134,7 @@ class RecordingContext {
   moveTo(...args: number[]) { this.call("moveTo", ...args); }
   lineTo(...args: number[]) { this.call("lineTo", ...args); }
   quadraticCurveTo(...args: number[]) { this.call("quadraticCurveTo", ...args); }
+  arcTo(...args: number[]) { this.call("arcTo", ...args); }
   closePath() { this.call("closePath"); }
   clip() { this.call("clip"); }
   fill() { this.call("fill"); }
@@ -274,6 +313,85 @@ describe("screen recording layout", () => {
       width: 1206,
       height: 2622,
     });
+  });
+
+  test("includes DeviceKit artwork padding and hardware controls in the canvas", () => {
+    const layout = createRecordingLayout({
+      width: 1206,
+      height: 2622,
+      orientation: "portrait",
+    }, REAL_IPHONE_17_PRO_FRAME);
+
+    expect({ width: layout.width, height: layout.height }).toEqual({
+      width: 1618,
+      height: 2980,
+    });
+    expect(layout.canvasInsets).toEqual({
+      top: 107,
+      right: 125,
+      bottom: 143,
+      left: 125,
+    });
+    expect(layout.artworkRect).toEqual({
+      x: 125,
+      y: 107,
+      width: 1368,
+      height: 2730,
+    });
+    expect(layout.frameRect).toEqual({
+      x: 152,
+      y: 107,
+      width: 1314,
+      height: 2730,
+    });
+    expect(layout.screenRect).toEqual({
+      x: 206,
+      y: 161,
+      width: 1206,
+      height: 2622,
+    });
+  });
+
+  test("rotates the complete metal frame and controls as one physical device", () => {
+    const layout = createRecordingLayout({
+      width: 1206,
+      height: 2622,
+      orientation: "landscape_left",
+    }, REAL_IPHONE_17_PRO_FRAME);
+
+    expect({ width: layout.width, height: layout.height }).toEqual({
+      width: 2980,
+      height: 1618,
+    });
+    expect(layout.artworkRect).toEqual({
+      x: 125,
+      y: 107,
+      width: 2730,
+      height: 1368,
+    });
+    expect(layout.frameRotationDegrees).toBe(90);
+  });
+
+  test("falls back to procedural chrome if exact artwork could not be prepared", () => {
+    const withoutArtwork = effectiveRecordingDeviceFrame(
+      REAL_IPHONE_17_PRO_FRAME,
+      null,
+    );
+    const withArtwork = effectiveRecordingDeviceFrame(
+      REAL_IPHONE_17_PRO_FRAME,
+      REAL_IPHONE_17_PRO_ARTWORK,
+    );
+
+    expect(createRecordingLayout({
+      width: 1206,
+      height: 2622,
+      orientation: "portrait",
+    }, withoutArtwork).width).toBe(1564);
+    expect(createRecordingLayout({
+      width: 1206,
+      height: 2622,
+      orientation: "portrait",
+    }, withArtwork).width).toBe(1618);
   });
 
   test("rotates exact frame insets and cutout with the simulator", () => {
@@ -456,6 +574,47 @@ describe("screen recording layout", () => {
 });
 
 describe("screen recording composition", () => {
+  test("uses real artwork alpha for shadows and paints the frame before the screen", () => {
+    const frameSource = { id: "real-frame" } as unknown as CanvasImageSource;
+    const screenSource = { id: "screen" } as unknown as CanvasImageSource;
+    const prepared: PreparedDeviceFrameArtwork = {
+      ...REAL_IPHONE_17_PRO_ARTWORK,
+      source: frameSource,
+    };
+    const snapshot = {
+      source: screenSource,
+      width: 1206,
+      height: 2622,
+      orientation: "portrait" as const,
+      surfaceWidth: 1206,
+      surfaceHeight: 2622,
+      touches: [],
+    };
+    const layout = createRecordingLayout(snapshot, REAL_IPHONE_17_PRO_FRAME);
+    const context = new RecordingContext();
+
+    expect(paintRecordingFrame(
+      context as unknown as CanvasRenderingContext2D,
+      layout,
+      snapshot,
+      prepared,
+    )).toBe(true);
+
+    const draws = context.calls.filter((call) => call.name === "drawImage");
+    expect(draws.map((draw) => draw.args[0])).toEqual([
+      frameSource,
+      frameSource,
+      frameSource,
+      screenSource,
+    ]);
+    expect(draws.slice(0, 2).map((draw) => draw.state.shadowBlur)).toEqual([46, 16]);
+    expect(draws[2]!.state.shadowBlur).toBe(0);
+    expect(draws[2]!.args.slice(-4)).toEqual([125, 107, 1368, 2730]);
+    expect(context.calls.filter((call) => call.name === "stroke")).toHaveLength(0);
+    expect(context.calls.filter((call) => call.name === "arcTo").length).toBeGreaterThan(0);
+    expect(context.calls.filter((call) => call.name === "quadraticCurveTo")).toHaveLength(0);
+  });
+
   test("paints a macOS-style framed shadow without leaking it onto video content", () => {
     const ctx = new RecordingContext();
     const snapshot = {
@@ -640,6 +799,42 @@ describe("screen recording composition", () => {
       call.args[2] === layout.width &&
       call.args[3] === layout.height
     )?.state.fillStyle).toBe("#f5f5f7");
+  });
+
+  test("keeps alpha-shaped artwork shadows aligned after a fixed-canvas rotation", () => {
+    const context = new RecordingContext();
+    const canvasLayout = createRecordingLayout({
+      width: 1206,
+      height: 2622,
+      orientation: "portrait",
+    }, REAL_IPHONE_17_PRO_FRAME);
+
+    paintRecordingSnapshot(
+      context as unknown as CanvasRenderingContext2D,
+      canvasLayout,
+      REAL_IPHONE_17_PRO_FRAME,
+      {
+        source: {} as CanvasImageSource,
+        width: 2622,
+        height: 1206,
+        orientation: "landscape_left",
+        surfaceWidth: 2622,
+        surfaceHeight: 1206,
+        touches: [],
+      },
+      REAL_IPHONE_17_PRO_ARTWORK,
+    );
+
+    const scale = canvasLayout.width / 2980;
+    const artworkShadow = context.calls.find((call) =>
+      call.name === "drawImage" &&
+      call.args[0] === REAL_IPHONE_17_PRO_ARTWORK.source &&
+      call.state.shadowBlur > 0
+    );
+    expect(artworkShadow?.state.shadowBlur).toBeCloseTo(46 * scale);
+    expect(artworkShadow?.state.shadowOffsetX).toBeCloseTo(
+      (2980 + 2730 + 4 * 46) * scale,
+    );
   });
 
   test("maps single and multi-touch indicators from normalized display coordinates", () => {

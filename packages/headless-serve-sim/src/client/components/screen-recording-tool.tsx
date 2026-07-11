@@ -20,8 +20,25 @@ import {
   type RecordingArtifact,
   type RecordingFormat,
 } from "../screen-recorder";
+import {
+  prepareDeviceFrameArtwork,
+  type PreparedDeviceFrameArtwork,
+} from "../device-frame-artwork";
 
 type RecordingPhase = "idle" | "recording" | "stopping";
+type FrameArtworkState = {
+  key: string;
+  loading: boolean;
+  prepared: PreparedDeviceFrameArtwork | null;
+  failed: boolean;
+};
+
+function frameArtworkKey(deviceKey: string, frame: DeviceFrameSpec | null | undefined): string {
+  const artwork = frame?.artwork;
+  return artwork
+    ? `${deviceKey}:${frame.deviceTypeIdentifier}:${frame.chromeIdentifier}:${artwork.width}x${artwork.height}`
+    : `${deviceKey}:procedural`;
+}
 
 export function recordingFormatSupport(
   isTypeSupported: (mimeType: string) => boolean,
@@ -38,6 +55,16 @@ export function frameSelectionAfterDeviceChange(
   hasFrameSpec: boolean,
 ): boolean {
   return selected && previousDeviceKey === nextDeviceKey && hasFrameSpec;
+}
+
+export function recordingFrameDescription(
+  frame: DeviceFrameSpec | null | undefined,
+  loading: boolean,
+  failed: boolean,
+): string {
+  if (loading) return "Preparing real hardware frame…";
+  if (failed) return "Real frame unavailable — using simple frame";
+  return frame?.modelName ?? "Unavailable for this simulator";
 }
 
 function browserRecordingSupport(): Record<RecordingFormat, boolean> {
@@ -89,11 +116,22 @@ export function ScreenRecordingTool({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [artifact, setArtifact] = useState<RecordingArtifact | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [frameArtwork, setFrameArtwork] = useState<FrameArtworkState>({
+    key: "",
+    loading: false,
+    prepared: null,
+    failed: false,
+  });
   const recorderRef = useRef<CanvasScreenRecorder | null>(null);
   const startedAtRef = useRef(0);
   const mountedRef = useRef(true);
   const deviceKeyRef = useRef(deviceKey);
   const support = browserRecordingSupport();
+  const artworkKey = frameArtworkKey(deviceKey, deviceFrameSpec);
+  const artworkLoading = Boolean(
+    includeFrame && deviceFrameSpec?.artwork &&
+    (frameArtwork.key !== artworkKey || frameArtwork.loading),
+  );
 
   const cancelCurrent = useCallback((message?: string) => {
     const recorder = recorderRef.current;
@@ -133,6 +171,27 @@ export function ScreenRecordingTool({
   }, [cancelCurrent, deviceFrameSpec, deviceKey]);
 
   useEffect(() => {
+    const frame = deviceFrameSpec;
+    if (!frame?.artwork || !includeFrame) {
+      setFrameArtwork({ key: artworkKey, loading: false, prepared: null, failed: false });
+      return;
+    }
+    let cancelled = false;
+    setFrameArtwork({ key: artworkKey, loading: true, prepared: null, failed: false });
+    void prepareDeviceFrameArtwork(frame).then((prepared) => {
+      if (!cancelled) {
+        setFrameArtwork({
+          key: artworkKey,
+          loading: false,
+          prepared,
+          failed: prepared === null,
+        });
+      }
+    });
+    return () => { cancelled = true; };
+  }, [artworkKey, deviceFrameSpec, includeFrame]);
+
+  useEffect(() => {
     if (streaming || phase === "idle") return;
     cancelCurrent("Recording cancelled because the simulator stream ended.");
   }, [cancelCurrent, phase, streaming]);
@@ -152,6 +211,7 @@ export function ScreenRecordingTool({
       setError("The simulator screen is not ready yet.");
       return;
     }
+    if (artworkLoading) return;
 
     recorderRef.current?.cancel();
     setArtifact(null);
@@ -160,6 +220,9 @@ export function ScreenRecordingTool({
       format,
       includeTouches,
       deviceFrame: includeFrame ? deviceFrameSpec ?? null : null,
+      deviceFrameArtwork: includeFrame && frameArtwork.key === artworkKey
+        ? frameArtwork.prepared
+        : null,
       onError: (nextError) => {
         if (!mountedRef.current || recorderRef.current !== recorder) return;
         recorderRef.current = null;
@@ -178,7 +241,16 @@ export function ScreenRecordingTool({
       recorder.cancel();
       setError(nextError instanceof Error ? nextError.message : "Screen recording failed.");
     }
-  }, [deviceFrameSpec, format, includeFrame, includeTouches, sourceRef]);
+  }, [
+    artworkKey,
+    artworkLoading,
+    deviceFrameSpec,
+    format,
+    frameArtwork,
+    includeFrame,
+    includeTouches,
+    sourceRef,
+  ]);
 
   const stop = useCallback(async () => {
     const recorder = recorderRef.current;
@@ -260,7 +332,14 @@ export function ScreenRecordingTool({
             <span className="flex min-w-0 flex-col">
               <span>Device frame</span>
               <span className="truncate text-[10px] text-fg-3">
-                {deviceFrameSpec?.modelName ?? "Unavailable for this simulator"}
+                {recordingFrameDescription(
+                  deviceFrameSpec,
+                  artworkLoading,
+                  includeFrame && (
+                    (deviceFrameSpec != null && !deviceFrameSpec.artwork) ||
+                    (frameArtwork.key === artworkKey && frameArtwork.failed)
+                  ),
+                )}
               </span>
             </span>
             <input
@@ -291,11 +370,11 @@ export function ScreenRecordingTool({
             <button
               type="button"
               onClick={start}
-              disabled={!support[format] || !streaming}
+              disabled={!support[format] || !streaming || artworkLoading}
               className="inline-flex min-h-8 w-full cursor-pointer items-center justify-center gap-2 rounded-pill border-none bg-accent-solid px-4 text-[12px] font-semibold text-white hover:brightness-105 disabled:cursor-not-allowed disabled:bg-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
             >
               <span className="size-2 rounded-full border-2 border-white" aria-hidden="true" />
-              Start recording
+              {artworkLoading ? "Preparing frame…" : "Start recording"}
             </button>
           )}
 

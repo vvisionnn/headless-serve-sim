@@ -37,6 +37,11 @@ export type { StreamDisplayGeometry } from "./orientation.js";
 export type { DeviceType } from "./deviceFrames.js";
 export { matchDeviceFrameSpec } from "./device-frame-spec.js";
 export type {
+  DeviceFrameArtwork,
+  DeviceFrameArtworkAsset,
+  DeviceFrameArtworkControl,
+  DeviceFrameControlAlignment,
+  DeviceFrameControlAnchor,
   DeviceFrameCutout,
   DeviceFrameFamily,
   DeviceFrameIdentity,

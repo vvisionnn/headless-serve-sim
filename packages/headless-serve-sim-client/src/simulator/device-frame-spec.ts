@@ -8,6 +8,42 @@ export interface DeviceFrameInsets {
   left: number;
 }
 
+export interface DeviceFrameArtworkAsset {
+  pngDataUrl: string;
+  width: number;
+  height: number;
+}
+
+export type DeviceFrameControlAnchor = "left" | "right" | "top" | "bottom";
+export type DeviceFrameControlAlignment = "leading" | "center" | "trailing";
+
+export interface DeviceFrameArtworkControl {
+  name: string;
+  image: DeviceFrameArtworkAsset;
+  onTop: boolean;
+  anchor: DeviceFrameControlAnchor;
+  align: DeviceFrameControlAlignment;
+  normalOffsetPx: { x: number; y: number };
+  rolloverOffsetPx: { x: number; y: number };
+}
+
+export interface DeviceFrameArtwork {
+  width: number;
+  height: number;
+  chromeRectPx: { x: number; y: number; width: number; height: number };
+  slices: {
+    topLeft: DeviceFrameArtworkAsset;
+    top: DeviceFrameArtworkAsset;
+    topRight: DeviceFrameArtworkAsset;
+    right: DeviceFrameArtworkAsset;
+    bottomRight: DeviceFrameArtworkAsset;
+    bottom: DeviceFrameArtworkAsset;
+    bottomLeft: DeviceFrameArtworkAsset;
+    left: DeviceFrameArtworkAsset;
+  };
+  controls: DeviceFrameArtworkControl[];
+}
+
 export interface DeviceFrameSpec {
   deviceTypeIdentifier: string;
   modelName: string;
@@ -25,6 +61,7 @@ export interface DeviceFrameSpec {
   cutout: DeviceFrameCutout;
   cutoutRectPx?: { x: number; y: number; width: number; height: number } | null;
   chromeIdentifier: string;
+  artwork?: DeviceFrameArtwork;
 }
 
 export interface DeviceFrameIdentity {

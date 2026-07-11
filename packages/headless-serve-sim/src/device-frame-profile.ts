@@ -1,7 +1,13 @@
 import { execFileSync } from "child_process";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import type {
+  DeviceFrameArtwork,
+  DeviceFrameArtworkAsset,
+  DeviceFrameArtworkControl,
+  DeviceFrameControlAlignment,
+  DeviceFrameControlAnchor,
   DeviceFrameFamily,
   DeviceFrameSpec,
 } from "headless-serve-sim-client/simulator";
@@ -19,6 +25,10 @@ export interface BuildDeviceFrameSpecInput {
   profile: unknown;
   chrome: unknown;
   sensorBarSize?: { width: number; height: number } | null;
+  resolveArtworkAsset?: (
+    name: string,
+    scale: number,
+  ) => DeviceFrameArtworkAsset | null;
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -38,12 +48,104 @@ function familyForProduct(productFamily: string): DeviceFrameFamily | null {
   return null;
 }
 
+const SLICE_KEYS = [
+  "topLeft",
+  "top",
+  "topRight",
+  "right",
+  "bottomRight",
+  "bottom",
+  "bottomLeft",
+  "left",
+] as const;
+
+function artworkPoint(value: unknown, scale: number): { x: number; y: number } | null {
+  const point = record(value);
+  const x = finite(point?.x);
+  const y = finite(point?.y);
+  return x === null || y === null ? null : { x: x * scale, y: y * scale };
+}
+
+function buildArtwork(
+  chromeRoot: Record<string, unknown>,
+  scale: number,
+  chromeWidth: number,
+  chromeHeight: number,
+  resolveAsset: BuildDeviceFrameSpecInput["resolveArtworkAsset"],
+): DeviceFrameArtwork | undefined {
+  if (!resolveAsset) return undefined;
+  const images = record(chromeRoot.images);
+  const padding = record(images?.devicePadding);
+  if (!images || !padding) return undefined;
+  const paddingTop = finite(padding.top);
+  const paddingRight = finite(padding.right);
+  const paddingBottom = finite(padding.bottom);
+  const paddingLeft = finite(padding.left);
+  if (
+    paddingTop === null || paddingRight === null ||
+    paddingBottom === null || paddingLeft === null
+  ) return undefined;
+
+  const slices = {} as DeviceFrameArtwork["slices"];
+  for (const key of SLICE_KEYS) {
+    const name = images[key];
+    if (typeof name !== "string") return undefined;
+    const asset = resolveAsset(name, scale);
+    if (!asset) return undefined;
+    slices[key] = asset;
+  }
+
+  const controls: DeviceFrameArtworkControl[] = [];
+  const inputs = Array.isArray(chromeRoot.inputs) ? chromeRoot.inputs : [];
+  for (const item of inputs) {
+    const input = record(item);
+    const offsets = record(input?.offsets);
+    const normalOffsetPx = artworkPoint(offsets?.normal, scale);
+    const rolloverOffsetPx = artworkPoint(offsets?.rollover, scale);
+    const anchor = input?.anchor;
+    const align = input?.align;
+    if (
+      !input || typeof input.name !== "string" || typeof input.image !== "string" ||
+      typeof input.onTop !== "boolean" ||
+      !(["left", "right", "top", "bottom"] as const).includes(
+        anchor as DeviceFrameControlAnchor,
+      ) ||
+      !(["leading", "center", "trailing"] as const).includes(
+        align as DeviceFrameControlAlignment,
+      ) ||
+      !normalOffsetPx || !rolloverOffsetPx
+    ) return undefined;
+    const image = resolveAsset(input.image, scale);
+    if (!image) return undefined;
+    controls.push({
+      name: input.name,
+      image,
+      onTop: input.onTop,
+      anchor: anchor as DeviceFrameControlAnchor,
+      align: align as DeviceFrameControlAlignment,
+      normalOffsetPx,
+      rolloverOffsetPx,
+    });
+  }
+
+  const chromeX = paddingLeft * scale;
+  const chromeY = paddingTop * scale;
+  return {
+    width: chromeX + chromeWidth + paddingRight * scale,
+    height: chromeY + chromeHeight + paddingBottom * scale,
+    chromeRectPx: { x: chromeX, y: chromeY, width: chromeWidth, height: chromeHeight },
+    slices,
+    controls,
+  };
+}
+
 export function buildDeviceFrameSpec({
   deviceType,
   capabilities,
   profile,
   chrome,
   sensorBarSize = null,
+  resolveArtworkAsset,
 }: BuildDeviceFrameSpecInput): DeviceFrameSpec | null {
   const family = familyForProduct(deviceType.productFamily);
   const capabilityRoot = record(record(capabilities)?.capabilities);
@@ -103,6 +205,15 @@ export function buildDeviceFrameSpec({
         height: sensorBarSize.height * scale,
       }
     : null;
+  const chromeWidth = (left + right) * scale + width;
+  const chromeHeight = (top + bottom) * scale + height;
+  const artwork = buildArtwork(
+    chromeRoot,
+    scale,
+    chromeWidth,
+    chromeHeight,
+    resolveArtworkAsset,
+  );
 
   return {
     deviceTypeIdentifier: deviceType.identifier,
@@ -134,6 +245,7 @@ export function buildDeviceFrameSpec({
     cutout,
     cutoutRectPx,
     chromeIdentifier,
+    ...(artwork ? { artwork } : {}),
   };
 }
 
@@ -155,17 +267,22 @@ function readPlistJson(path: string): unknown {
   ));
 }
 
-function readPdfMediaBox(path: string): { width: number; height: number } | null {
-  const pdf = readFileSync(path, "latin1");
+export function parsePdfMediaBoxSize(
+  pdf: string,
+): { width: number; height: number } | null {
   const match = pdf.match(
-    /\/MediaBox\s*\[\s*[-\d.]+\s+[-\d.]+\s+([-\d.]+)\s+([-\d.]+)\s*\]/,
+    /\/MediaBox\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\]/,
   );
   if (!match) return null;
-  const width = Number(match[1]);
-  const height = Number(match[2]);
+  const width = Number(match[3]) - Number(match[1]);
+  const height = Number(match[4]) - Number(match[2]);
   return width > 0 && height > 0 && Number.isFinite(width) && Number.isFinite(height)
     ? { width, height }
     : null;
+}
+
+function readPdfMediaBox(path: string): { width: number; height: number } | null {
+  return parsePdfMediaBoxSize(readFileSync(path, "latin1"));
 }
 
 function listInstalledDeviceTypes(): CoreSimulatorDeviceType[] {
@@ -243,24 +360,77 @@ export function loadInstalledDeviceFrameSpec(
       "chrome.json",
     );
     if (!existsSync(chromePath)) throw new Error("chrome unavailable");
+    const chromeResources = join(chromePath, "..");
     const sensorBarImage = profileRoot?.sensorBarImage;
     const sensorBarSize = typeof sensorBarImage === "string" &&
         /^[A-Za-z0-9._-]+$/.test(sensorBarImage)
       ? readPdfMediaBox(join(resources, `${sensorBarImage}.pdf`))
       : null;
-    resolved = buildDeviceFrameSpec({
-      deviceType,
-      capabilities,
-      profile,
-      chrome: JSON.parse(readFileSync(chromePath, "utf8")),
-      sensorBarSize,
-    });
+    const tempDirectory = mkdtempSync(join(tmpdir(), "serve-sim-device-frame-"));
+    try {
+      const assets = new Map<string, DeviceFrameArtworkAsset | null>();
+      const resolveArtworkAsset = (
+        name: string,
+        scale: number,
+      ): DeviceFrameArtworkAsset | null => {
+        const cachedAsset = assets.get(name);
+        if (cachedAsset !== undefined) return cachedAsset;
+        if (
+          name.length === 0 || name.includes("/") || name.includes("\\") ||
+          name.includes("\0")
+        ) {
+          assets.set(name, null);
+          return null;
+        }
+        const pdfPath = join(chromeResources, `${name}.pdf`);
+        const mediaBox = existsSync(pdfPath) ? readPdfMediaBox(pdfPath) : null;
+        if (!mediaBox) {
+          assets.set(name, null);
+          return null;
+        }
+        const width = Math.max(1, Math.round(mediaBox.width * scale));
+        const height = Math.max(1, Math.round(mediaBox.height * scale));
+        const pngPath = join(tempDirectory, `asset-${assets.size}.png`);
+        try {
+          execFileSync(
+            "/usr/bin/sips",
+            [
+              "-s", "format", "png",
+              "-z", String(height), String(width),
+              pdfPath,
+              "--out", pngPath,
+            ],
+            { stdio: "ignore", timeout: 5_000 },
+          );
+          const asset = {
+            pngDataUrl: `data:image/png;base64,${readFileSync(pngPath).toString("base64")}`,
+            width,
+            height,
+          };
+          assets.set(name, asset);
+          return asset;
+        } catch {
+          assets.set(name, null);
+          return null;
+        }
+      };
+      resolved = buildDeviceFrameSpec({
+        deviceType,
+        capabilities,
+        profile,
+        chrome: JSON.parse(readFileSync(chromePath, "utf8")),
+        sensorBarSize,
+        resolveArtworkAsset,
+      });
+    } finally {
+      rmSync(tempDirectory, { force: true, recursive: true });
+    }
   } catch {
     resolved = null;
   }
   installedSpecCache.set(deviceTypeIdentifier, {
     value: resolved,
-    expiresAt: resolved
+    expiresAt: resolved?.artwork
       ? Number.POSITIVE_INFINITY
       : Date.now() + NEGATIVE_CACHE_TTL_MS,
   });

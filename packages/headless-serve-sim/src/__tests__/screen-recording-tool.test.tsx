@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   ScreenRecordingTool,
   frameSelectionAfterDeviceChange,
+  recordingFrameDescription,
   recordingFormatSupport,
 } from "../client/components/screen-recording-tool";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
@@ -32,6 +33,16 @@ describe("ScreenRecordingTool", () => {
       mp4: false,
       webm: true,
     });
+  });
+
+  test("discloses real-frame preparation and fallback states", () => {
+    expect(recordingFrameDescription(frameSpec, true, false)).toBe(
+      "Preparing real hardware frame…",
+    );
+    expect(recordingFrameDescription(frameSpec, false, true)).toBe(
+      "Real frame unavailable — using simple frame",
+    );
+    expect(recordingFrameDescription(frameSpec, false, false)).toBe("iPhone 17 Pro");
   });
 
   test("renders format, touch, frame, capture, and unsupported-browser states", () => {
