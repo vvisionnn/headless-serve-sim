@@ -153,6 +153,24 @@ describe("DeviceKit frame artwork", () => {
     expect(draws[4]!.args.slice(1)).toEqual([1011, 330, 330, 2070]);
   });
 
+  test("preserves DeviceKit's transparent edge instead of filling a synthetic body", () => {
+    const images = new Map<string, CanvasImageSource>();
+    const assets = [
+      ...Object.values(frame.artwork!.slices),
+      ...frame.artwork!.controls.map((control) => control.image),
+    ];
+    for (const item of assets) images.set(item.pngDataUrl, { id: item.pngDataUrl } as never);
+    const context = new ArtworkContext();
+
+    expect(paintDeviceFrameArtwork(
+      context as unknown as CanvasRenderingContext2D,
+      frame,
+      images,
+    )).toBe(true);
+
+    expect(context.calls.filter((call) => call.name === "fill")).toEqual([]);
+  });
+
   test("decodes each vector raster once and prepares a native-size frame canvas", async () => {
     const context = new ArtworkContext();
     const loaded: string[] = [];

@@ -72,59 +72,6 @@ export function deviceFrameControlRect(
   };
 }
 
-function bodyPath(
-  context: CanvasRenderingContext2D,
-  frame: DeviceFrameSpec,
-): void {
-  const artwork = frame.artwork!;
-  const chrome = artwork.chromeRectPx;
-  const insets = frame.outerInsetsPx ?? { top: 0, right: 0, bottom: 0, left: 0 };
-  const x = chrome.x + insets.left;
-  const y = chrome.y + insets.top;
-  const width = chrome.width - insets.left - insets.right;
-  const height = chrome.height - insets.top - insets.bottom;
-  const radiusX = Math.min(frame.outerRadiiPx.x, width / 2);
-  const radiusY = Math.min(frame.outerRadiiPx.y, height / 2);
-  const right = x + width;
-  const bottom = y + height;
-
-  context.beginPath();
-  context.moveTo(x + radiusX, y);
-  context.lineTo(right - radiusX, y);
-  context.ellipse(right - radiusX, y + radiusY, radiusX, radiusY, 0, -Math.PI / 2, 0);
-  context.lineTo(right, bottom - radiusY);
-  context.ellipse(
-    right - radiusX,
-    bottom - radiusY,
-    radiusX,
-    radiusY,
-    0,
-    0,
-    Math.PI / 2,
-  );
-  context.lineTo(x + radiusX, bottom);
-  context.ellipse(
-    x + radiusX,
-    bottom - radiusY,
-    radiusX,
-    radiusY,
-    0,
-    Math.PI / 2,
-    Math.PI,
-  );
-  context.lineTo(x, y + radiusY);
-  context.ellipse(
-    x + radiusX,
-    y + radiusY,
-    radiusX,
-    radiusY,
-    0,
-    Math.PI,
-    Math.PI * 1.5,
-  );
-  context.closePath();
-}
-
 function drawAsset(
   context: CanvasRenderingContext2D,
   images: ReadonlyMap<string, CanvasImageSource>,
@@ -158,10 +105,6 @@ export function paintDeviceFrameArtwork(
       drawAsset(context, images, control.image, deviceFrameControlRect(control, artwork));
     }
   }
-
-  context.fillStyle = "#09090b";
-  bodyPath(context, frame);
-  context.fill();
 
   const chrome = artwork.chromeRectPx;
   const slices = artwork.slices;
