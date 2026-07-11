@@ -6,6 +6,7 @@ import {
 } from "headless-serve-sim-client/simulator";
 import { Panel, PanelCloseButton, PanelHeader, PanelTitle } from "../Panel";
 import { useConnectionStats } from "../hooks/use-connection-stats";
+import { StreamModeToggle } from "./stream-mode-toggle";
 
 // Per-metric trace colors — identity colors mapped to the design-system status
 // tokens so each trace reads at a glance.
@@ -198,42 +199,6 @@ function StatusStrip({
   );
 }
 
-function ModeToggle({
-  mode,
-  onModeChange,
-}: {
-  mode: "perf" | "quality";
-  onModeChange: (mode: "perf" | "quality") => void;
-}) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">Mode</span>
-      <div className="flex flex-1 gap-0.5 rounded-pill border border-divider bg-surface-2 p-0.5">
-        {(["perf", "quality"] as const).map((m) => {
-          const active = mode === m;
-          const accent = m === "quality" ? C_DECODE : C_FPS;
-          return (
-            <button
-              key={m}
-              type="button"
-              onClick={() => onModeChange(m)}
-              aria-pressed={active}
-              className="flex-1 rounded-pill px-3 py-1.5 text-[12px] font-semibold [transition:background-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
-              style={
-                active
-                  ? { background: "var(--color-hover)", color: accent }
-                  : { color: "var(--color-fg-3)" }
-              }
-            >
-              {m === "perf" ? "Perf" : "Quality"}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function StatRow({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
     <div className="flex items-center justify-between gap-2">
@@ -330,7 +295,14 @@ export function ConnectionStatsPanel({
             dropped={latest?.droppedFrames ?? 0}
           />
 
-          {codecMode === "avcc" && <ModeToggle mode={mode} onModeChange={onModeChange} />}
+          {codecMode === "avcc" && (
+            <StreamModeToggle
+              label="Mode"
+              mode={mode}
+              disabled={!live}
+              onModeChange={onModeChange}
+            />
+          )}
 
           {hasData ? (
             <div className="flex flex-col gap-3">

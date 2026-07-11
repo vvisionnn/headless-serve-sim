@@ -22,10 +22,11 @@ describe("createSimLogFeed", () => {
     const feed = createSimLogFeed({
       endpoint: "/logs?device=D&token=T",
       level: "debug",
+      processId: 4242,
       baseUrl: "http://localhost:3399/",
       idPrefix: "feed",
       eventSourceFactory: (url) => {
-        expect(url).toBe("http://localhost:3399/logs?device=D&token=T&level=debug");
+        expect(url).toBe("http://localhost:3399/logs?device=D&token=T&level=debug&processId=4242");
         return source;
       },
       scheduleFrame: (callback) => {
@@ -61,6 +62,7 @@ describe("createSimLogFeed", () => {
     const feed = createSimLogFeed({
       endpoint: "/logs",
       level: "info",
+      processId: null,
       baseUrl: "http://localhost/",
       eventSourceFactory: () => source,
       scheduleFrame: (next) => { callback = next; return 42; },
@@ -85,6 +87,7 @@ describe("createSimLogFeed", () => {
     const feed = createSimLogFeed({
       endpoint: "/logs",
       level: "info",
+      processId: null,
       baseUrl: "http://localhost/",
       idPrefix: "background",
       maxPendingEntries: 2,
@@ -113,6 +116,7 @@ describe("forwardSimLogToConsole", () => {
       id: "1",
       timestamp: "",
       process: "App",
+      processId: 1,
       subsystem: "com.example",
       category: "test",
       level: "error",

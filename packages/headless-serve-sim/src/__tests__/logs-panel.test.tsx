@@ -10,6 +10,7 @@ describe("LogsPanel", () => {
         open
         onClose={() => {}}
         endpoint="/logs?device=D&amp;token=T"
+        appProcessId={4242}
         width={640}
       />,
     );
@@ -18,6 +19,8 @@ describe("LogsPanel", () => {
     expect(html).toContain('aria-label="Search logs"');
     expect(html).toContain('aria-label="Capture level"');
     expect(html).toContain('aria-label="Filter by process"');
+    expect(html).toContain('aria-label="Include system logs"');
+    expect(html).not.toContain('aria-label="Include system logs" checked=""');
     expect(html).toContain("Pause");
     expect(html).toContain("Clear");
     expect(html).toContain("Connecting");
@@ -30,6 +33,7 @@ describe("SimLogRows", () => {
       id: "1",
       timestamp: "2026-07-11 09:41:00.123456+0800",
       process: "ExampleApp",
+      processId: 4242,
       subsystem: "com.example",
       category: "network",
       level: "error",

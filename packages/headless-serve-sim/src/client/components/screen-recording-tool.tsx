@@ -6,10 +6,14 @@ import {
   type MutableRefObject,
 } from "react";
 import type {
-  DeviceType,
+  DeviceFrameSpec,
   SimulatorRecordingSource,
 } from "headless-serve-sim-client/simulator";
 import { Chevron } from "../icons";
+import {
+  StreamModeToggle,
+  type StreamMode,
+} from "./stream-mode-toggle";
 import {
   CanvasScreenRecorder,
   supportedRecordingMimeTypes,
@@ -25,6 +29,15 @@ export function recordingFormatSupport(
   const mp4 = supportedRecordingMimeTypes("mp4", isTypeSupported).length > 0;
   const webm = supportedRecordingMimeTypes("webm", isTypeSupported).length > 0;
   return { auto: mp4 || webm, mp4, webm };
+}
+
+export function frameSelectionAfterDeviceChange(
+  selected: boolean,
+  previousDeviceKey: string,
+  nextDeviceKey: string,
+  hasFrameSpec: boolean,
+): boolean {
+  return selected && previousDeviceKey === nextDeviceKey && hasFrameSpec;
 }
 
 function browserRecordingSupport(): Record<RecordingFormat, boolean> {
@@ -51,15 +64,21 @@ function bytesLabel(bytes: number): string {
 
 export function ScreenRecordingTool({
   sourceRef,
-  deviceType,
+  deviceFrameSpec,
   deviceKey,
   streaming,
+  streamMode,
+  streamModeAvailable,
+  onStreamModeChange,
   initiallyOpen = false,
 }: {
   sourceRef: MutableRefObject<SimulatorRecordingSource | null>;
-  deviceType: DeviceType;
+  deviceFrameSpec?: DeviceFrameSpec | null;
   deviceKey: string;
   streaming: boolean;
+  streamMode: StreamMode;
+  streamModeAvailable: boolean;
+  onStreamModeChange: (mode: StreamMode) => void;
   initiallyOpen?: boolean;
 }) {
   const [open, setOpen] = useState(initiallyOpen);
@@ -101,10 +120,17 @@ export function ScreenRecordingTool({
   }, [cancelCurrent]);
 
   useEffect(() => {
-    if (deviceKeyRef.current === deviceKey) return;
+    const previousDeviceKey = deviceKeyRef.current;
+    setIncludeFrame((selected) => frameSelectionAfterDeviceChange(
+      selected,
+      previousDeviceKey,
+      deviceKey,
+      deviceFrameSpec != null,
+    ));
+    if (previousDeviceKey === deviceKey) return;
     deviceKeyRef.current = deviceKey;
     cancelCurrent("Recording cleared because the simulator changed.");
-  }, [cancelCurrent, deviceKey]);
+  }, [cancelCurrent, deviceFrameSpec, deviceKey]);
 
   useEffect(() => {
     if (streaming || phase === "idle") return;
@@ -133,7 +159,7 @@ export function ScreenRecordingTool({
       source,
       format,
       includeTouches,
-      deviceFrame: includeFrame ? deviceType : null,
+      deviceFrame: includeFrame ? deviceFrameSpec ?? null : null,
       onError: (nextError) => {
         if (!mountedRef.current || recorderRef.current !== recorder) return;
         recorderRef.current = null;
@@ -152,7 +178,7 @@ export function ScreenRecordingTool({
       recorder.cancel();
       setError(nextError instanceof Error ? nextError.message : "Screen recording failed.");
     }
-  }, [deviceType, format, includeFrame, includeTouches, sourceRef]);
+  }, [deviceFrameSpec, format, includeFrame, includeTouches, sourceRef]);
 
   const stop = useCallback(async () => {
     const recorder = recorderRef.current;
@@ -211,6 +237,15 @@ export function ScreenRecordingTool({
             </div>
           </div>
 
+          {streamModeAvailable && (
+            <StreamModeToggle
+              label="Stream quality"
+              mode={streamMode}
+              disabled={!streaming}
+              onModeChange={onStreamModeChange}
+            />
+          )}
+
           <label className="flex min-h-8 cursor-pointer items-center justify-between gap-3 text-[12px] text-fg-2">
             <span>Show touches</span>
             <input
@@ -221,12 +256,17 @@ export function ScreenRecordingTool({
               className="size-4 accent-[var(--color-accent-solid)]"
             />
           </label>
-          <label className="flex min-h-8 cursor-pointer items-center justify-between gap-3 text-[12px] text-fg-2">
-            <span>Device frame</span>
+          <label className="flex min-h-8 cursor-pointer items-center justify-between gap-3 text-[12px] text-fg-2 has-[:disabled]:cursor-not-allowed">
+            <span className="flex min-w-0 flex-col">
+              <span>Device frame</span>
+              <span className="truncate text-[10px] text-fg-3">
+                {deviceFrameSpec?.modelName ?? "Unavailable for this simulator"}
+              </span>
+            </span>
             <input
               type="checkbox"
               checked={includeFrame}
-              disabled={busy}
+              disabled={busy || !deviceFrameSpec}
               onChange={(event) => setIncludeFrame(event.target.checked)}
               className="size-4 accent-[var(--color-accent-solid)]"
             />

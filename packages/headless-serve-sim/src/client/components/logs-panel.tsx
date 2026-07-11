@@ -16,6 +16,7 @@ const STATUS_LABELS: Record<SimLogsStatus, string> = {
   reconnecting: "Reconnecting",
   paused: "Paused",
   unavailable: "Unavailable",
+  waiting: "Waiting for app",
 };
 
 const STATUS_COLORS: Record<SimLogsStatus, string> = {
@@ -24,6 +25,7 @@ const STATUS_COLORS: Record<SimLogsStatus, string> = {
   reconnecting: "var(--color-warning)",
   paused: "var(--color-fg-3)",
   unavailable: "var(--color-danger)",
+  waiting: "var(--color-fg-3)",
 };
 
 function formatBytes(bytes: number): string {
@@ -81,23 +83,40 @@ export function LogsPanel({
   open,
   onClose,
   endpoint,
+  appProcessId,
   width,
 }: {
   open: boolean;
   onClose: () => void;
   endpoint?: string;
+  appProcessId: number | null;
   width: number;
 }) {
-  const logs = useSimLogs(endpoint);
+  const [includeSystem, setIncludeSystem] = useState(false);
+  const logs = useSimLogs(endpoint, { appProcessId, includeSystem });
   const [search, setSearch] = useState("");
   const [process, setProcess] = useState("");
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const followTailRef = useRef(true);
 
-  const processes = useMemo(() => simLogProcesses(logs.entries), [logs.entries]);
+  const scoped = useMemo(
+    () => filterSimLogs(logs.entries, {
+      search: "",
+      process: "",
+      appProcessId,
+      includeSystem,
+    }),
+    [appProcessId, includeSystem, logs.entries],
+  );
+  const processes = useMemo(() => simLogProcesses(scoped), [scoped]);
   const filtered = useMemo(
-    () => filterSimLogs(logs.entries, { search, process }),
-    [logs.entries, search, process],
+    () => filterSimLogs(logs.entries, {
+      search,
+      process,
+      appProcessId,
+      includeSystem,
+    }),
+    [appProcessId, includeSystem, logs.entries, search, process],
   );
   const rendered = filtered.slice(-MAX_RENDERED_ROWS);
   const omitted = filtered.length - rendered.length;
@@ -169,6 +188,16 @@ export function LogsPanel({
           <option value="">All processes</option>
           {processes.map((name) => <option key={name} value={name}>{name}</option>)}
         </select>
+        <label className="flex h-8 cursor-pointer items-center gap-2 rounded-pill border border-divider bg-panel px-3 text-[12px] font-medium text-fg-2 hover:bg-hover">
+          <input
+            type="checkbox"
+            aria-label="Include system logs"
+            checked={includeSystem}
+            onChange={(event) => setIncludeSystem(event.target.checked)}
+            className="size-3.5 accent-[var(--color-accent-solid)]"
+          />
+          System logs
+        </label>
         <button
           type="button"
           onClick={() => logs.setPaused((paused) => !paused)}
@@ -215,6 +244,8 @@ export function LogsPanel({
           <div className="flex h-full min-h-[180px] items-center justify-center px-6 text-center text-[12px] text-fg-3">
             {logs.entries.length > 0
               ? "No logs match the current filters."
+              : logs.status === "waiting"
+                ? "Waiting for a foreground app…"
               : logs.paused
                 ? "Capture is paused."
                 : "Waiting for simulator logs…"}

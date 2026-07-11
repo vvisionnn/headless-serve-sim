@@ -62,8 +62,24 @@ describe("previewConfigForState — screenConfig injection", () => {
   });
 
   test("includes deviceName when supplied, omits it otherwise", () => {
-    const withName = previewConfigForState(state, "", "/bin/headless-serve-sim", "tok", null, "iPad Pro 13-inch (M5)");
-    expect(withName.deviceName).toBe("iPad Pro 13-inch (M5)");
+    const withName = previewConfigForState(state, "", "/bin/headless-serve-sim", "tok", null, {
+      deviceName: "My renamed simulator",
+      deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+      deviceFrameSpec: {
+        deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+        modelName: "iPhone 17 Pro",
+        family: "iphone",
+        nativeScreen: { width: 1206, height: 2622 },
+        insetsPx: { top: 54, right: 54, bottom: 54, left: 54 },
+        screenRadiiPx: { topLeft: 186, topRight: 186, bottomRight: 186, bottomLeft: 186 },
+        outerRadiiPx: { x: 240, y: 240 },
+        cutout: "dynamic-island",
+        chromeIdentifier: "com.apple.dt.devicekit.chrome.phone11",
+      },
+    });
+    expect(withName.deviceName).toBe("My renamed simulator");
+    expect(withName.deviceTypeIdentifier).toBe("com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro");
+    expect(withName.deviceFrameSpec?.modelName).toBe("iPhone 17 Pro");
     expect(previewConfigForState(state, "", "/bin/headless-serve-sim", "tok").deviceName).toBeUndefined();
     expect(previewConfigForState(state, "", "/bin/headless-serve-sim", "tok", null, null).deviceName).toBeUndefined();
   });
@@ -120,7 +136,7 @@ describe("htmlSafeJson — inline-<script> XSS escaping", () => {
   test("a </script> device name cannot break out of the inline script tag", () => {
     const evil = 'Evil</script><script>fetch("/exec")</script>';
     const config = htmlSafeJson(
-      previewConfigForState(state, "", "/bin/headless-serve-sim", "tok", null, evil),
+      previewConfigForState(state, "", "/bin/headless-serve-sim", "tok", null, { deviceName: evil }),
     );
     // The serialized payload carries no sequence that closes the <script>.
     expect(config.toLowerCase()).not.toContain("</script>");

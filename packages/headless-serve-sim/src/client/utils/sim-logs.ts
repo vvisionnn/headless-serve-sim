@@ -4,6 +4,7 @@ export interface SimLogEntry {
   id: string;
   timestamp: string;
   process: string;
+  processId: number | null;
   subsystem: string;
   category: string;
   level: string;
@@ -24,6 +25,8 @@ export interface SimLogBufferLimits {
 export interface SimLogFilter {
   search: string;
   process: string;
+  appProcessId: number | null;
+  includeSystem: boolean;
 }
 
 const utf8 = new TextEncoder();
@@ -47,12 +50,19 @@ export function normalizeSimLogEntry(value: unknown, id: string): SimLogEntry | 
   const process = basename(
     stringField(raw.processImagePath) || stringField(raw.senderImagePath),
   );
+  const processId =
+    typeof raw.processID === "number" &&
+    Number.isSafeInteger(raw.processID) &&
+    raw.processID >= 0
+      ? raw.processID
+      : null;
   const subsystem = stringField(raw.subsystem);
   const category = stringField(raw.category);
   const level = stringField(raw.messageType).toLowerCase() || "default";
   const byteSize = utf8.encode([
     timestamp,
     process,
+    processId,
     subsystem,
     category,
     level,
@@ -63,6 +73,7 @@ export function normalizeSimLogEntry(value: unknown, id: string): SimLogEntry | 
     id,
     timestamp,
     process,
+    processId,
     subsystem,
     category,
     level,
@@ -107,6 +118,10 @@ export function filterSimLogs(
 ): SimLogEntry[] {
   const search = filter.search.trim().toLocaleLowerCase();
   return entries.filter((entry) => {
+    if (
+      !filter.includeSystem &&
+      (filter.appProcessId === null || entry.processId !== filter.appProcessId)
+    ) return false;
     if (filter.process && entry.process !== filter.process) return false;
     if (!search) return true;
     return [entry.message, entry.process, entry.subsystem, entry.category]
@@ -121,10 +136,12 @@ export function simLogProcesses(entries: readonly SimLogEntry[]): string[] {
 
 export function buildSimLogsUrl(
   endpoint: string,
-  level: SimLogLevel,
+  options: { level: SimLogLevel; processId: number | null },
   baseUrl = window.location.href,
 ): string {
   const url = new URL(endpoint, baseUrl);
-  url.searchParams.set("level", level);
+  url.searchParams.set("level", options.level);
+  if (options.processId === null) url.searchParams.delete("processId");
+  else url.searchParams.set("processId", String(options.processId));
   return url.toString();
 }

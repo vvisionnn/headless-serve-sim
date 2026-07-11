@@ -3,6 +3,7 @@ import {
   CanvasScreenRecorder,
   createRecordingLayout,
   paintRecordingFrame,
+  paintRecordingSnapshot,
   recordingExtension,
   selectRecordingMimeType,
   type RecorderCanvas,
@@ -10,6 +11,32 @@ import {
   type RecorderMediaStream,
   type ScreenRecorderPlatform,
 } from "../client/screen-recorder";
+import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
+
+const IPHONE_17_PRO_FRAME: DeviceFrameSpec = {
+  deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+  modelName: "iPhone 17 Pro",
+  family: "iphone",
+  nativeScreen: { width: 1206, height: 2622 },
+  insetsPx: { top: 54, right: 54, bottom: 54, left: 54 },
+  screenRadiiPx: { topLeft: 186, topRight: 186, bottomRight: 186, bottomLeft: 186 },
+  outerRadiiPx: { x: 240, y: 240 },
+  cutout: "dynamic-island",
+  chromeIdentifier: "com.apple.dt.devicekit.chrome.phone11",
+};
+
+const IPHONE_16E_FRAME: DeviceFrameSpec = {
+  deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-16e",
+  modelName: "iPhone 16e",
+  family: "iphone",
+  nativeScreen: { width: 1170, height: 2532 },
+  insetsPx: { top: 66, right: 66, bottom: 66, left: 66 },
+  screenRadiiPx: { topLeft: 142, topRight: 142, bottomRight: 142, bottomLeft: 142 },
+  outerRadiiPx: { x: 204, y: 204 },
+  cutout: "notch",
+  cutoutRectPx: { x: 321, y: 0, width: 528, height: 102 },
+  chromeIdentifier: "com.apple.dt.devicekit.chrome.phone13",
+};
 
 class RecordingContext {
   calls: Array<{ name: string; args: unknown[] }> = [];
@@ -40,6 +67,7 @@ class RecordingContext {
   arc(...args: number[]) { this.call("arc", ...args); }
   translate(...args: number[]) { this.call("translate", ...args); }
   rotate(...args: number[]) { this.call("rotate", ...args); }
+  scale(...args: number[]) { this.call("scale", ...args); }
   drawImage(...args: unknown[]) {
     if (this.drawImageError) throw this.drawImageError;
     this.call("drawImage", ...args);
@@ -155,6 +183,83 @@ describe("screen recording format selection", () => {
 });
 
 describe("screen recording layout", () => {
+  test("uses the exact iPhone 17 Pro profile without letterboxing", () => {
+    const layout = createRecordingLayout({
+      width: 1206,
+      height: 2622,
+      orientation: "portrait",
+    }, IPHONE_17_PRO_FRAME);
+
+    expect({ width: layout.width, height: layout.height }).toEqual({
+      width: 1314,
+      height: 2730,
+    });
+    expect(layout.screenRect).toEqual({
+      x: 54,
+      y: 54,
+      width: 1206,
+      height: 2622,
+    });
+  });
+
+  test("rotates exact frame insets and cutout with the simulator", () => {
+    const layout = createRecordingLayout({
+      width: 1206,
+      height: 2622,
+      orientation: "landscape_left",
+    }, IPHONE_17_PRO_FRAME);
+
+    expect({ width: layout.width, height: layout.height }).toEqual({
+      width: 2730,
+      height: 1314,
+    });
+    expect(layout.screenRect).toEqual({
+      x: 54,
+      y: 54,
+      width: 2622,
+      height: 1206,
+    });
+    expect(layout.cutoutRect!.x).toBeGreaterThan(layout.width * 0.9);
+  });
+
+  test("uses a wide notch for iPhone 16e instead of a Dynamic Island", () => {
+    const notch = createRecordingLayout({
+      width: 1170,
+      height: 2532,
+      orientation: "portrait",
+    }, IPHONE_16E_FRAME);
+    const island = createRecordingLayout({
+      width: 1206,
+      height: 2622,
+      orientation: "portrait",
+    }, IPHONE_17_PRO_FRAME);
+
+    expect(notch.cutoutRect!.width).toBe(528);
+    expect(island.cutoutRect!.width / island.screenRect.width).toBeLessThan(0.4);
+  });
+
+  test("honors DeviceKit outside-border insets for Watch crown padding", () => {
+    const watch: DeviceFrameSpec = {
+      deviceTypeIdentifier: "watch-ultra",
+      modelName: "Apple Watch Ultra",
+      family: "watch",
+      nativeScreen: { width: 410, height: 502 },
+      insetsPx: { top: 62, right: 91, bottom: 62, left: 91 },
+      screenRadiiPx: { topLeft: 88, topRight: 88, bottomRight: 88, bottomLeft: 88 },
+      outerRadiiPx: { x: 170.4, y: 170.4 },
+      outerInsetsPx: { top: 0, right: 29, bottom: 0, left: 29 },
+      cutout: "none",
+      chromeIdentifier: "com.apple.dt.devicekit.chrome.watch4",
+    };
+    const layout = createRecordingLayout({
+      width: 410,
+      height: 502,
+      orientation: "portrait",
+    }, watch);
+
+    expect(layout.frameRect).toEqual({ x: 29, y: 0, width: 534, height: 626 });
+  });
+
   test("rounds odd source dimensions up to encoder-safe even dimensions", () => {
     const layout = createRecordingLayout({
       width: 1179,
@@ -199,8 +304,8 @@ describe("screen recording layout", () => {
     });
   });
 
-  test("produces valid even-sized layouts for every generic frame family", () => {
-    for (const deviceFrame of ["iphone", "ipad", "watch", "vision"] as const) {
+  test("produces valid even-sized layouts for supported generic frame families", () => {
+    for (const deviceFrame of ["iphone", "ipad", "watch"] as const) {
       const layout = createRecordingLayout(
         { width: 400, height: 800, orientation: "portrait" },
         deviceFrame,
@@ -209,7 +314,20 @@ describe("screen recording layout", () => {
       expect(layout.height % 2).toBe(0);
       expect(layout.screenRect.width).toBeGreaterThanOrEqual(400);
       expect(layout.screenRect.height).toBeGreaterThanOrEqual(800);
+      expect(layout.frameSpec?.family).toBe(deviceFrame);
     }
+  });
+
+  test("does not invent physical chrome for Vision without an installed profile", () => {
+    const layout = createRecordingLayout(
+      { width: 1920, height: 1080, orientation: "landscape_left" },
+      "vision",
+    );
+    expect(layout.frameSpec).toBeNull();
+    expect({ width: layout.width, height: layout.height }).toEqual({
+      width: 1920,
+      height: 1080,
+    });
   });
 
   test("rotates portrait frame geometry around a landscape screen", () => {
@@ -293,25 +411,39 @@ describe("screen recording composition", () => {
     }
   });
 
-  test("contains a later landscape frame inside the recording's fixed portrait canvas", () => {
+  test("recomposes the full landscape device inside a fixed portrait recording canvas", () => {
     const ctx = new RecordingContext();
-    const layout = createRecordingLayout({ width: 100, height: 200, orientation: "portrait" });
+    const layout = createRecordingLayout({
+      width: 1206,
+      height: 2622,
+      orientation: "portrait",
+    }, IPHONE_17_PRO_FRAME);
 
-    paintRecordingFrame(ctx as unknown as CanvasRenderingContext2D, layout, {
+    paintRecordingSnapshot(
+      ctx as unknown as CanvasRenderingContext2D,
+      layout,
+      IPHONE_17_PRO_FRAME,
+      {
       source: {} as CanvasImageSource,
-      width: 200,
-      height: 100,
+      width: 2622,
+      height: 1206,
       orientation: "landscape_left",
-      surfaceWidth: 200,
-      surfaceHeight: 100,
+      surfaceWidth: 2622,
+      surfaceHeight: 1206,
       touches: [],
-    });
+      },
+    );
 
-    expect(ctx.calls.find((call) => call.name === "drawImage")?.args.slice(-4)).toEqual([
-      -50,
-      -25,
-      100,
-      50,
+    const scale = ctx.calls.find((call) => call.name === "scale")?.args[0] as number;
+    const translate = ctx.calls.find((call) => call.name === "translate")?.args;
+    expect(scale).toBeCloseTo(1314 / 2730);
+    expect(translate?.[0]).toBeCloseTo(0);
+    expect(translate?.[1] as number).toBeGreaterThan(1_000);
+    expect(ctx.calls.filter((call) => call.name === "clearRect").map((call) => call.args)).toContainEqual([
+      0,
+      0,
+      2730,
+      1314,
     ]);
   });
 

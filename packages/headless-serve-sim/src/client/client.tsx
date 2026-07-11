@@ -14,9 +14,11 @@ import {
   fallbackScreenSize,
   SimulatorToolbar,
   getDeviceType,
+  matchDeviceFrameSpec,
   parseServerStreamStats,
   simulatorMaxWidth,
   type DeviceType,
+  type DeviceFrameSpec,
   type SimulatorOrientation,
   type StreamConfig,
   type ConnectionStats,
@@ -65,6 +67,16 @@ import { fitDeviceFrame } from "./utils/frame-geometry";
 import { resolveActiveScreenConfig } from "./utils/screen-config";
 import { readPersistedFlag, writePersistedFlag } from "./utils/persisted-flag";
 import { previewConfigKey } from "./utils/preview-config";
+import {
+  currentAppForDevice,
+  type DetectedAppState,
+} from "./utils/current-app";
+import {
+  reconcileStreamMode,
+  sendStreamMode,
+  type PendingStreamMode,
+  type StreamMode,
+} from "./utils/stream-mode-control";
 
 // Counter-clockwise cycle, matching Simulator.app's Cmd+Left ("Rotate Left").
 const ROTATE_LEFT_CYCLE: Record<SimulatorOrientation, SimulatorOrientation> = {
@@ -249,7 +261,9 @@ function AppWithConfig({
       : "Simulator Preview";
   }, [selectedDevice?.name]);
 
-  const deviceType: DeviceType = getDeviceType(resolvedDeviceName);
+  const deviceType: DeviceType = config.deviceFrameSpec?.family ?? getDeviceType(
+    selectedDevice?.deviceTypeIdentifier ?? config.deviceTypeIdentifier ?? resolvedDeviceName,
+  );
   const devtools = useWebKitDevtools(config.devtoolsEndpoint ?? simEndpoint("devtools"), devtoolsOpen);
 
   useEffect(() => {
@@ -310,8 +324,16 @@ function AppWithConfig({
     live: liveStreamConfig,
     ws: streamConfig,
     injected: config.screenConfig,
-    fallback: fallbackScreenSize(deviceType, resolvedDeviceName),
+    fallback: config.deviceFrameSpec?.nativeScreen ?? fallbackScreenSize(deviceType, resolvedDeviceName),
   });
+  const recordingDeviceFrameSpec: DeviceFrameSpec | null = config.deviceFrameSpec
+    ? matchDeviceFrameSpec({
+        deviceTypeIdentifier:
+          selectedDevice?.deviceTypeIdentifier ?? config.deviceTypeIdentifier,
+        modelName: config.deviceFrameSpec.modelName,
+        family: deviceType === "vision" ? null : deviceType,
+      }, activeStreamConfig, [config.deviceFrameSpec]).spec
+    : null;
   const frameMaxWidth = simulatorMaxWidth(deviceType, activeStreamConfig);
   const frameDisplayConfig = displayStreamConfig(activeStreamConfig);
   const frameAspectRatioValue = frameDisplayConfig
@@ -319,6 +341,8 @@ function AppWithConfig({
     : 1;
 
   // Touch/button relay via direct WebSocket
+  const [streamMode, setStreamMode] = useState<StreamMode>("perf");
+  const pendingStreamModeRef = useRef<PendingStreamMode | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   useEffect(() => {
     let stopped = false;
@@ -338,6 +362,10 @@ function AppWithConfig({
       ws.binaryType = "arraybuffer";
       currentWs = ws;
       wsRef.current = ws;
+      ws.onopen = () => {
+        const pending = pendingStreamModeRef.current;
+        if (pending) sendStreamMode(ws, pending.mode);
+      };
       ws.onmessage = (ev) => {
         // Server -> client pushes: [tag][JSON]. 0x82 = screen-config,
         // 0x83 = adaptive stream-stats (mode/target-bitrate/congestion).
@@ -359,7 +387,15 @@ function AppWithConfig({
           } catch {}
         } else if (bytes[0] === 0x83) {
           const s = parseServerStreamStats(bytes.subarray(1));
-          if (s) serverStatsRef.current = s;
+          if (s) {
+            serverStatsRef.current = s;
+            const reconciled = reconcileStreamMode(
+              pendingStreamModeRef.current,
+              s.mode,
+            );
+            pendingStreamModeRef.current = reconciled.pending;
+            setStreamMode(reconciled.mode);
+          }
         }
       };
       ws.onclose = () => {
@@ -397,11 +433,12 @@ function AppWithConfig({
   const onStreamDigitalCrown = useCallback((delta: number) => sendWs(0x0a, { delta }), [sendWs]);
   const onStreamRequestKeyframe = useCallback(() => sendWs(0x0b, {}), [sendWs]);
   const onModeChange = useCallback(
-    (mode: "perf" | "quality") => {
+    (mode: StreamMode) => {
+      pendingStreamModeRef.current = { mode, mismatches: 0 };
       setStreamMode(mode);
-      sendWs(0x0c, { mode });
+      sendStreamMode(wsRef.current, mode);
     },
-    [sendWs],
+    [],
   );
   const onScreenConfigChange = useCallback((next: StreamConfig) => {
     setLiveStreamConfig((prev) =>
@@ -474,10 +511,14 @@ function AppWithConfig({
   }, [sendWs]);
 
   // Subscribe to app-state SSE.
-  const [currentApp, setCurrentApp] = useState<{ bundleId: string; isReactNative: boolean; pid?: number } | null>(null);
+  const [detectedApp, setDetectedApp] = useState<DetectedAppState | null>(null);
+  const currentApp = currentAppForDevice(detectedApp, config.device);
   const [statsOpen, setStatsOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
-  const [streamMode, setStreamMode] = useState<"perf" | "quality">("perf");
+  useEffect(() => {
+    pendingStreamModeRef.current = null;
+    setStreamMode("perf");
+  }, [config.device]);
   const { width: devtoolsPanelWidth, onPointerDown: onDevtoolsResize } = useResizableWidth(
     "headless-serve-sim:devtools-panel-width",
     DEVTOOLS_PANEL_WIDTH,
@@ -529,6 +570,7 @@ function AppWithConfig({
     return () => window.removeEventListener("resize", onResize);
   }, []);
   useEffect(() => {
+    setDetectedApp(null);
     const es = new EventSource(config.appStateEndpoint ?? simEndpoint("appstate"));
     let timer: ReturnType<typeof setTimeout> | null = null;
     es.onmessage = (e) => {
@@ -536,11 +578,13 @@ function AppWithConfig({
         const next = JSON.parse(e.data) as { bundleId: string; pid?: number; isReactNative: boolean };
         if (timer) clearTimeout(timer);
         const delay = next?.isReactNative ? 0 : 600;
-        timer = setTimeout(() => setCurrentApp(next), delay);
+        timer = setTimeout(() => {
+          setDetectedApp({ ...next, device: config.device });
+        }, delay);
       } catch {}
     };
     return () => { if (timer) clearTimeout(timer); es.close(); };
-  }, [config.appStateEndpoint]);
+  }, [config.appStateEndpoint, config.device]);
 
   // Cmd+R to reload the RN/Expo bundle.
   const sendReactNativeReload = useCallback(async () => {
@@ -916,8 +960,11 @@ function AppWithConfig({
         frameHeight={frameGeom.height}
         openOverlay={statsOpen ? "stats" : logsOpen ? "logs" : gridOpen ? "grid" : devtoolsOpen ? "devtools" : null}
         udid={config.device}
-        deviceType={deviceType}
+        deviceFrameSpec={recordingDeviceFrameSpec}
         streaming={streaming}
+        streamMode={streamMode}
+        streamModeAvailable={useAvccVideo}
+        onStreamModeChange={onModeChange}
         recordingSourceRef={recordingSourceRef}
         execToken={config.execToken}
         currentApp={currentApp}
@@ -1004,6 +1051,7 @@ function AppWithConfig({
         open={logsOpen}
         onClose={() => setLogsOpen(false)}
         endpoint={config.logsEndpoint}
+        appProcessId={currentApp?.pid ?? null}
         width={logsPanelWidth}
       />
       <ResizeHandle

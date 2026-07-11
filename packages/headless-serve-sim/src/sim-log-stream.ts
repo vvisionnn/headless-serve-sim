@@ -11,8 +11,23 @@ export function parseSimLogLevel(value: string | null | undefined): SimLogLevel 
     : null;
 }
 
-export function buildSimLogStreamArgs(udid: string, level: SimLogLevel): string[] {
-  return [
+export function parseSimLogProcessId(
+  value: string | null | undefined,
+): number | null | undefined {
+  if (value == null) return null;
+  if (!/^\d+$/.test(value)) return undefined;
+  const processId = Number(value);
+  return Number.isSafeInteger(processId) && processId > 0
+    ? processId
+    : undefined;
+}
+
+export function buildSimLogStreamArgs(
+  udid: string,
+  level: SimLogLevel,
+  processId: number | null = null,
+): string[] {
+  const args = [
     "simctl",
     "spawn",
     udid,
@@ -23,6 +38,8 @@ export function buildSimLogStreamArgs(udid: string, level: SimLogLevel): string[
     "--level",
     level,
   ];
+  if (processId !== null) args.push("--predicate", `processID == ${processId}`);
+  return args;
 }
 
 export interface SimLogLineFramer {
@@ -66,6 +83,7 @@ export function createSimLogLineFramer(maxLineLength = 1024 * 1024): SimLogLineF
 export interface StartSimulatorLogStreamOptions {
   udid: string;
   level: SimLogLevel;
+  processId?: number | null;
   response: Pick<ServerResponse, "write" | "end" | "once" | "writableEnded">;
   spawnProcess?: typeof spawn;
   maxLineLength?: number;
@@ -75,6 +93,7 @@ export interface StartSimulatorLogStreamOptions {
 export function startSimulatorLogStream({
   udid,
   level,
+  processId = null,
   response,
   spawnProcess = spawn,
   maxLineLength,
@@ -82,7 +101,7 @@ export function startSimulatorLogStream({
 }: StartSimulatorLogStreamOptions): () => void {
   const child: ChildProcess = spawnProcess(
     "xcrun",
-    buildSimLogStreamArgs(udid, level),
+    buildSimLogStreamArgs(udid, level, processId),
     { stdio: ["ignore", "pipe", "ignore"] },
   );
   const stdout = child.stdout;
@@ -120,6 +139,7 @@ export function startSimulatorLogStream({
     }
   };
 
+  stdout?.setEncoding("utf8");
   stdout?.on("data", (chunk: Buffer | string) => {
     if (stopped) return;
     const lines = framer.push(typeof chunk === "string" ? chunk : chunk.toString());

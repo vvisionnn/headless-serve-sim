@@ -5,10 +5,16 @@ import { join } from "path";
 import { createServer as createNetServer } from "net";
 import { randomBytes, timingSafeEqual } from "crypto";
 import type { IncomingMessage, ServerResponse } from "http";
+import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
 import { createAxStreamerCache } from "./ax";
 import { debugMw } from "./debug";
+import { loadInstalledDeviceFrameSpec } from "./device-frame-profile";
 import { createExecUpgradeHandler, type UiRequestHandler } from "./exec-ws";
-import { parseSimLogLevel, startSimulatorLogStream } from "./sim-log-stream";
+import {
+  parseSimLogLevel,
+  parseSimLogProcessId,
+  startSimulatorLogStream,
+} from "./sim-log-stream";
 import { UI_OPTIONS, getUiStatus, normalizeUiValue, setUiOption } from "./ui-settings";
 
 type SimReq = IncomingMessage;
@@ -126,6 +132,21 @@ export function parseForegroundAppLogMessage(message: string): { bundleId: strin
   const match = /\[app<([^>]+)>:(\d+)\] Setting process visibility to: Foreground/.exec(message);
   if (!match) return null;
   return { bundleId: match[1]!, pid: parseInt(match[2]!, 10) };
+}
+
+export function foregroundAppIdentityKey(bundleId: string, pid?: number): string {
+  return `${bundleId}\0${pid ?? ""}`;
+}
+
+export async function resolveForegroundAppState(
+  bundleId: string,
+  pid: number | undefined,
+  isCurrent: (identity: string) => boolean,
+  detect: (bundleId: string) => Promise<boolean>,
+): Promise<{ bundleId: string; pid?: number; isReactNative: boolean } | null> {
+  const identity = foregroundAppIdentityKey(bundleId, pid);
+  const isReactNative = await detect(bundleId);
+  return isCurrent(identity) ? { bundleId, pid, isReactNative } : null;
 }
 
 function detectReactNative(udid: string, bundleId: string): Promise<boolean> {
@@ -369,7 +390,11 @@ export function previewConfigForState(
   serveSimBin: string,
   execToken: string,
   screenConfig?: HelperScreenConfig | null,
-  deviceName?: string | null,
+  deviceMetadata?: {
+    deviceName?: string;
+    deviceTypeIdentifier?: string;
+    deviceFrameSpec?: DeviceFrameSpec;
+  } | null,
 ): ServeSimState & {
   basePath: string;
   logsEndpoint: string;
@@ -386,12 +411,20 @@ export function previewConfigForState(
   execToken: string;
   screenConfig?: HelperScreenConfig;
   deviceName?: string;
+  deviceTypeIdentifier?: string;
+  deviceFrameSpec?: DeviceFrameSpec;
 } {
   const gridApiBase = (base === "" ? "" : base) + "/grid/api";
   return {
     ...state,
     ...(screenConfig ? { screenConfig } : {}),
-    ...(deviceName ? { deviceName } : {}),
+    ...(deviceMetadata?.deviceName ? { deviceName: deviceMetadata.deviceName } : {}),
+    ...(deviceMetadata?.deviceTypeIdentifier
+      ? { deviceTypeIdentifier: deviceMetadata.deviceTypeIdentifier }
+      : {}),
+    ...(deviceMetadata?.deviceFrameSpec
+      ? { deviceFrameSpec: deviceMetadata.deviceFrameSpec }
+      : {}),
     basePath: base,
     logsEndpoint: `${endpoint(base, "/logs", state.device)}&token=${encodeURIComponent(execToken)}`,
     appStateEndpoint: endpoint(base, "/appstate", state.device),
@@ -580,6 +613,7 @@ interface SimctlDevice {
   name: string;
   state: string;
   isAvailable?: boolean;
+  deviceTypeIdentifier?: string;
   runtime: string;
 }
 
@@ -607,18 +641,41 @@ function listAllSimulators(): SimctlDevice[] {
   }
 }
 
-// udid → device name, cached for the server's lifetime (a simulator's name
-// never changes under a fixed udid). Lets the preview page bake the device name
-// into __SIM_PREVIEW__ so the client knows the device *type* on the first paint
-// — otherwise `deviceType` defaults to "iphone" until the browser's async
-// `simctl list` resolves, and an iPad frame renders at the iPhone size cap and
-// then grows a few seconds later.
-const deviceNameCache = new Map<string, string>();
-function resolveDeviceName(udid: string): string | undefined {
-  const cached = deviceNameCache.get(udid);
-  if (cached !== undefined) return cached;
-  for (const sim of listAllSimulators()) deviceNameCache.set(sim.udid, sim.name);
-  return deviceNameCache.get(udid);
+// Exact instance + immutable device-type metadata, cached per selected UDID.
+// The type identifier survives custom simulator names and resolves the installed
+// CoreSimulator/DeviceKit frame before the browser's first paint.
+const DEVICE_METADATA_RETRY_MS = 5_000;
+type DeviceMetadata = {
+  deviceName: string;
+  deviceTypeIdentifier?: string;
+  deviceFrameSpec?: DeviceFrameSpec;
+};
+const deviceMetadataCache = new Map<string, {
+  value: DeviceMetadata;
+  expiresAt: number;
+}>();
+function resolveDeviceMetadata(udid: string) {
+  const cached = deviceMetadataCache.get(udid);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const sim = listAllSimulators().find((candidate) => candidate.udid === udid);
+  if (!sim) return undefined;
+  const deviceFrameSpec = sim.deviceTypeIdentifier
+    ? loadInstalledDeviceFrameSpec(sim.deviceTypeIdentifier)
+    : null;
+  const value: DeviceMetadata = {
+    deviceName: sim.name,
+    ...(sim.deviceTypeIdentifier
+      ? { deviceTypeIdentifier: sim.deviceTypeIdentifier }
+      : {}),
+    ...(deviceFrameSpec ? { deviceFrameSpec } : {}),
+  };
+  deviceMetadataCache.set(sim.udid, {
+    value,
+    expiresAt: deviceFrameSpec
+      ? Number.POSITIVE_INFINITY
+      : Date.now() + DEVICE_METADATA_RETRY_MS,
+  });
+  return value;
 }
 
 // Default per-simulator footprint when we have no running sim to measure
@@ -955,9 +1012,9 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
       (async () => {
         const remoteState = rewriteStateForRequestHost(state, req.headers?.host);
         const screenConfig = await fetchHelperScreenConfig(state.url);
-        const deviceName = resolveDeviceName(state.device);
+        const deviceMetadata = resolveDeviceMetadata(state.device);
         const config = htmlSafeJson(
-          previewConfigForState(remoteState, base, serveSimBin, execToken, screenConfig, deviceName),
+          previewConfigForState(remoteState, base, serveSimBin, execToken, screenConfig, deviceMetadata),
         );
         sendHtml(
           baseHtml.replace(
@@ -1024,6 +1081,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         return {
           device: d.udid,
           name: d.name,
+          deviceTypeIdentifier: d.deviceTypeIdentifier,
           runtime: d.runtime,
           state: d.state,
           helper: remoteHelper
@@ -1279,7 +1337,18 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         "Cache-Control": "no-store",
       });
       const remoteState = state ? rewriteStateForRequestHost(state, req.headers?.host) : null;
-      res.end(JSON.stringify(remoteState ? previewConfigForState(remoteState, base, serveSimBin, execToken) : null));
+      res.end(JSON.stringify(
+        remoteState
+          ? previewConfigForState(
+              remoteState,
+              base,
+              serveSimBin,
+              execToken,
+              null,
+              resolveDeviceMetadata(state!.device),
+            )
+          : null,
+      ));
       return;
     }
 
@@ -1293,7 +1362,16 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         const state = selectServeSimState(states, selectedDevice);
         const remoteState = state ? rewriteStateForRequestHost(state, req.headers?.host) : null;
         return JSON.stringify(
-          remoteState ? previewConfigForState(remoteState, base, serveSimBin, execToken) : null,
+          remoteState
+            ? previewConfigForState(
+                remoteState,
+                base,
+                serveSimBin,
+                execToken,
+                null,
+                resolveDeviceMetadata(state!.device),
+              )
+            : null,
         );
       };
 
@@ -1357,6 +1435,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         if (closed || res.writableEnded) return;
         res.write(":\n\n");
         ensureWatcher();
+        sendIfChanged();
       }, 15000);
 
       req.on("close", () => {
@@ -1483,6 +1562,12 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         res.end("Invalid log level");
         return;
       }
+      const processId = parseSimLogProcessId(params.get("processId"));
+      if (processId === undefined) {
+        res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Invalid process id");
+        return;
+      }
       const states = readServeSimStates();
       const state = selectServeSimState(states, selectedDevice);
       if (!state) {
@@ -1498,7 +1583,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         "X-Accel-Buffering": "no",
       });
       res.write(":\n\n");
-      const stop = startSimulatorLogStream({ udid, level, response: res });
+      const stop = startSimulatorLogStream({ udid, level, processId, response: res });
       req.once("aborted", stop);
       req.once("close", stop);
       res.once("close", stop);
@@ -1531,7 +1616,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
       // an app (the bug: tools couldn't reconnect after a page reload). Ask
       // the helper's AX bridge for the current frontmost app via
       // `proc_pidpath`+Info.plist resolution and emit it before tailing.
-      let lastBundle = "";
+      let lastAppIdentity = "";
       void (async () => {
         // The bootstrap is the ONLY way to surface an already-foreground app
         // (page opened/reconnected after the app launched — the SpringBoard
@@ -1542,7 +1627,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         // (and, downstream, leaving the Activity charts without a pid). Retry a
         // few times with backoff; stop once we emit or the log tail beats us.
         for (let attempt = 0; attempt < 6; attempt++) {
-          if (res.writableEnded || lastBundle) return;
+          if (res.writableEnded || lastAppIdentity) return;
           try {
             const ctrl = new AbortController();
             const timer = setTimeout(() => ctrl.abort(), 1500);
@@ -1551,11 +1636,16 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
             if (r.ok) {
               const info = await r.json() as { bundleId?: string; pid?: number };
               if (info.bundleId && isUserFacingBundle(info.bundleId)) {
-                if (res.writableEnded || lastBundle) return;
-                lastBundle = info.bundleId;
-                const isReactNative = await detectReactNative(udid, info.bundleId);
-                if (res.writableEnded) return;
-                res.write("data: " + JSON.stringify({ bundleId: info.bundleId, pid: info.pid, isReactNative }) + "\n\n");
+                if (res.writableEnded || lastAppIdentity) return;
+                lastAppIdentity = foregroundAppIdentityKey(info.bundleId, info.pid);
+                const appState = await resolveForegroundAppState(
+                  info.bundleId,
+                  info.pid,
+                  (identity) => !res.writableEnded && identity === lastAppIdentity,
+                  (bundleId) => detectReactNative(udid, bundleId),
+                );
+                if (!appState) return;
+                res.write("data: " + JSON.stringify(appState) + "\n\n");
                 return;
               }
             }
@@ -1577,12 +1667,16 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
       let closed = false;
       const emitApp = async (bundleId: string, pid?: number) => {
         if (!isUserFacingBundle(bundleId)) return;
-        if (bundleId === lastBundle) return;
-        lastBundle = bundleId;
-        const isReactNative = await detectReactNative(udid, bundleId);
-        if (!closed) {
-          res.write("data: " + JSON.stringify({ bundleId, pid, isReactNative }) + "\n\n");
-        }
+        const identity = foregroundAppIdentityKey(bundleId, pid);
+        if (identity === lastAppIdentity) return;
+        lastAppIdentity = identity;
+        const appState = await resolveForegroundAppState(
+          bundleId,
+          pid,
+          (candidate) => !closed && candidate === lastAppIdentity,
+          (candidate) => detectReactNative(udid, candidate),
+        );
+        if (appState) res.write("data: " + JSON.stringify(appState) + "\n\n");
       };
 
 

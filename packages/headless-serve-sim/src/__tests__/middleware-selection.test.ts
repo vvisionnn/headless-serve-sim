@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  foregroundAppIdentityKey,
   matchInstalledAppByDisplayName,
   parseForegroundAppLogMessage,
+  resolveForegroundAppState,
   previewConfigForState,
   rewriteStateForRequestHost,
   selectServeSimState,
@@ -113,6 +115,49 @@ describe("parseForegroundAppLogMessage", () => {
 
   test("ignores unrelated log messages", () => {
     expect(parseForegroundAppLogMessage("Setting process visibility to: Background")).toBeNull();
+  });
+});
+
+describe("foregroundAppIdentityKey", () => {
+  test("changes when the same bundle relaunches with a new PID", () => {
+    expect(foregroundAppIdentityKey("com.example.app", 101)).not.toBe(
+      foregroundAppIdentityKey("com.example.app", 202),
+    );
+  });
+
+  test("lets a PID-bearing event replace a bootstrap event without a PID", () => {
+    expect(foregroundAppIdentityKey("com.example.app")).not.toBe(
+      foregroundAppIdentityKey("com.example.app", 101),
+    );
+  });
+
+  test("drops a stale detection that completes after a newer foreground event", async () => {
+    let finishDetection!: (value: boolean) => void;
+    const detection = new Promise<boolean>((resolve) => {
+      finishDetection = resolve;
+    });
+    const staleIdentity = foregroundAppIdentityKey("com.example.old", 101);
+    let activeIdentity = staleIdentity;
+    const stale = resolveForegroundAppState(
+      "com.example.old",
+      101,
+      (identity) => identity === activeIdentity,
+      () => detection,
+    );
+
+    activeIdentity = foregroundAppIdentityKey("com.example.new", 202);
+    finishDetection(false);
+    expect(await stale).toBeNull();
+    expect(await resolveForegroundAppState(
+      "com.example.new",
+      202,
+      (identity) => identity === activeIdentity,
+      async () => true,
+    )).toEqual({
+      bundleId: "com.example.new",
+      pid: 202,
+      isReactNative: true,
+    });
   });
 });
 

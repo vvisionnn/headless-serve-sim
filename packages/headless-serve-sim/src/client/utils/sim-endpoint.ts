@@ -1,4 +1,7 @@
-import type { SimulatorOrientation } from "headless-serve-sim-client/simulator";
+import type {
+  DeviceFrameSpec,
+  SimulatorOrientation,
+} from "headless-serve-sim-client/simulator";
 
 declare global {
   interface Window {
@@ -33,6 +36,10 @@ declare global {
        * iPad frame doesn't start at the iPhone cap and grow a moment later.
        */
       deviceName?: string;
+      /** Immutable CoreSimulator type, reliable even when the instance is renamed. */
+      deviceTypeIdentifier?: string;
+      /** Exact installed CoreSimulator + DeviceKit geometry for recording chrome. */
+      deviceFrameSpec?: DeviceFrameSpec;
       /**
        * Live screen geometry baked in at page-serve time (from the helper's
        * /config). Lets the first paint size the device frame to the real device

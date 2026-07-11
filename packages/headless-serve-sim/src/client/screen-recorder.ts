@@ -2,6 +2,7 @@ import {
   DEVICE_FRAMES,
   rotationDegreesForOrientation,
   streamDisplayGeometry,
+  type DeviceFrameSpec,
   type DeviceType,
   type SimulatorRecordingSnapshot,
   type SimulatorRecordingSource,
@@ -30,9 +31,12 @@ export interface RecordingLayout {
   screenRect: RecordingRect;
   rotationDegrees: number;
   frameRotationDegrees: number;
-  deviceFrame: DeviceType | null;
+  frameSpec: DeviceFrameSpec | null;
+  frameRect: RecordingRect | null;
   frameScale: number;
-  frameRotated: boolean;
+  screenRadius: number;
+  outerRadius: number;
+  cutoutRect: RecordingRect | null;
 }
 
 export type RecordingTouch = SimulatorRecordingTouch;
@@ -88,7 +92,7 @@ export interface ScreenRecorderPlatform {
 export interface CanvasScreenRecorderOptions {
   source: RecordingSource;
   format?: RecordingFormat;
-  deviceFrame?: DeviceType | null;
+  deviceFrame?: DeviceFrameSpec | DeviceType | null;
   includeTouches?: boolean;
   fps?: number;
   videoBitsPerSecond?: number;
@@ -159,47 +163,92 @@ function evenCeil(value: number): number {
 
 export function createRecordingLayout(
   source: RecordingSourceGeometry,
-  deviceFrame: DeviceType | null = null,
+  deviceFrame: DeviceFrameSpec | DeviceType | null = null,
 ): RecordingLayout {
   const geometry = streamDisplayGeometry(source);
   const display = geometry.displayConfig;
   if (!display) throw new Error("recording source dimensions must be positive");
-  if (deviceFrame) {
-    const frame = DEVICE_FRAMES[deviceFrame];
-    const frameIsLandscape = frame.width > frame.height;
+  const frameSpec = typeof deviceFrame === "string"
+    ? genericDeviceFrameSpec(deviceFrame)
+    : deviceFrame;
+  if (frameSpec) {
+    const native = frameSpec.nativeScreen;
+    const insets = frameSpec.insetsPx;
+    const outerWidth = insets.left + native.width + insets.right;
+    const outerHeight = insets.top + native.height + insets.bottom;
+    const canonicalScreen = {
+      x: insets.left,
+      y: insets.top,
+      width: native.width,
+      height: native.height,
+    };
+    const outerInsets = frameSpec.outerInsetsPx ?? {
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+    };
+    const canonicalFrame = {
+      x: outerInsets.left,
+      y: outerInsets.top,
+      width: outerWidth - outerInsets.left - outerInsets.right,
+      height: outerHeight - outerInsets.top - outerInsets.bottom,
+    };
+    const nativeIsLandscape = native.width > native.height;
     const displayIsLandscape = display.width > display.height;
-    const frameRotated = frameIsLandscape !== displayIsLandscape;
-    const outerWidth = frameRotated ? frame.height : frame.width;
-    const outerHeight = frameRotated ? frame.width : frame.height;
-    const bezelX = frameRotated ? frame.bezelY : frame.bezelX;
-    const bezelY = frameRotated ? frame.bezelX : frame.bezelY;
-    const innerWidth = outerWidth - 2 * bezelX;
-    const innerHeight = outerHeight - 2 * bezelY;
-    const frameScale = Math.max(
-      display.width / innerWidth,
-      display.height / innerHeight,
+    const frameRotationDegrees = rotationDegreesForOrientation(source.orientation) ||
+      (nativeIsLandscape !== displayIsLandscape ? 90 : 0);
+    const rotatedScreen = rotateRecordingRect(
+      canonicalScreen,
+      outerWidth,
+      outerHeight,
+      frameRotationDegrees,
     );
-    const frameWidth = outerWidth * frameScale;
-    const frameHeight = outerHeight * frameScale;
-    const width = evenCeil(frameWidth);
-    const height = evenCeil(frameHeight);
-    const offsetX = (width - frameWidth) / 2;
-    const offsetY = (height - frameHeight) / 2;
+    const rotatedFrame = rotateRecordingRect(
+      canonicalFrame,
+      outerWidth,
+      outerHeight,
+      frameRotationDegrees,
+    );
+    const frameWidth = Math.abs(frameRotationDegrees) === 90 ? outerHeight : outerWidth;
+    const frameHeight = Math.abs(frameRotationDegrees) === 90 ? outerWidth : outerHeight;
+    const frameScale = Math.max(
+      display.width / rotatedScreen.width,
+      display.height / rotatedScreen.height,
+    );
+    const scaledFrameWidth = frameWidth * frameScale;
+    const scaledFrameHeight = frameHeight * frameScale;
+    const width = evenCeil(scaledFrameWidth);
+    const height = evenCeil(scaledFrameHeight);
+    const offsetX = (width - scaledFrameWidth) / 2;
+    const offsetY = (height - scaledFrameHeight) / 2;
+    const place = (rect: RecordingRect): RecordingRect => ({
+      x: offsetX + rect.x * frameScale,
+      y: offsetY + rect.y * frameScale,
+      width: rect.width * frameScale,
+      height: rect.height * frameScale,
+    });
+    const canonicalCutout = frameCutoutRect(frameSpec);
+    const cutoutRect = canonicalCutout
+      ? place(rotateRecordingRect(
+          canonicalCutout,
+          outerWidth,
+          outerHeight,
+          frameRotationDegrees,
+        ))
+      : null;
     return {
       width,
       height,
-      screenRect: {
-        x: offsetX + bezelX * frameScale,
-        y: offsetY + bezelY * frameScale,
-        width: innerWidth * frameScale,
-        height: innerHeight * frameScale,
-      },
+      screenRect: place(rotatedScreen),
       rotationDegrees: geometry.rotationDegrees,
-      frameRotationDegrees:
-        rotationDegreesForOrientation(source.orientation) || (displayIsLandscape ? 90 : 0),
-      deviceFrame,
+      frameRotationDegrees,
+      frameSpec,
+      frameRect: place(rotatedFrame),
       frameScale,
-      frameRotated,
+      screenRadius: Math.max(...Object.values(frameSpec.screenRadiiPx)) * frameScale,
+      outerRadius: Math.max(frameSpec.outerRadiiPx.x, frameSpec.outerRadiiPx.y) * frameScale,
+      cutoutRect,
     };
   }
   const width = evenCeil(display.width);
@@ -215,9 +264,98 @@ export function createRecordingLayout(
     },
     rotationDegrees: geometry.rotationDegrees,
     frameRotationDegrees: rotationDegreesForOrientation(source.orientation),
-    deviceFrame,
+    frameSpec: null,
+    frameRect: null,
     frameScale: 1,
-    frameRotated: false,
+    screenRadius: 0,
+    outerRadius: 0,
+    cutoutRect: null,
+  };
+}
+
+function genericDeviceFrameSpec(deviceType: DeviceType): DeviceFrameSpec | null {
+  if (deviceType === "vision") return null;
+  const frame = DEVICE_FRAMES[deviceType];
+  const screenWidth = frame.width - 2 * frame.bezelX;
+  const screenHeight = frame.height - 2 * frame.bezelY;
+  return {
+    deviceTypeIdentifier: `generic:${deviceType}`,
+    modelName: `Generic ${deviceType}`,
+    family: deviceType,
+    nativeScreen: { width: screenWidth, height: screenHeight },
+    insetsPx: {
+      top: frame.bezelY,
+      right: frame.bezelX,
+      bottom: frame.bezelY,
+      left: frame.bezelX,
+    },
+    screenRadiiPx: {
+      topLeft: frame.innerRadius,
+      topRight: frame.innerRadius,
+      bottomRight: frame.innerRadius,
+      bottomLeft: frame.innerRadius,
+    },
+    outerRadiiPx: {
+      x: frame.innerRadius + frame.bezelX,
+      y: frame.innerRadius + frame.bezelY,
+    },
+    cutout: deviceType === "iphone" ? "dynamic-island" : "none",
+    chromeIdentifier: `generic:${deviceType}`,
+  };
+}
+
+function rotateRecordingRect(
+  rect: RecordingRect,
+  boundsWidth: number,
+  boundsHeight: number,
+  rotationDegrees: number,
+): RecordingRect {
+  if (rotationDegrees === 90) {
+    return {
+      x: boundsHeight - rect.y - rect.height,
+      y: rect.x,
+      width: rect.height,
+      height: rect.width,
+    };
+  }
+  if (rotationDegrees === -90) {
+    return {
+      x: rect.y,
+      y: boundsWidth - rect.x - rect.width,
+      width: rect.height,
+      height: rect.width,
+    };
+  }
+  if (Math.abs(rotationDegrees) === 180) {
+    return {
+      x: boundsWidth - rect.x - rect.width,
+      y: boundsHeight - rect.y - rect.height,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+  return rect;
+}
+
+function frameCutoutRect(frame: DeviceFrameSpec): RecordingRect | null {
+  if (frame.cutout === "none") return null;
+  const screen = frame.nativeScreen;
+  if (frame.cutoutRectPx) {
+    return {
+      x: frame.insetsPx.left + frame.cutoutRectPx.x,
+      y: frame.insetsPx.top + frame.cutoutRectPx.y,
+      width: frame.cutoutRectPx.width,
+      height: frame.cutoutRectPx.height,
+    };
+  }
+  const width = screen.width * (frame.cutout === "dynamic-island" ? 123.333 / 391 : 209 / 390);
+  const height = screen.height * (frame.cutout === "dynamic-island" ? 36 / 845 : 32 / 844);
+  return {
+    x: frame.insetsPx.left + (screen.width - width) / 2,
+    y: frame.insetsPx.top +
+      (frame.cutout === "dynamic-island" ? screen.height * (13.667 / 845) : 0),
+    width,
+    height,
   };
 }
 
@@ -254,96 +392,25 @@ function containRect(source: RecordingRect, target: RecordingRect): RecordingRec
   };
 }
 
-function frameRect(layout: RecordingLayout): RecordingRect | null {
-  if (!layout.deviceFrame) return null;
-  const frame = DEVICE_FRAMES[layout.deviceFrame];
-  const bezelX = layout.frameRotated ? frame.bezelY : frame.bezelX;
-  const bezelY = layout.frameRotated ? frame.bezelX : frame.bezelY;
-  const width = layout.frameRotated ? frame.height : frame.width;
-  const height = layout.frameRotated ? frame.width : frame.height;
-  return {
-    x: layout.screenRect.x - bezelX * layout.frameScale,
-    y: layout.screenRect.y - bezelY * layout.frameScale,
-    width: width * layout.frameScale,
-    height: height * layout.frameScale,
-  };
-}
-
 function paintFrameBase(ctx: CanvasRenderingContext2D, layout: RecordingLayout): void {
-  const outer = frameRect(layout);
-  if (!outer || !layout.deviceFrame) return;
-  const frame = DEVICE_FRAMES[layout.deviceFrame];
+  const outer = layout.frameRect;
+  if (!outer || !layout.frameSpec) return;
   ctx.fillStyle = "#09090b";
-  roundedRectPath(
-    ctx,
-    outer,
-    (frame.innerRadius + Math.max(frame.bezelX, frame.bezelY)) * layout.frameScale,
-  );
+  roundedRectPath(ctx, outer, layout.outerRadius);
   ctx.fill();
 }
 
-function iphoneIslandRect(outer: RecordingRect, rotationDegrees: number): RecordingRect {
-  const portrait = { x: 151.666, y: 31.667, width: 123.333, height: 36 };
-  const portraitWidth = 427;
-  const portraitHeight = 881;
-  let rotated: RecordingRect;
-  let rotatedWidth = portraitWidth;
-  let rotatedHeight = portraitHeight;
-
-  if (rotationDegrees === 90) {
-    rotated = {
-      x: portraitHeight - portrait.y - portrait.height,
-      y: portrait.x,
-      width: portrait.height,
-      height: portrait.width,
-    };
-    rotatedWidth = portraitHeight;
-    rotatedHeight = portraitWidth;
-  } else if (rotationDegrees === -90) {
-    rotated = {
-      x: portrait.y,
-      y: portraitWidth - portrait.x - portrait.width,
-      width: portrait.height,
-      height: portrait.width,
-    };
-    rotatedWidth = portraitHeight;
-    rotatedHeight = portraitWidth;
-  } else if (Math.abs(rotationDegrees) === 180) {
-    rotated = {
-      x: portraitWidth - portrait.x - portrait.width,
-      y: portraitHeight - portrait.y - portrait.height,
-      width: portrait.width,
-      height: portrait.height,
-    };
-  } else {
-    rotated = portrait;
-  }
-
-  return {
-    x: outer.x + (rotated.x / rotatedWidth) * outer.width,
-    y: outer.y + (rotated.y / rotatedHeight) * outer.height,
-    width: (rotated.width / rotatedWidth) * outer.width,
-    height: (rotated.height / rotatedHeight) * outer.height,
-  };
-}
-
 function paintFrameChrome(ctx: CanvasRenderingContext2D, layout: RecordingLayout): void {
-  const outer = frameRect(layout);
-  if (!outer || !layout.deviceFrame) return;
-  const frame = DEVICE_FRAMES[layout.deviceFrame];
+  const outer = layout.frameRect;
+  if (!outer || !layout.frameSpec) return;
   ctx.strokeStyle = "#646468";
   ctx.lineWidth = Math.max(1, 1.5 * layout.frameScale);
-  roundedRectPath(
-    ctx,
-    outer,
-    (frame.innerRadius + Math.max(frame.bezelX, frame.bezelY)) * layout.frameScale,
-  );
+  roundedRectPath(ctx, outer, layout.outerRadius);
   ctx.stroke();
 
-  if (layout.deviceFrame === "iphone") {
-    const island = iphoneIslandRect(outer, layout.frameRotationDegrees);
+  if (layout.cutoutRect) {
     ctx.fillStyle = "#000";
-    roundedRectPath(ctx, island, island.height / 2);
+    roundedRectPath(ctx, layout.cutoutRect, layout.cutoutRect.height / 2);
     ctx.fill();
   }
 }
@@ -393,9 +460,8 @@ export function paintRecordingFrame(
     layout.screenRect,
   );
   ctx.save();
-  if (layout.deviceFrame) {
-    const frame = DEVICE_FRAMES[layout.deviceFrame];
-    roundedRectPath(ctx, layout.screenRect, frame.innerRadius * layout.frameScale);
+  if (layout.frameSpec) {
+    roundedRectPath(ctx, layout.screenRect, layout.screenRadius);
     ctx.clip();
   }
   ctx.fillStyle = "#000";
@@ -428,6 +494,29 @@ export function paintRecordingFrame(
   ctx.restore();
   paintFrameChrome(ctx, layout);
   return true;
+}
+
+export function paintRecordingSnapshot(
+  ctx: CanvasRenderingContext2D,
+  canvasLayout: RecordingLayout,
+  deviceFrame: DeviceFrameSpec | DeviceType | null,
+  snapshot: RecordingSnapshot,
+): boolean {
+  const frameLayout = createRecordingLayout(snapshot, deviceFrame);
+  const target = containRect(
+    { x: 0, y: 0, width: frameLayout.width, height: frameLayout.height },
+    { x: 0, y: 0, width: canvasLayout.width, height: canvasLayout.height },
+  );
+  const scale = target.width / frameLayout.width;
+
+  ctx.save();
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, canvasLayout.width, canvasLayout.height);
+  ctx.translate(target.x, target.y);
+  ctx.scale(scale, scale);
+  const painted = paintRecordingFrame(ctx, frameLayout, snapshot);
+  ctx.restore();
+  return painted;
 }
 
 function defaultScreenRecorderPlatform(): ScreenRecorderPlatform {
@@ -590,9 +679,10 @@ export class CanvasScreenRecorder {
 
   private paint(snapshot: RecordingSnapshot): boolean {
     if (!this.context || !this.layout) return false;
-    return paintRecordingFrame(
+    return paintRecordingSnapshot(
       this.context,
       this.layout,
+      this.options.deviceFrame ?? null,
       this.options.includeTouches === false && snapshot.touches.length > 0
         ? { ...snapshot, touches: [] }
         : snapshot,

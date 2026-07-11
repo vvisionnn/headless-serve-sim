@@ -33,7 +33,7 @@ export interface ConnectionStatsSnapshot {
  * panel show what the encoder is doing in response to link conditions. */
 export interface ServerStreamStats {
   /** "perf" | "quality" — current server streaming mode. */
-  mode: string;
+  mode: "perf" | "quality";
   /** Adaptive target bitrate the encoder is currently set to (bits/sec). */
   targetBitrateBps: number;
   /** Current max-QP cap (sharpness ceiling, 1–51; lower = sharper). */
@@ -79,6 +79,7 @@ export function parseServerStreamStats(payload: Uint8Array): ServerStreamStats |
       queueMs?: number;
       droppedFrames?: number;
     };
+    if (s.mode !== "perf" && s.mode !== "quality") return null;
     return {
       mode: s.mode,
       targetBitrateBps: s.targetBitrate,

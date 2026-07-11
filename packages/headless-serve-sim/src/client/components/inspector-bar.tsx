@@ -1,6 +1,6 @@
 import type { MutableRefObject } from "react";
 import type {
-  DeviceType,
+  DeviceFrameSpec,
   SimulatorRecordingSource,
 } from "headless-serve-sim-client/simulator";
 import { LocationEmulationTool } from "../location-emulation-tool";
@@ -13,6 +13,7 @@ import { CameraTool } from "./camera-tool";
 import { ImportDocumentTool } from "./import-document-tool";
 import { ScreenshotTool } from "./screenshot-tool";
 import { ScreenRecordingTool } from "./screen-recording-tool";
+import type { StreamMode } from "./stream-mode-toggle";
 import { SimulatorSettingsTool } from "./simulator-settings-tool";
 import { StatusBarTool } from "./status-bar-tool";
 import { UserDefaultsTool } from "./user-defaults-tool";
@@ -32,8 +33,11 @@ export interface InspectorBarProps {
   frameHeight: number;
   openOverlay: "stats" | "logs" | "grid" | "devtools" | null;
   udid: string;
-  deviceType: DeviceType;
+  deviceFrameSpec: DeviceFrameSpec | null;
   streaming: boolean;
+  streamMode: StreamMode;
+  streamModeAvailable: boolean;
+  onStreamModeChange: (mode: StreamMode) => void;
   recordingSourceRef: MutableRefObject<SimulatorRecordingSource | null>;
   /** Live exec token; rotates on server restart so the settings tool re-auths. */
   execToken?: string;
@@ -59,8 +63,11 @@ export function InspectorBar({
   frameHeight,
   openOverlay,
   udid,
-  deviceType,
+  deviceFrameSpec,
   streaming,
+  streamMode,
+  streamModeAvailable,
+  onStreamModeChange,
   recordingSourceRef,
   execToken,
   currentApp,
@@ -147,9 +154,12 @@ export function InspectorBar({
           <ScreenshotTool udid={udid} />
           <ScreenRecordingTool
             sourceRef={recordingSourceRef}
-            deviceType={deviceType}
+            deviceFrameSpec={deviceFrameSpec}
             deviceKey={udid}
             streaming={streaming}
+            streamMode={streamMode}
+            streamModeAvailable={streamModeAvailable}
+            onStreamModeChange={onStreamModeChange}
           />
           <ImportDocumentTool udid={udid} />
           <LocationEmulationTool udid={udid} exec={execOnHost} />

@@ -13,11 +13,12 @@
     },
     "packages/headless-serve-sim": {
       "name": "headless-serve-sim",
-      "version": "0.0.8",
+      "version": "0.0.17",
       "bin": {
         "headless-serve-sim": "dist/headless-serve-sim.js",
       },
       "dependencies": {
+        "headless-serve-sim-client": "workspace:*",
         "inspect-webkit": "^0.0.5",
         "ws": "^8.21.0",
       },
@@ -30,7 +31,6 @@
         "bun-plugin-tailwind": "^0.1.2",
         "commander": "^14.0.1",
         "debug": "^4.4.3",
-        "headless-serve-sim-client": "workspace:*",
         "preact": "^10.29.1",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",

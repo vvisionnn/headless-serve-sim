@@ -13,6 +13,7 @@ interface SimLogEventSource {
 export interface CreateSimLogFeedOptions {
   endpoint: string;
   level: SimLogLevel;
+  processId: number | null;
   onStatus: (status: SimLogFeedStatus) => void;
   onBatch: (entries: SimLogEntry[]) => void;
   baseUrl?: string;
@@ -33,6 +34,7 @@ let feedSequence = 0;
 export function createSimLogFeed({
   endpoint,
   level,
+  processId,
   onStatus,
   onBatch,
   baseUrl,
@@ -52,7 +54,7 @@ export function createSimLogFeed({
   let pendingBytes = 0;
 
   onStatus("connecting");
-  const source = eventSourceFactory(buildSimLogsUrl(endpoint, level, baseUrl));
+  const source = eventSourceFactory(buildSimLogsUrl(endpoint, { level, processId }, baseUrl));
 
   const flush = () => {
     frameId = null;

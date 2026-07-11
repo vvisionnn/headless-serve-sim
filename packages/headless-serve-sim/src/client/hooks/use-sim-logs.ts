@@ -17,7 +17,7 @@ const LOG_BUFFER_LIMITS = {
   maxBytes: 2 * 1024 * 1024,
 } as const;
 
-export type SimLogsStatus = SimLogFeedStatus | "paused" | "unavailable";
+export type SimLogsStatus = SimLogFeedStatus | "paused" | "unavailable" | "waiting";
 
 export interface UseSimLogsResult {
   entries: SimLogEntry[];
@@ -30,7 +30,10 @@ export interface UseSimLogsResult {
   clear: () => void;
 }
 
-export function useSimLogs(endpoint?: string): UseSimLogsResult {
+export function useSimLogs(
+  endpoint: string | undefined,
+  options: { appProcessId: number | null; includeSystem: boolean },
+): UseSimLogsResult {
   const [buffer, setBuffer] = useState<SimLogBuffer>(EMPTY_BUFFER);
   const [status, setStatus] = useState<SimLogsStatus>(endpoint ? "connecting" : "unavailable");
   const [level, setLevel] = useState<SimLogLevel>("info");
@@ -51,10 +54,15 @@ export function useSimLogs(endpoint?: string): UseSimLogsResult {
       setStatus("paused");
       return;
     }
+    if (!options.includeSystem && options.appProcessId === null) {
+      setStatus("waiting");
+      return;
+    }
 
     const feed = createSimLogFeed({
       endpoint,
       level,
+      processId: options.includeSystem ? null : options.appProcessId,
       onStatus: setStatus,
       onBatch: (entries) => {
         for (const entry of entries) forwardSimLogToConsole(entry);
@@ -62,7 +70,7 @@ export function useSimLogs(endpoint?: string): UseSimLogsResult {
       },
     });
     return () => feed.stop();
-  }, [endpoint, level, paused]);
+  }, [endpoint, level, options.appProcessId, options.includeSystem, paused]);
 
   return {
     entries: buffer.entries,

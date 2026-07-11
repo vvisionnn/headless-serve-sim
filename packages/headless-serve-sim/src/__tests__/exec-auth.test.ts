@@ -114,4 +114,16 @@ describe("/logs auth", () => {
       expect(response.status).toBe(400);
     });
   });
+
+  test("rejects an invalid process identifier before device lookup", async () => {
+    await withServer(async (origin) => {
+      for (const processId of ["", "0", "-1", "1.5", "not-a-pid"]) {
+        const response = await fetch(
+          `${origin}/logs?device=NOT-RUNNING&token=${TOKEN}&processId=${encodeURIComponent(processId)}`,
+        );
+        expect(response.status).toBe(400);
+        expect(await response.text()).toBe("Invalid process id");
+      }
+    });
+  });
 });

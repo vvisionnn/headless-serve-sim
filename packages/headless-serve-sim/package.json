@@ -32,8 +32,15 @@
     "dist/simax/headless-serve-sim-ax-settings",
     "src/ax-shared.ts",
     "src/ax.ts",
+    "src/debug.ts",
+    "src/device-frame-profile.ts",
+    "src/device.ts",
+    "src/exec-ws.ts",
     "src/middleware.ts",
+    "src/runtime.ts",
+    "src/sim-log-stream.ts",
     "src/state.ts",
+    "src/ui-settings.ts",
     "bin/headless-serve-sim-bin",
     "Sources/SimCameraInjector/SimCameraInjector.m",
     "Sources/SimCameraInjector/SimCam*.h",
@@ -77,11 +84,11 @@
     "preact": "^10.29.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "headless-serve-sim-client": "workspace:*",
     "tailwindcss": "^4.1.7",
     "typescript": "^5.7.0"
   },
   "dependencies": {
+    "headless-serve-sim-client": "^0.1.16",
     "inspect-webkit": "^0.0.5",
     "ws": "^8.21.0"
   }

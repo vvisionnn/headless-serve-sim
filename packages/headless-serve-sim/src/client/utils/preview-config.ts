@@ -8,6 +8,15 @@ type PreviewConfig = NonNullable<Window["__SIM_PREVIEW__"]>;
 // token and the control socket stayed closed until a manual page reload.
 export function previewConfigKey(config: PreviewConfig | null): string {
   return config
-    ? `${config.device}:${config.pid}:${config.streamUrl}:${config.wsUrl}:${config.execToken ?? ""}`
+    ? [
+        config.device,
+        config.pid,
+        config.streamUrl,
+        config.wsUrl,
+        config.deviceName ?? "",
+        config.deviceTypeIdentifier ?? "",
+        JSON.stringify(config.deviceFrameSpec ?? null),
+        config.execToken ?? "",
+      ].join(":")
     : "";
 }

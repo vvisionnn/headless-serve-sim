@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "events";
+import { PassThrough } from "stream";
 import {
   buildSimLogStreamArgs,
   createSimLogLineFramer,
   parseSimLogLevel,
+  parseSimLogProcessId,
   startSimulatorLogStream,
 } from "../sim-log-stream";
 
@@ -18,7 +20,7 @@ describe("simulator log stream options", () => {
   });
 
   test("builds an argv-only simctl command for the selected device and level", () => {
-    expect(buildSimLogStreamArgs("DEVICE-123", "debug")).toEqual([
+    expect(buildSimLogStreamArgs("DEVICE-123", "debug", 4242)).toEqual([
       "simctl",
       "spawn",
       "DEVICE-123",
@@ -28,7 +30,17 @@ describe("simulator log stream options", () => {
       "ndjson",
       "--level",
       "debug",
+      "--predicate",
+      "processID == 4242",
     ]);
+  });
+
+  test("accepts only a positive safe process identifier", () => {
+    expect(parseSimLogProcessId(null)).toBeNull();
+    expect(parseSimLogProcessId("4242")).toBe(4242);
+    for (const value of ["", "0", "-1", "1.5", "abc", "9007199254740992"]) {
+      expect(parseSimLogProcessId(value)).toBeUndefined();
+    }
   });
 });
 
@@ -51,11 +63,49 @@ describe("createSimLogLineFramer", () => {
 });
 
 describe("startSimulatorLogStream", () => {
+  test("preserves a multibyte log message split across stdout chunks", () => {
+    const stdout = new PassThrough();
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough;
+      kill: () => void;
+    };
+    child.stdout = stdout;
+    child.kill = () => {};
+    const response = new EventEmitter() as EventEmitter & {
+      writableEnded: boolean;
+      writes: string[];
+      write: (chunk: string) => boolean;
+      end: () => void;
+    };
+    response.writableEnded = false;
+    response.writes = [];
+    response.write = (chunk) => {
+      response.writes.push(chunk);
+      return true;
+    };
+    response.end = () => { response.writableEnded = true; };
+
+    const stop = startSimulatorLogStream({
+      udid: "DEVICE-123",
+      level: "info",
+      response: response as never,
+      spawnProcess: (() => child) as never,
+    });
+    const line = Buffer.from('{"eventMessage":"你好 👋"}\n');
+    const split = line.indexOf(Buffer.from("你")) + 1;
+    stdout.write(line.subarray(0, split));
+    stdout.write(line.subarray(split));
+
+    expect(response.writes).toEqual(['data: {"eventMessage":"你好 👋"}\n\n']);
+    stop();
+  });
+
   test("frames SSE, pauses on backpressure, resumes on drain, and cleans up once", () => {
     const stdout = new EventEmitter() as EventEmitter & {
       pause: () => void;
       resume: () => void;
       destroy: () => void;
+      setEncoding: () => void;
     };
     let pauses = 0;
     let resumes = 0;
@@ -63,6 +113,7 @@ describe("startSimulatorLogStream", () => {
     stdout.pause = () => { pauses++; };
     stdout.resume = () => { resumes++; };
     stdout.destroy = () => { destroys++; };
+    stdout.setEncoding = () => {};
 
     const child = new EventEmitter() as EventEmitter & {
       stdout: typeof stdout;
@@ -118,10 +169,12 @@ describe("startSimulatorLogStream", () => {
       pause: () => void;
       resume: () => void;
       destroy: () => void;
+      setEncoding: () => void;
     };
     stdout.pause = () => {};
     stdout.resume = () => {};
     stdout.destroy = () => {};
+    stdout.setEncoding = () => {};
 
     const child = new EventEmitter() as EventEmitter & {
       stdout: typeof stdout;

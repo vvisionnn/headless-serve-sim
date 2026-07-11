@@ -78,7 +78,7 @@ if (!address || typeof address === "string") throw new Error("missing server add
 
 const controller = new AbortController();
 const response = await fetch(
-  \`http://127.0.0.1:\${address.port}/logs?device=${DEVICE}&token=${TOKEN}&level=debug\`,
+  \`http://127.0.0.1:\${address.port}/logs?device=${DEVICE}&token=${TOKEN}&level=debug&processId=4242\`,
   { signal: controller.signal },
 );
 const reader = response.body?.getReader();
@@ -127,7 +127,7 @@ describe("GET /logs", () => {
 
     const calls = readFileSync(harness.callsPath, "utf-8").trim().split("\n");
     expect(calls.filter((call) => call.startsWith(`simctl spawn ${DEVICE} `))).toEqual([
-      `simctl spawn ${DEVICE} log stream --style ndjson --level debug`,
+      `simctl spawn ${DEVICE} log stream --style ndjson --level debug --predicate processID == 4242`,
     ]);
     expect(readFileSync(harness.cleanupPath, "utf-8")).toBe("cleaned\n");
   }, 15_000);

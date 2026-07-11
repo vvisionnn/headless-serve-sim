@@ -35,6 +35,15 @@ export {
 } from "./orientation.js";
 export type { StreamDisplayGeometry } from "./orientation.js";
 export type { DeviceType } from "./deviceFrames.js";
+export { matchDeviceFrameSpec } from "./device-frame-spec.js";
+export type {
+  DeviceFrameCutout,
+  DeviceFrameFamily,
+  DeviceFrameIdentity,
+  DeviceFrameInsets,
+  DeviceFrameMatch,
+  DeviceFrameSpec,
+} from "./device-frame-spec.js";
 export type { SimulatorOrientation, StreamConfig } from "../types.js";
 export { useAvccStream } from "./use-avcc-stream.js";
 export type { UseAvccStreamOptions } from "./use-avcc-stream.js";

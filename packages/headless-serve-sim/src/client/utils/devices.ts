@@ -3,6 +3,7 @@ export interface SimDevice {
   name: string;
   state: string;
   runtime: string;
+  deviceTypeIdentifier?: string;
 }
 
 export function parseSimctlList(stdout: string): SimDevice[] {
@@ -15,7 +16,15 @@ export function parseSimctlList(stdout: string): SimDevice[] {
         .replace(/-/g, ".");
       for (const d of devs) {
         if (d.isAvailable) {
-          out.push({ udid: d.udid, name: d.name, state: d.state, runtime: runtimeName });
+          out.push({
+            udid: d.udid,
+            name: d.name,
+            state: d.state,
+            runtime: runtimeName,
+            ...(typeof d.deviceTypeIdentifier === "string"
+              ? { deviceTypeIdentifier: d.deviceTypeIdentifier }
+              : {}),
+          });
         }
       }
     }

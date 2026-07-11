@@ -162,4 +162,15 @@ describe("parseServerStreamStats", () => {
     expect(parseServerStreamStats(payload)?.queueMs).toBe(0);
     expect(parseServerStreamStats(payload)?.droppedFrames).toBe(0);
   });
+
+  test("rejects an unknown stream mode instead of desynchronizing controlled UI", () => {
+    const payload = new TextEncoder().encode(JSON.stringify({
+      mode: "ultra",
+      targetBitrate: 12_000_000,
+      maxQP: 46,
+      congested: false,
+      serverFps: 60,
+    }));
+    expect(parseServerStreamStats(payload)).toBeNull();
+  });
 });
