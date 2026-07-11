@@ -191,11 +191,15 @@ class FakeRecorderPlatform implements ScreenRecorderPlatform {
   readonly recorder = new FakeMediaRecorder();
   readonly track = { stops: 0, stop: () => { this.track.stops++; } };
   readonly stream: RecorderMediaStream = { getTracks: () => [this.track] };
+  readonly captureFrameRates: number[] = [];
   readonly canvas: RecorderCanvas = {
     width: 0,
     height: 0,
     getContext: () => this.context as unknown as CanvasRenderingContext2D,
-    captureStream: () => this.stream,
+    captureStream: (frameRate) => {
+      this.captureFrameRates.push(frameRate);
+      return this.stream;
+    },
   };
   nowMs = 1_000;
   wallClockMs = Date.UTC(2026, 6, 11, 12, 34, 56);
@@ -899,6 +903,42 @@ describe("screen recording composition", () => {
 });
 
 describe("CanvasScreenRecorder lifecycle", () => {
+  test("limits compositor snapshots to the requested recording frame rate", () => {
+    const platform = new FakeRecorderPlatform();
+    let snapshots = 0;
+    const recorder = new CanvasScreenRecorder({
+      source: {
+        snapshot: () => {
+          snapshots++;
+          return {
+            source: {} as CanvasImageSource,
+            width: 100,
+            height: 200,
+            surfaceWidth: 100,
+            surfaceHeight: 200,
+            touches: [],
+          };
+        },
+      },
+      fps: 30,
+    }, platform);
+
+    recorder.start();
+    for (let frame = 1; frame <= 120; frame++) {
+      const entry = platform.rafCallbacks.entries().next().value;
+      expect(entry).toBeDefined();
+      const [id, callback] = entry!;
+      platform.rafCallbacks.delete(id);
+      platform.nowMs = 1_000 + frame * (1_000 / 120);
+      callback(platform.nowMs);
+    }
+
+    expect(platform.captureFrameRates).toEqual([30]);
+    expect(snapshots).toBeGreaterThanOrEqual(30);
+    expect(snapshots).toBeLessThanOrEqual(32);
+    recorder.cancel();
+  });
+
   test("records framed artifacts at the padded canvas dimensions", async () => {
     const platform = new FakeRecorderPlatform();
     const source = {
@@ -1070,8 +1110,9 @@ describe("CanvasScreenRecorder lifecycle", () => {
     recorder.start();
     platform.context.drawImageError = new Error("canvas became unreadable");
     const paint = [...platform.rafCallbacks.values()][0]!;
+    platform.nowMs += 1_000 / 30;
 
-    expect(() => paint(0)).not.toThrow();
+    expect(() => paint(platform.nowMs)).not.toThrow();
     expect(recorder.state).toBe("error");
     expect(reported[0]?.message).toBe("canvas became unreadable");
     expect(platform.track.stops).toBe(1);

@@ -772,6 +772,7 @@ export class CanvasScreenRecorder {
   private mediaRecorder: RecorderMediaRecorder | null = null;
   private chunks: Blob[] = [];
   private rafId: number | null = null;
+  private nextPaintAt = 0;
   private startedAt = 0;
   private startedWallClock = 0;
   private artifactUrl: string | null = null;
@@ -838,6 +839,7 @@ export class CanvasScreenRecorder {
           this.fail(event.error ?? new Error("screen recording failed"));
         this.startedAt = this.platform.now();
         this.startedWallClock = this.platform.wallClock();
+        this.nextPaintAt = this.startedAt + 1_000 / (this.options.fps ?? 30);
         this._state = "recording";
         candidate.start(1_000);
         break;
@@ -923,12 +925,16 @@ export class CanvasScreenRecorder {
   private schedulePaint(): void {
     this.rafId = this.platform.requestAnimationFrame(() => {
       if (this._state !== "recording" && this._state !== "stopping") return;
-      try {
-        const snapshot = this.options.source.snapshot(this.platform.now());
-        if (snapshot) this.paint(snapshot);
-      } catch (error) {
-        this.fail(error);
-        return;
+      const now = this.platform.now();
+      if (now >= this.nextPaintAt) {
+        this.nextPaintAt = now + 1_000 / (this.options.fps ?? 30);
+        try {
+          const snapshot = this.options.source.snapshot(now);
+          if (snapshot) this.paint(snapshot);
+        } catch (error) {
+          this.fail(error);
+          return;
+        }
       }
       this.schedulePaint();
     });
