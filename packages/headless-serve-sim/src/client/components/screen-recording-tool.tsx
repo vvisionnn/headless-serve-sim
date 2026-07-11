@@ -6,6 +6,7 @@ import {
   type MutableRefObject,
 } from "react";
 import type {
+  DeviceType,
   DeviceFrameSpec,
   SimulatorRecordingSource,
 } from "headless-serve-sim-client/simulator";
@@ -26,6 +27,7 @@ import {
 } from "../device-frame-artwork";
 
 type RecordingPhase = "idle" | "recording" | "stopping";
+type RecordingDeviceFrame = DeviceFrameSpec | DeviceType | null | undefined;
 type FrameArtworkState = {
   key: string;
   loading: boolean;
@@ -33,11 +35,15 @@ type FrameArtworkState = {
   failed: boolean;
 };
 
-function frameArtworkKey(deviceKey: string, frame: DeviceFrameSpec | null | undefined): string {
-  const artwork = frame?.artwork;
-  return artwork
-    ? `${deviceKey}:${frame.deviceTypeIdentifier}:${frame.chromeIdentifier}:${artwork.width}x${artwork.height}`
-    : `${deviceKey}:procedural`;
+function isExactDeviceFrame(frame: RecordingDeviceFrame): frame is DeviceFrameSpec {
+  return typeof frame === "object" && frame !== null;
+}
+
+function frameArtworkKey(deviceKey: string, frame: RecordingDeviceFrame): string {
+  if (isExactDeviceFrame(frame) && frame.artwork) {
+    return `${deviceKey}:${frame.deviceTypeIdentifier}:${frame.chromeIdentifier}:${frame.artwork.width}x${frame.artwork.height}`;
+  }
+  return `${deviceKey}:${frame ?? "procedural"}`;
 }
 
 export function recordingFormatSupport(
@@ -58,10 +64,13 @@ export function frameSelectionAfterDeviceChange(
 }
 
 export function recordingFrameDescription(
-  frame: DeviceFrameSpec | null | undefined,
+  frame: RecordingDeviceFrame,
   loading: boolean,
   failed: boolean,
 ): string {
+  if (typeof frame === "string") {
+    return `Generic ${frame === "iphone" ? "iPhone" : frame === "ipad" ? "iPad" : "Apple Watch"} frame`;
+  }
   if (loading) return "Preparing real hardware frame…";
   if (failed) return "Real frame unavailable — using simple frame";
   return frame?.modelName ?? "Unavailable for this simulator";
@@ -100,7 +109,7 @@ export function ScreenRecordingTool({
   initiallyOpen = false,
 }: {
   sourceRef: MutableRefObject<SimulatorRecordingSource | null>;
-  deviceFrameSpec?: DeviceFrameSpec | null;
+  deviceFrameSpec?: RecordingDeviceFrame;
   deviceKey: string;
   streaming: boolean;
   streamMode: StreamMode;
@@ -127,9 +136,12 @@ export function ScreenRecordingTool({
   const mountedRef = useRef(true);
   const deviceKeyRef = useRef(deviceKey);
   const support = browserRecordingSupport();
+  const exactDeviceFrame = isExactDeviceFrame(deviceFrameSpec)
+    ? deviceFrameSpec
+    : null;
   const artworkKey = frameArtworkKey(deviceKey, deviceFrameSpec);
   const artworkLoading = Boolean(
-    includeFrame && deviceFrameSpec?.artwork &&
+    includeFrame && exactDeviceFrame?.artwork &&
     (frameArtwork.key !== artworkKey || frameArtwork.loading),
   );
 
@@ -171,7 +183,7 @@ export function ScreenRecordingTool({
   }, [cancelCurrent, deviceFrameSpec, deviceKey]);
 
   useEffect(() => {
-    const frame = deviceFrameSpec;
+    const frame = exactDeviceFrame;
     if (!frame?.artwork || !includeFrame) {
       setFrameArtwork({ key: artworkKey, loading: false, prepared: null, failed: false });
       return;
@@ -189,7 +201,7 @@ export function ScreenRecordingTool({
       }
     });
     return () => { cancelled = true; };
-  }, [artworkKey, deviceFrameSpec, includeFrame]);
+  }, [artworkKey, exactDeviceFrame, includeFrame]);
 
   useEffect(() => {
     if (streaming || phase === "idle") return;
@@ -220,7 +232,7 @@ export function ScreenRecordingTool({
       format,
       includeTouches,
       deviceFrame: includeFrame ? deviceFrameSpec ?? null : null,
-      deviceFrameArtwork: includeFrame && frameArtwork.key === artworkKey
+      deviceFrameArtwork: includeFrame && exactDeviceFrame && frameArtwork.key === artworkKey
         ? frameArtwork.prepared
         : null,
       onError: (nextError) => {
@@ -245,6 +257,7 @@ export function ScreenRecordingTool({
     artworkKey,
     artworkLoading,
     deviceFrameSpec,
+    exactDeviceFrame,
     format,
     frameArtwork,
     includeFrame,
@@ -336,7 +349,7 @@ export function ScreenRecordingTool({
                   deviceFrameSpec,
                   artworkLoading,
                   includeFrame && (
-                    (deviceFrameSpec != null && !deviceFrameSpec.artwork) ||
+                    (exactDeviceFrame != null && !exactDeviceFrame.artwork) ||
                     (frameArtwork.key === artworkKey && frameArtwork.failed)
                   ),
                 )}

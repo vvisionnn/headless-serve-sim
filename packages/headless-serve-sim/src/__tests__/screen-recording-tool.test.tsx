@@ -45,6 +45,27 @@ describe("ScreenRecordingTool", () => {
     expect(recordingFrameDescription(frameSpec, false, false)).toBe("iPhone 17 Pro");
   });
 
+  test("keeps a generic device frame available without DeviceKit metadata", () => {
+    const html = renderToStaticMarkup(
+      <ScreenRecordingTool
+        sourceRef={{ current: null }}
+        deviceFrameSpec="iphone"
+        deviceKey="DEVICE-1"
+        streaming
+        streamMode="perf"
+        streamModeAvailable={false}
+        onStreamModeChange={() => {}}
+        initiallyOpen
+      />,
+    );
+
+    expect(html).toContain("Generic iPhone frame");
+    const frameStart = html.indexOf("Device frame");
+    const frameControl = html.slice(frameStart, html.indexOf("/>", frameStart) + 2);
+    expect(frameControl).toContain('type="checkbox"');
+    expect(frameControl).not.toContain("disabled");
+  });
+
   test("renders format, touch, frame, capture, and unsupported-browser states", () => {
     const html = renderToStaticMarkup(
       <ScreenRecordingTool

@@ -1,5 +1,6 @@
 import type { MutableRefObject } from "react";
 import type {
+  DeviceType,
   DeviceFrameSpec,
   SimulatorRecordingSource,
 } from "headless-serve-sim-client/simulator";
@@ -33,7 +34,7 @@ export interface InspectorBarProps {
   frameHeight: number;
   openOverlay: "stats" | "logs" | "grid" | "devtools" | null;
   udid: string;
-  deviceFrameSpec: DeviceFrameSpec | null;
+  deviceFrameSpec: DeviceFrameSpec | DeviceType | null;
   streaming: boolean;
   streamMode: StreamMode;
   streamModeAvailable: boolean;

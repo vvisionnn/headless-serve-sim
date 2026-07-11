@@ -326,14 +326,15 @@ function AppWithConfig({
     injected: config.screenConfig,
     fallback: config.deviceFrameSpec?.nativeScreen ?? fallbackScreenSize(deviceType, resolvedDeviceName),
   });
-  const recordingDeviceFrameSpec: DeviceFrameSpec | null = config.deviceFrameSpec
+  const recordingDeviceFrameSpec: DeviceFrameSpec | DeviceType | null = config.deviceFrameSpec
     ? matchDeviceFrameSpec({
         deviceTypeIdentifier:
           selectedDevice?.deviceTypeIdentifier ?? config.deviceTypeIdentifier,
         modelName: config.deviceFrameSpec.modelName,
         family: deviceType === "vision" ? null : deviceType,
-      }, activeStreamConfig, [config.deviceFrameSpec]).spec
-    : null;
+      }, activeStreamConfig, [config.deviceFrameSpec]).spec ??
+        (deviceType === "vision" ? null : deviceType)
+    : deviceType === "vision" ? null : deviceType;
   const frameMaxWidth = simulatorMaxWidth(deviceType, activeStreamConfig);
   const frameDisplayConfig = displayStreamConfig(activeStreamConfig);
   const frameAspectRatioValue = frameDisplayConfig
