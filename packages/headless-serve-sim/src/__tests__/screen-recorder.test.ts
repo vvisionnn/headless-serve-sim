@@ -38,22 +38,58 @@ const IPHONE_16E_FRAME: DeviceFrameSpec = {
   chromeIdentifier: "com.apple.dt.devicekit.chrome.phone13",
 };
 
+interface RecordingContextState {
+  fillStyle: string | CanvasGradient | CanvasPattern;
+  strokeStyle: string | CanvasGradient | CanvasPattern;
+  lineWidth: number;
+  globalAlpha: number;
+  shadowColor: string;
+  shadowBlur: number;
+  shadowOffsetX: number;
+  shadowOffsetY: number;
+}
+
 class RecordingContext {
-  calls: Array<{ name: string; args: unknown[] }> = [];
+  calls: Array<{ name: string; args: unknown[]; state: RecordingContextState }> = [];
   fillStyle: string | CanvasGradient | CanvasPattern = "";
   strokeStyle: string | CanvasGradient | CanvasPattern = "";
   lineWidth = 1;
   globalAlpha = 1;
+  shadowColor = "rgba(0, 0, 0, 0)";
+  shadowBlur = 0;
+  shadowOffsetX = 0;
+  shadowOffsetY = 0;
   imageSmoothingEnabled = false;
   imageSmoothingQuality: ImageSmoothingQuality = "low";
   drawImageError: Error | null = null;
+  private readonly savedStates: RecordingContextState[] = [];
 
-  private call(name: string, ...args: unknown[]) {
-    this.calls.push({ name, args });
+  private state(): RecordingContextState {
+    return {
+      fillStyle: this.fillStyle,
+      strokeStyle: this.strokeStyle,
+      lineWidth: this.lineWidth,
+      globalAlpha: this.globalAlpha,
+      shadowColor: this.shadowColor,
+      shadowBlur: this.shadowBlur,
+      shadowOffsetX: this.shadowOffsetX,
+      shadowOffsetY: this.shadowOffsetY,
+    };
   }
 
-  save() { this.call("save"); }
-  restore() { this.call("restore"); }
+  private call(name: string, ...args: unknown[]) {
+    this.calls.push({ name, args, state: this.state() });
+  }
+
+  save() {
+    this.call("save");
+    this.savedStates.push(this.state());
+  }
+  restore() {
+    this.call("restore");
+    const state = this.savedStates.pop();
+    if (state) Object.assign(this, state);
+  }
   clearRect(...args: number[]) { this.call("clearRect", ...args); }
   fillRect(...args: number[]) { this.call("fillRect", ...args); }
   beginPath() { this.call("beginPath"); }
@@ -183,7 +219,45 @@ describe("screen recording format selection", () => {
 });
 
 describe("screen recording layout", () => {
-  test("uses the exact iPhone 17 Pro profile without letterboxing", () => {
+  test("adds visible padding beyond the complete framed-video shadow", () => {
+    const layout = createRecordingLayout({
+      width: 1206,
+      height: 2622,
+      orientation: "portrait",
+    }, IPHONE_17_PRO_FRAME);
+
+    expect(layout.canvasInsets).toEqual({
+      top: 107,
+      right: 125,
+      bottom: 143,
+      left: 125,
+    });
+    expect({ width: layout.width, height: layout.height }).toEqual({
+      width: 1564,
+      height: 2980,
+    });
+    expect(layout.frameRect).toEqual({
+      x: 125,
+      y: 107,
+      width: 1314,
+      height: 2730,
+    });
+
+    const ambientBlur = 46;
+    const ambientOffsetY = 18;
+    const visiblePadding = 33;
+    expect(layout.frameRect!.x - 2 * ambientBlur).toBe(visiblePadding);
+    expect(layout.frameRect!.y + ambientOffsetY - 2 * ambientBlur).toBe(visiblePadding);
+    expect(
+      layout.width - (layout.frameRect!.x + layout.frameRect!.width + 2 * ambientBlur),
+    ).toBe(visiblePadding);
+    expect(
+      layout.height -
+        (layout.frameRect!.y + layout.frameRect!.height + ambientOffsetY + 2 * ambientBlur),
+    ).toBe(visiblePadding);
+  });
+
+  test("uses the exact iPhone 17 Pro profile without scaling the screen", () => {
     const layout = createRecordingLayout({
       width: 1206,
       height: 2622,
@@ -191,12 +265,12 @@ describe("screen recording layout", () => {
     }, IPHONE_17_PRO_FRAME);
 
     expect({ width: layout.width, height: layout.height }).toEqual({
-      width: 1314,
-      height: 2730,
+      width: 1564,
+      height: 2980,
     });
     expect(layout.screenRect).toEqual({
-      x: 54,
-      y: 54,
+      x: 179,
+      y: 161,
       width: 1206,
       height: 2622,
     });
@@ -210,16 +284,18 @@ describe("screen recording layout", () => {
     }, IPHONE_17_PRO_FRAME);
 
     expect({ width: layout.width, height: layout.height }).toEqual({
-      width: 2730,
-      height: 1314,
+      width: 2980,
+      height: 1564,
     });
     expect(layout.screenRect).toEqual({
-      x: 54,
-      y: 54,
+      x: 179,
+      y: 161,
       width: 2622,
       height: 1206,
     });
-    expect(layout.cutoutRect!.x).toBeGreaterThan(layout.width * 0.9);
+    expect(layout.cutoutRect!.x).toBeGreaterThan(
+      layout.screenRect.x + layout.screenRect.width * 0.9,
+    );
   });
 
   test("uses a wide notch for iPhone 16e instead of a Dynamic Island", () => {
@@ -257,7 +333,37 @@ describe("screen recording layout", () => {
       orientation: "portrait",
     }, watch);
 
-    expect(layout.frameRect).toEqual({ x: 29, y: 0, width: 534, height: 626 });
+    expect(layout.canvasInsets).toEqual({ top: 54, right: 33, bottom: 70, left: 33 });
+    expect(layout.frameRect).toEqual({ x: 62, y: 54, width: 534, height: 626 });
+    expect(layout.frameRect!.x - 2 * 19).toBe(24);
+    expect(layout.frameRect!.y + 8 - 2 * 19).toBe(24);
+    expect(layout.width - layout.frameRect!.x - layout.frameRect!.width - 2 * 19).toBe(24);
+    expect(layout.height - layout.frameRect!.y - layout.frameRect!.height - 8 - 2 * 19).toBe(24);
+  });
+
+  test("keeps every rotated frame shadow inside the padded canvas", () => {
+    for (const orientation of [
+      "portrait",
+      "landscape_left",
+      "landscape_right",
+      "portrait_upside_down",
+    ] as const) {
+      const layout = createRecordingLayout({
+        width: 1206,
+        height: 2622,
+        orientation,
+      }, IPHONE_17_PRO_FRAME);
+      const frame = layout.frameRect!;
+      const ambientBlur = 46;
+      const ambientOffsetY = 18;
+
+      expect(frame.x - 2 * ambientBlur).toBeGreaterThanOrEqual(33);
+      expect(frame.y + ambientOffsetY - 2 * ambientBlur).toBeGreaterThanOrEqual(33);
+      expect(layout.width - frame.x - frame.width - 2 * ambientBlur).toBeGreaterThanOrEqual(33);
+      expect(
+        layout.height - frame.y - frame.height - ambientOffsetY - 2 * ambientBlur,
+      ).toBeGreaterThanOrEqual(33);
+    }
   });
 
   test("rounds odd source dimensions up to encoder-safe even dimensions", () => {
@@ -293,12 +399,12 @@ describe("screen recording layout", () => {
     );
 
     expect({ width: layout.width, height: layout.height }).toEqual({
-      width: 428,
-      height: 882,
+      width: 548,
+      height: 1002,
     });
     expect(layout.screenRect).toEqual({
-      x: 18.5,
-      y: 18.5,
+      x: 78.5,
+      y: 70.5,
       width: 391,
       height: 845,
     });
@@ -337,12 +443,12 @@ describe("screen recording layout", () => {
     );
 
     expect({ width: layout.width, height: layout.height }).toEqual({
-      width: 882,
-      height: 428,
+      width: 1002,
+      height: 548,
     });
     expect(layout.screenRect).toEqual({
-      x: 18.5,
-      y: 18.5,
+      x: 78.5,
+      y: 70.5,
       width: 845,
       height: 391,
     });
@@ -350,6 +456,58 @@ describe("screen recording layout", () => {
 });
 
 describe("screen recording composition", () => {
+  test("paints a macOS-style framed shadow without leaking it onto video content", () => {
+    const ctx = new RecordingContext();
+    const snapshot = {
+      source: {} as CanvasImageSource,
+      width: 1206,
+      height: 2622,
+      orientation: "portrait" as const,
+      surfaceWidth: 1206,
+      surfaceHeight: 2622,
+      touches: [],
+    };
+    const layout = createRecordingLayout(snapshot, IPHONE_17_PRO_FRAME);
+
+    paintRecordingFrame(
+      ctx as unknown as CanvasRenderingContext2D,
+      layout,
+      snapshot,
+    );
+
+    const background = ctx.calls.find((call) =>
+      call.name === "fillRect" &&
+      call.args[0] === 0 &&
+      call.args[1] === 0 &&
+      call.args[2] === layout.width &&
+      call.args[3] === layout.height
+    );
+    expect(background?.state.fillStyle).toBe("#f5f5f7");
+
+    const shadowFills = ctx.calls.filter((call) =>
+      call.name === "fill" && call.state.shadowBlur > 0
+    );
+    expect(shadowFills.map((call) => ({
+      color: call.state.shadowColor,
+      blur: call.state.shadowBlur,
+      offsetX: call.state.shadowOffsetX,
+      offsetY: call.state.shadowOffsetY,
+    }))).toEqual([
+      { color: "rgba(0,0,0,0.2)", blur: 46, offsetX: 0, offsetY: 18 },
+      { color: "rgba(0,0,0,0.14)", blur: 16, offsetX: 0, offsetY: 5 },
+    ]);
+
+    const draw = ctx.calls.find((call) => call.name === "drawImage");
+    const drawIndex = ctx.calls.indexOf(draw!);
+    const solidFrameFill = ctx.calls.find((call) =>
+      call.name === "fill" && call.state.shadowBlur === 0
+    );
+    expect(shadowFills.every((call) => ctx.calls.indexOf(call) < drawIndex)).toBe(true);
+    expect(ctx.calls.indexOf(solidFrameFill!)).toBeLessThan(drawIndex);
+    expect(draw?.state.shadowBlur).toBe(0);
+    expect(draw?.state.shadowOffsetY).toBe(0);
+  });
+
   test("paints the screen, then touch indicators, then frame chrome", () => {
     const source = { id: "screen" } as unknown as CanvasImageSource;
     const layout = createRecordingLayout(
@@ -378,6 +536,33 @@ describe("screen recording composition", () => {
         .map((call) => call.name)
         .filter((name) => name === "drawImage" || name === "arc" || name === "stroke"),
     ).toEqual(["drawImage", "arc", "stroke", "stroke"]);
+  });
+
+  test("keeps frameless dimensions, black background, and shadow-free rendering", () => {
+    const ctx = new RecordingContext();
+    const snapshot = {
+      source: {} as CanvasImageSource,
+      width: 100,
+      height: 200,
+      orientation: "portrait" as const,
+      surfaceWidth: 100,
+      surfaceHeight: 200,
+      touches: [],
+    };
+    const layout = createRecordingLayout(snapshot);
+
+    paintRecordingFrame(ctx as unknown as CanvasRenderingContext2D, layout, snapshot);
+
+    expect({ width: layout.width, height: layout.height }).toEqual({ width: 100, height: 200 });
+    expect(layout.canvasInsets).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
+    expect(ctx.calls.find((call) =>
+      call.name === "fillRect" &&
+      call.args[0] === 0 &&
+      call.args[1] === 0 &&
+      call.args[2] === layout.width &&
+      call.args[3] === layout.height
+    )?.state.fillStyle).toBe("#000");
+    expect(ctx.calls.filter((call) => call.state.shadowBlur > 0)).toHaveLength(0);
   });
 
   test("applies every requested orientation before drawing the source", () => {
@@ -436,15 +621,25 @@ describe("screen recording composition", () => {
 
     const scale = ctx.calls.find((call) => call.name === "scale")?.args[0] as number;
     const translate = ctx.calls.find((call) => call.name === "translate")?.args;
-    expect(scale).toBeCloseTo(1314 / 2730);
+    expect(scale).toBeCloseTo(1564 / 2980);
     expect(translate?.[0]).toBeCloseTo(0);
     expect(translate?.[1] as number).toBeGreaterThan(1_000);
     expect(ctx.calls.filter((call) => call.name === "clearRect").map((call) => call.args)).toContainEqual([
       0,
       0,
-      2730,
-      1314,
+      2980,
+      1564,
     ]);
+    const scaledShadows = ctx.calls.filter((call) =>
+      call.name === "fill" && call.state.shadowBlur > 0
+    );
+    expect(scaledShadows[0]?.state.shadowBlur).toBeCloseTo(46 * scale);
+    expect(scaledShadows[0]?.state.shadowOffsetY).toBeCloseTo(18 * scale);
+    expect(ctx.calls.find((call) =>
+      call.name === "fillRect" &&
+      call.args[2] === layout.width &&
+      call.args[3] === layout.height
+    )?.state.fillStyle).toBe("#f5f5f7");
   });
 
   test("maps single and multi-touch indicators from normalized display coordinates", () => {
@@ -509,6 +704,39 @@ describe("screen recording composition", () => {
 });
 
 describe("CanvasScreenRecorder lifecycle", () => {
+  test("records framed artifacts at the padded canvas dimensions", async () => {
+    const platform = new FakeRecorderPlatform();
+    const source = {
+      snapshot: () => ({
+        source: {} as CanvasImageSource,
+        width: 1206,
+        height: 2622,
+        orientation: "portrait" as const,
+        surfaceWidth: 1206,
+        surfaceHeight: 2622,
+        touches: [],
+      }),
+    };
+    const recorder = new CanvasScreenRecorder({
+      source,
+      deviceFrame: IPHONE_17_PRO_FRAME,
+    }, platform);
+
+    recorder.start();
+    expect({ width: platform.canvas.width, height: platform.canvas.height }).toEqual({
+      width: 1564,
+      height: 2980,
+    });
+    const finished = recorder.stop();
+    platform.recorder.finish();
+    const artifact = await finished;
+
+    expect({ width: artifact.width, height: artifact.height }).toEqual({
+      width: 1564,
+      height: 2980,
+    });
+  });
+
   test("stop includes the final chunk and releases active browser resources", async () => {
     const platform = new FakeRecorderPlatform();
     const source = {

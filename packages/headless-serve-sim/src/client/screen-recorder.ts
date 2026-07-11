@@ -25,9 +25,17 @@ export interface RecordingRect {
   height: number;
 }
 
+export interface RecordingCanvasInsets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
 export interface RecordingLayout {
   width: number;
   height: number;
+  canvasInsets: RecordingCanvasInsets;
   screenRect: RecordingRect;
   rotationDegrees: number;
   frameRotationDegrees: number;
@@ -161,6 +169,40 @@ function evenCeil(value: number): number {
   return Math.ceil(value / 2) * 2;
 }
 
+interface FrameShadowStyle {
+  blur: number;
+  offsetY: number;
+  color: string;
+}
+
+interface FrameDecorationMetrics {
+  padding: number;
+  shadows: readonly FrameShadowStyle[];
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function frameDecorationMetrics(frameRect: RecordingRect): FrameDecorationMetrics {
+  const shortEdge = Math.min(frameRect.width, frameRect.height);
+  return {
+    padding: Math.round(clamp(shortEdge * 0.025, 24, 72)),
+    shadows: [
+      {
+        blur: Math.round(clamp(shortEdge * 0.035, 18, 64)),
+        offsetY: Math.round(clamp(shortEdge * 0.014, 8, 28)),
+        color: "rgba(0,0,0,0.2)",
+      },
+      {
+        blur: Math.round(clamp(shortEdge * 0.012, 6, 20)),
+        offsetY: Math.round(clamp(shortEdge * 0.004, 2, 8)),
+        color: "rgba(0,0,0,0.14)",
+      },
+    ],
+  };
+}
+
 export function createRecordingLayout(
   source: RecordingSourceGeometry,
   deviceFrame: DeviceFrameSpec | DeviceType | null = null,
@@ -218,10 +260,38 @@ export function createRecordingLayout(
     );
     const scaledFrameWidth = frameWidth * frameScale;
     const scaledFrameHeight = frameHeight * frameScale;
-    const width = evenCeil(scaledFrameWidth);
-    const height = evenCeil(scaledFrameHeight);
-    const offsetX = (width - scaledFrameWidth) / 2;
-    const offsetY = (height - scaledFrameHeight) / 2;
+    const undecoratedFrame = {
+      x: rotatedFrame.x * frameScale,
+      y: rotatedFrame.y * frameScale,
+      width: rotatedFrame.width * frameScale,
+      height: rotatedFrame.height * frameScale,
+    };
+    const decoration = frameDecorationMetrics(undecoratedFrame);
+    let decoratedLeft = 0;
+    let decoratedTop = 0;
+    let decoratedRight = scaledFrameWidth;
+    let decoratedBottom = scaledFrameHeight;
+    for (const shadow of decoration.shadows) {
+      decoratedLeft = Math.min(decoratedLeft, undecoratedFrame.x - 2 * shadow.blur);
+      decoratedTop = Math.min(
+        decoratedTop,
+        undecoratedFrame.y + shadow.offsetY - 2 * shadow.blur,
+      );
+      decoratedRight = Math.max(
+        decoratedRight,
+        undecoratedFrame.x + undecoratedFrame.width + 2 * shadow.blur,
+      );
+      decoratedBottom = Math.max(
+        decoratedBottom,
+        undecoratedFrame.y + undecoratedFrame.height + shadow.offsetY + 2 * shadow.blur,
+      );
+    }
+    const rawWidth = decoratedRight - decoratedLeft + 2 * decoration.padding;
+    const rawHeight = decoratedBottom - decoratedTop + 2 * decoration.padding;
+    const width = evenCeil(rawWidth);
+    const height = evenCeil(rawHeight);
+    const offsetX = decoration.padding - decoratedLeft + (width - rawWidth) / 2;
+    const offsetY = decoration.padding - decoratedTop + (height - rawHeight) / 2;
     const place = (rect: RecordingRect): RecordingRect => ({
       x: offsetX + rect.x * frameScale,
       y: offsetY + rect.y * frameScale,
@@ -240,6 +310,12 @@ export function createRecordingLayout(
     return {
       width,
       height,
+      canvasInsets: {
+        top: offsetY,
+        right: width - offsetX - scaledFrameWidth,
+        bottom: height - offsetY - scaledFrameHeight,
+        left: offsetX,
+      },
       screenRect: place(rotatedScreen),
       rotationDegrees: geometry.rotationDegrees,
       frameRotationDegrees,
@@ -256,6 +332,7 @@ export function createRecordingLayout(
   return {
     width,
     height,
+    canvasInsets: { top: 0, right: 0, bottom: 0, left: 0 },
     screenRect: {
       x: (width - display.width) / 2,
       y: (height - display.height) / 2,
@@ -392,9 +469,29 @@ function containRect(source: RecordingRect, target: RecordingRect): RecordingRec
   };
 }
 
-function paintFrameBase(ctx: CanvasRenderingContext2D, layout: RecordingLayout): void {
+function recordingBackground(layout: RecordingLayout): string {
+  return layout.frameSpec ? "#f5f5f7" : "#000";
+}
+
+function paintFrameBase(
+  ctx: CanvasRenderingContext2D,
+  layout: RecordingLayout,
+  shadowScale: number,
+): void {
   const outer = layout.frameRect;
   if (!outer || !layout.frameSpec) return;
+  const decoration = frameDecorationMetrics(outer);
+  for (const shadow of decoration.shadows) {
+    ctx.save();
+    ctx.fillStyle = "#09090b";
+    ctx.shadowColor = shadow.color;
+    ctx.shadowBlur = shadow.blur * shadowScale;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = shadow.offsetY * shadowScale;
+    roundedRectPath(ctx, outer, layout.outerRadius);
+    ctx.fill();
+    ctx.restore();
+  }
   ctx.fillStyle = "#09090b";
   roundedRectPath(ctx, outer, layout.outerRadius);
   ctx.fill();
@@ -448,12 +545,23 @@ export function paintRecordingFrame(
   layout: RecordingLayout,
   snapshot: RecordingSnapshot,
 ): boolean {
+  return paintRecordingFrameAtScale(ctx, layout, snapshot, 1);
+}
+
+function paintRecordingFrameAtScale(
+  ctx: CanvasRenderingContext2D,
+  layout: RecordingLayout,
+  snapshot: RecordingSnapshot,
+  shadowScale: number,
+): boolean {
   const geometry = streamDisplayGeometry(snapshot);
   const display = geometry.displayConfig;
   if (!display || snapshot.width <= 0 || snapshot.height <= 0) return false;
 
   ctx.clearRect(0, 0, layout.width, layout.height);
-  paintFrameBase(ctx, layout);
+  ctx.fillStyle = recordingBackground(layout);
+  ctx.fillRect(0, 0, layout.width, layout.height);
+  paintFrameBase(ctx, layout, shadowScale);
 
   const contentRect = containRect(
     { x: 0, y: 0, width: display.width, height: display.height },
@@ -510,11 +618,11 @@ export function paintRecordingSnapshot(
   const scale = target.width / frameLayout.width;
 
   ctx.save();
-  ctx.fillStyle = "#000";
+  ctx.fillStyle = recordingBackground(canvasLayout);
   ctx.fillRect(0, 0, canvasLayout.width, canvasLayout.height);
   ctx.translate(target.x, target.y);
   ctx.scale(scale, scale);
-  const painted = paintRecordingFrame(ctx, frameLayout, snapshot);
+  const painted = paintRecordingFrameAtScale(ctx, frameLayout, snapshot, scale);
   ctx.restore();
   return painted;
 }
