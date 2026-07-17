@@ -24,8 +24,16 @@ const STATE_DIR = join(ISOLATED_TMP, "headless-serve-sim");
 const TOKEN = "auto-connect-e2e-token";
 const MIDDLEWARE = join(import.meta.dir, "..", "middleware.ts");
 
+// Every simctl call is bounded so a wedged simulator fails the test instead of
+// hanging the CI job — bun cannot preempt a blocked synchronous execFileSync.
+const EXEC_TIMEOUT_MS = 30_000;
+
 function xcrun(args: string[]): string {
-  return execFileSync("xcrun", args, { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
+  return execFileSync("xcrun", args, {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: EXEC_TIMEOUT_MS,
+  });
 }
 
 function simctlUsable(): boolean {
@@ -90,7 +98,13 @@ const { createServer } = require("http");
 })();
 `;
 
-const describeIfSim = simctlUsable() ? describe : describe.skip;
+// Booting and tearing down *isolated* simulators hangs intermittently on shared
+// CI runners (a wedged simctl can block the job for minutes), so skip on CI by
+// default — matching ui-settings.e2e. Set HEADLESS_SERVE_SIM_AUTOCONNECT_E2E=1
+// to force the suite on a runner where isolated-simulator boot actually works.
+const skipOnCi = !!process.env.CI && process.env.HEADLESS_SERVE_SIM_AUTOCONNECT_E2E !== "1";
+
+const describeIfSim = simctlUsable() && !skipOnCi ? describe : describe.skip;
 
 describeIfSim("auto-connect /api pin (isolated simulators)", () => {
   const created: string[] = [];
