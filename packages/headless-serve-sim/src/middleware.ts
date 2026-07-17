@@ -8,7 +8,7 @@ import type { IncomingMessage, ServerResponse } from "http";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
 import { createAxStreamerCache } from "./ax";
 import { debugMw } from "./debug";
-import { loadInstalledDeviceFrameSpec } from "./device-frame-profile";
+import { resolveInstalledDeviceMetadata } from "./device-metadata";
 import { createExecUpgradeHandler, type UiRequestHandler } from "./exec-ws";
 import {
   parseSimLogLevel,
@@ -641,43 +641,6 @@ function listAllSimulators(): SimctlDevice[] {
   }
 }
 
-// Exact instance + immutable device-type metadata, cached per selected UDID.
-// The type identifier survives custom simulator names and resolves the installed
-// CoreSimulator/DeviceKit frame before the browser's first paint.
-const DEVICE_METADATA_RETRY_MS = 5_000;
-type DeviceMetadata = {
-  deviceName: string;
-  deviceTypeIdentifier?: string;
-  deviceFrameSpec?: DeviceFrameSpec;
-};
-const deviceMetadataCache = new Map<string, {
-  value: DeviceMetadata;
-  expiresAt: number;
-}>();
-function resolveDeviceMetadata(udid: string) {
-  const cached = deviceMetadataCache.get(udid);
-  if (cached && cached.expiresAt > Date.now()) return cached.value;
-  const sim = listAllSimulators().find((candidate) => candidate.udid === udid);
-  if (!sim) return undefined;
-  const deviceFrameSpec = sim.deviceTypeIdentifier
-    ? loadInstalledDeviceFrameSpec(sim.deviceTypeIdentifier)
-    : null;
-  const value: DeviceMetadata = {
-    deviceName: sim.name,
-    ...(sim.deviceTypeIdentifier
-      ? { deviceTypeIdentifier: sim.deviceTypeIdentifier }
-      : {}),
-    ...(deviceFrameSpec ? { deviceFrameSpec } : {}),
-  };
-  deviceMetadataCache.set(sim.udid, {
-    value,
-    expiresAt: deviceFrameSpec
-      ? Number.POSITIVE_INFINITY
-      : Date.now() + DEVICE_METADATA_RETRY_MS,
-  });
-  return value;
-}
-
 // Default per-simulator footprint when we have no running sim to measure
 // from — a fresh booted iOS sim with one app launched typically sits in
 // the 1.2–1.8 GB range. Used as a fallback only.
@@ -1011,8 +974,10 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
       // helper never blocks the page (fetchHelperScreenConfig resolves to null).
       (async () => {
         const remoteState = rewriteStateForRequestHost(state, req.headers?.host);
-        const screenConfig = await fetchHelperScreenConfig(state.url);
-        const deviceMetadata = resolveDeviceMetadata(state.device);
+        const [screenConfig, deviceMetadata] = await Promise.all([
+          fetchHelperScreenConfig(state.url),
+          resolveInstalledDeviceMetadata(state.device),
+        ]);
         const config = htmlSafeJson(
           previewConfigForState(remoteState, base, serveSimBin, execToken, screenConfig, deviceMetadata),
         );
@@ -1337,18 +1302,23 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         "Cache-Control": "no-store",
       });
       const remoteState = state ? rewriteStateForRequestHost(state, req.headers?.host) : null;
-      res.end(JSON.stringify(
-        remoteState
-          ? previewConfigForState(
-              remoteState,
-              base,
-              serveSimBin,
-              execToken,
-              null,
-              resolveDeviceMetadata(state!.device),
-            )
-          : null,
-      ));
+      void (async () => {
+        const deviceMetadata = state
+          ? await resolveInstalledDeviceMetadata(state.device)
+          : undefined;
+        res.end(JSON.stringify(
+          remoteState
+            ? previewConfigForState(
+                remoteState,
+                base,
+                serveSimBin,
+                execToken,
+                null,
+                deviceMetadata,
+              )
+            : null,
+        ));
+      })().catch(() => res.end(JSON.stringify(null)));
       return;
     }
 
@@ -1357,20 +1327,23 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
     // or the device selection changes, so we watch the state dir and emit only
     // on change instead of re-sending identical JSON on a fixed interval.
     if (url === base + "/api/events") {
-      const computeConfig = (): string => {
+      const computeConfig = async (): Promise<string> => {
         const states = readServeSimStates();
         const state = selectServeSimState(states, selectedDevice);
         const remoteState = state ? rewriteStateForRequestHost(state, req.headers?.host) : null;
+        const deviceMetadata = state
+          ? await resolveInstalledDeviceMetadata(state.device)
+          : undefined;
         return JSON.stringify(
           remoteState
             ? previewConfigForState(
                 remoteState,
                 base,
-                serveSimBin,
-                execToken,
-                null,
-                resolveDeviceMetadata(state!.device),
-              )
+              serveSimBin,
+              execToken,
+              null,
+              deviceMetadata,
+            )
             : null,
         );
       };
@@ -1383,17 +1356,40 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
       });
       res.write(":\n\n");
 
-      let lastSent = computeConfig();
-      res.write("data: " + lastSent + "\n\n");
-
       let closed = false;
+      let lastSent: string | null = null;
+      let computing = false;
+      let recompute = false;
+      let configGeneration = 0;
       const sendIfChanged = () => {
         if (closed || res.writableEnded) return;
-        const next = computeConfig();
-        if (next === lastSent) return;
-        lastSent = next;
-        res.write("data: " + next + "\n\n");
+        if (computing) {
+          recompute = true;
+          configGeneration++;
+          return;
+        }
+        computing = true;
+        const generation = ++configGeneration;
+        void (async () => {
+          try {
+            const next = await computeConfig();
+            if (
+              !closed && !res.writableEnded && generation === configGeneration &&
+              next !== lastSent
+            ) {
+              lastSent = next;
+              res.write("data: " + next + "\n\n");
+            }
+          } finally {
+            computing = false;
+            if (recompute) {
+              recompute = false;
+              sendIfChanged();
+            }
+          }
+        })().catch(() => {});
       };
+      sendIfChanged();
 
       // Debounce filesystem events: a helper boot rewrites the state file a few
       // times in quick succession, and selectServeSimState also shells out to
