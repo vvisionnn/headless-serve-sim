@@ -11,9 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+      - uses: jdx/mise-action@v4
       - run: bun install
 
       - name: Client tests
@@ -40,14 +38,8 @@ jobs:
             exit 1
           fi
 
-      - name: Setup bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          registry-url: "https://registry.npmjs.org"
+      - name: Setup tools (mise)
+        uses: jdx/mise-action@v4
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -106,6 +98,9 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           cd packages/headless-serve-sim
+
+          # npm auth (previously configured by actions/setup-node registry-url)
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
 
           # Stable publishing is manual-only. Bump from max(local, npm latest)
           # + 1, publish to npm's latest tag, then commit that stable version.

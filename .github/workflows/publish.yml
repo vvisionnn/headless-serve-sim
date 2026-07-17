@@ -16,9 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+      - uses: jdx/mise-action@v4
       - run: bun install
 
       - name: Client tests
@@ -59,16 +57,9 @@ jobs:
             echo "sim=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Setup bun
+      - name: Setup tools (mise)
         if: steps.changes.outputs.sim == 'true'
-        uses: oven-sh/setup-bun@v2
-
-      - name: Setup Node.js
-        if: steps.changes.outputs.sim == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          registry-url: "https://registry.npmjs.org"
+        uses: jdx/mise-action@v4
 
       - name: Install dependencies
         if: steps.changes.outputs.sim == 'true'
@@ -131,6 +122,9 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           cd packages/headless-serve-sim
+
+          # npm auth (previously configured by actions/setup-node registry-url)
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
 
           # Publish a unique prerelease from max(local, npm latest) + 1.
           # This keeps automatic main pushes on npm's beta tag until stable

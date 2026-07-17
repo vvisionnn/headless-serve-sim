@@ -1,0 +1,16 @@
+# Project dev toolchain, managed by mise (https://mise.jdx.dev).
+# Fresh machine setup:  mise install   (installs the exact locked versions below)
+#
+# NOTE: Swift is intentionally NOT managed here. `bun run build:swift` builds against the
+# Xcode toolchain (DEVELOPER_DIR=$(xcode-select -p)), so a full Xcode install is a separate
+# prerequisite on macOS. mise covers the cross-platform tooling only.
+
+min_version = "2026.2.5" # first release with non-experimental lockfiles
+
+[settings]
+lockfile = true
+
+[tools]
+bun = "1.3.14"    # primary runtime + package manager (matches bun.lock)
+node = "24.18.0"  # tooling/interop; shared by CI so local and CI match
+gh = "2.96.0"     # GitHub CLI — used by the release-and-monitor skill (backend: aqua:cli/cli)
