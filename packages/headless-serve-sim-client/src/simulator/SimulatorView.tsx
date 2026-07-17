@@ -6,6 +6,7 @@ import {
   type CSSProperties,
   type MouseEvent,
   type MutableRefObject,
+  type TouchEvent,
 } from "react";
 import type { StreamConfig } from "../types.js";
 import {
@@ -879,6 +880,80 @@ export function SimulatorView({
     }
   }, [recordingTouchTracker]);
 
+  const finishTouch = useCallback(
+    (event: TouchEvent<HTMLElement>) => {
+      event.preventDefault();
+      const rect = getInputRect();
+
+      if (realMultiTouchRef.current) {
+        // End multi-touch when fewer than two fingers remain. On cancellation,
+        // changedTouches may not include every active finger, so fall back to
+        // the recording tracker if React has not committed the indicators yet.
+        if (event.touches.length < 2) {
+          const tracked = recordingTouchTracker
+            .snapshot()
+            .filter((touch) => touch.kind === "multi");
+          const last =
+            fingerIndicators ??
+            (tracked.length === 2
+              ? {
+                  x1: tracked[0]!.x,
+                  y1: tracked[0]!.y,
+                  x2: tracked[1]!.x,
+                  y2: tracked[1]!.y,
+                }
+              : null);
+          const touch = event.changedTouches[0];
+          if (touch && rect && last) {
+            const p1 = normalizedPoint(touch.clientX, touch.clientY, rect);
+            const fingers = {
+              type: "end",
+              x1: p1.x,
+              y1: p1.y,
+              x2: last.x2,
+              y2: last.y2,
+            } as const;
+            sendMultiTouch(fingers);
+            recordingTouchTracker.end([
+              { x: fingers.x1, y: fingers.y1, kind: "multi" },
+              { x: fingers.x2, y: fingers.y2, kind: "multi" },
+            ]);
+          } else if (last) {
+            sendMultiTouch({ type: "end", ...last });
+            recordingTouchTracker.end([
+              { x: last.x1, y: last.y1, kind: "multi" },
+              { x: last.x2, y: last.y2, kind: "multi" },
+            ]);
+          } else {
+            recordingTouchTracker.end();
+          }
+          realMultiTouchRef.current = false;
+          multiTouchActiveRef.current = false;
+          setFingerIndicators(null);
+        }
+        return;
+      }
+
+      const touch = event.changedTouches[0];
+      const tracked = recordingTouchTracker.snapshot().find((point) => point.kind === "single");
+      const point = touch && rect ? normalizedPoint(touch.clientX, touch.clientY, rect) : tracked;
+      if (point) recordingTouchTracker.setActive([{ ...point, kind: "single" }]);
+      hideTouchIndicator();
+      if (!point) {
+        recordingTouchTracker.end();
+        edgeGestureRef.current = false;
+        return;
+      }
+      if (edgeGestureRef.current) {
+        sendTouch({ type: "end", x: point.x, y: point.y, edge: HID_EDGE_BOTTOM });
+        edgeGestureRef.current = false;
+      } else {
+        sendTouch({ type: "end", x: point.x, y: point.y });
+      }
+    },
+    [fingerIndicators, getInputRect, hideTouchIndicator, recordingTouchTracker, sendMultiTouch, sendTouch],
+  );
+
   const lastHomeClickRef = useRef(0);
   const homeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1269,59 +1344,8 @@ export function SimulatorView({
               sendTouch({ type: "move", x, y });
             }
           }}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            const rect = getInputRect();
-            if (!rect) return;
-
-            if (realMultiTouchRef.current) {
-              // End multi-touch when all fingers lift (touches.length is remaining fingers)
-              if (e.touches.length < 2) {
-                const t1 = e.changedTouches[0];
-                // Use last known indicator positions as fallback for the second finger
-                const last = fingerIndicators;
-                if (t1 && last) {
-                  const p1 = normalizedPoint(t1.clientX, t1.clientY, rect);
-                  const fingers = {
-                    type: "end",
-                    x1: p1.x,
-                    y1: p1.y,
-                    x2: last.x2,
-                    y2: last.y2,
-                  } as const;
-                  sendMultiTouch(fingers);
-                  recordingTouchTracker.end([
-                    { x: fingers.x1, y: fingers.y1, kind: "multi" },
-                    { x: fingers.x2, y: fingers.y2, kind: "multi" },
-                  ]);
-                } else if (last) {
-                  sendMultiTouch({ type: "end", ...last });
-                  recordingTouchTracker.end([
-                    { x: last.x1, y: last.y1, kind: "multi" },
-                    { x: last.x2, y: last.y2, kind: "multi" },
-                  ]);
-                } else {
-                  recordingTouchTracker.end();
-                }
-                realMultiTouchRef.current = false;
-                multiTouchActiveRef.current = false;
-                setFingerIndicators(null);
-              }
-              return;
-            }
-
-            const touch = e.changedTouches[0];
-            if (!touch) return;
-            const { x, y } = normalizedPoint(touch.clientX, touch.clientY, rect);
-            recordingTouchTracker.setActive([{ x, y, kind: "single" }]);
-            hideTouchIndicator();
-            if (edgeGestureRef.current) {
-              sendTouch({ type: "end", x, y, edge: HID_EDGE_BOTTOM });
-              edgeGestureRef.current = false;
-            } else {
-              sendTouch({ type: "end", x, y });
-            }
-          }}
+          onTouchEnd={finishTouch}
+          onTouchCancel={finishTouch}
         />
         {/* Single-touch indicator (hidden by default, shown via ref) */}
         <div
