@@ -17,6 +17,7 @@ import { ScreenRecordingTool } from "./screen-recording-tool";
 import type { StreamMode } from "./stream-mode-toggle";
 import { SimulatorSettingsTool } from "./simulator-settings-tool";
 import { StatusBarTool } from "./status-bar-tool";
+import { StreamSettingsTool } from "./stream-settings-tool";
 import { UserDefaultsTool } from "./user-defaults-tool";
 
 // The full-height right inspector. Collapsed by default to a thin rail whose top
@@ -43,6 +44,8 @@ export interface InspectorBarProps {
   /** Live exec token; rotates on server restart so the settings tool re-auths. */
   execToken?: string;
   currentApp: { bundleId: string; isReactNative: boolean; pid?: number } | null;
+  autoConnect: boolean;
+  onAutoConnectChange: (next: boolean) => void;
   axOverlayEnabled: boolean;
   onToggleAxOverlay: () => void;
   onOpenStats: () => void;
@@ -72,6 +75,8 @@ export function InspectorBar({
   recordingSourceRef,
   execToken,
   currentApp,
+  autoConnect,
+  onAutoConnectChange,
   axOverlayEnabled,
   onToggleAxOverlay,
   onOpenStats,
@@ -150,6 +155,7 @@ export function InspectorBar({
         >
           <AppDetectionTool udid={udid} currentApp={currentApp} />
           <SimulatorSettingsTool udid={udid} execToken={execToken} />
+          <StreamSettingsTool autoConnect={autoConnect} onAutoConnectChange={onAutoConnectChange} />
           <AxTreeTool overlayEnabled={axOverlayEnabled} onToggleOverlay={onToggleAxOverlay} />
           <CameraTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
           <ScreenshotTool udid={udid} />

@@ -31,6 +31,7 @@ import { AxDomOverlay } from "./components/ax-dom-overlay";
 import { AxStateProvider } from "./components/ax-state-provider";
 import { AxToolbarButton } from "./components/ax-toolbar-button";
 import { BootEmptyState } from "./components/boot-empty-state";
+import { SimulatorDisconnected } from "./components/simulator-disconnected";
 import { DevicePicker } from "./components/device-picker";
 import { GridPanel } from "./components/grid-panel";
 import { MetricsBar } from "./components/metrics-bar";
@@ -66,6 +67,7 @@ import { SIMULATOR_RESIZE_MAX_SCALE } from "./utils/simulator-resize";
 import { fitDeviceFrame } from "./utils/frame-geometry";
 import { resolveActiveScreenConfig } from "./utils/screen-config";
 import { readPersistedFlag, writePersistedFlag } from "./utils/persisted-flag";
+import { resolveEventsDevice } from "./utils/events-device";
 import { previewConfigKey } from "./utils/preview-config";
 import {
   currentAppForDevice,
@@ -130,6 +132,30 @@ function App() {
   const [gridOpen, setGridOpen] = useState(false);
   const [selectedDevtoolsTargetId, setSelectedDevtoolsTargetId] = useState<string | null>(null);
 
+  // Auto-connect preference (browser-local, default OFF). When OFF the stream is
+  // pinned to the selected simulator: if it disconnects the view waits for the
+  // SAME device instead of hopping to whichever simulator is booted. When ON the
+  // legacy behavior is kept (the server may fall back to any booted helper).
+  const [autoConnect, setAutoConnect] = usePersistedFlag("headless-serve-sim:auto-connect", false);
+  const [showPicker, setShowPicker] = useState(false);
+  const [lastDevice, setLastDevice] = useState<{ udid: string; name: string | null } | null>(() => {
+    const p = window.__SIM_PREVIEW__;
+    return p ? { udid: p.device, name: p.deviceName ?? null } : null;
+  });
+  // The URL's ?device= is captured once at mount; the OFF-mode pin otherwise
+  // tracks the simulator we're actually viewing (`lastDevice`). Deriving the pin
+  // from the live committed device — not a mount-time snapshot — means toggling
+  // OFF after an auto-connect hop, or a device that first appears out-of-band,
+  // pins the CURRENT simulator rather than a stale one.
+  const urlDeviceRef = useRef<string | null>(
+    new URLSearchParams(window.location.search).get("device"),
+  );
+  const eventsDevice = resolveEventsDevice({
+    autoConnect,
+    urlDevice: urlDeviceRef.current,
+    initialDevice: lastDevice?.udid ?? null,
+  });
+
   const fetchDevices = useCallback(async () => {
     setDevicesLoading(true);
     setDevicesError(null);
@@ -146,9 +172,19 @@ function App() {
 
   useEffect(() => { fetchDevices(); }, [fetchDevices]);
 
+  // Refresh the device list whenever a new simulator is committed, so its name
+  // is known (e.g. for the disconnected panel) even if it first appeared
+  // out-of-band after load. Guarded on a live device: with no stream there's no
+  // exec token to authenticate the list call.
   useEffect(() => {
-    const requestedDevice = new URLSearchParams(window.location.search).get("device");
-    const eventsUrl = `${simEndpoint("api/events")}${requestedDevice ? `?device=${encodeURIComponent(requestedDevice)}` : ""}`;
+    if (config?.device) void fetchDevices();
+  }, [config?.device, fetchDevices]);
+
+  useEffect(() => {
+    // Pin the subscription to `eventsDevice` so the server streams only that
+    // simulator (or null once it's gone) — never a different booted one. When
+    // the auto-connect toggle flips, `eventsDevice` changes and we re-subscribe.
+    const eventsUrl = `${simEndpoint("api/events")}${eventsDevice ? `?device=${encodeURIComponent(eventsDevice)}` : ""}`;
 
     const applyConfig = (next: PreviewConfig | null) => {
       setConfig((prev) => {
@@ -168,9 +204,35 @@ function App() {
       } catch {}
     };
     return () => es.close();
-  }, []);
+  }, [eventsDevice]);
+
+  // Remember the last simulator we actually streamed so the disconnected panel
+  // can name it, and drop the manual picker once a stream comes back.
+  useEffect(() => {
+    if (!config) return;
+    setLastDevice({ udid: config.device, name: config.deviceName ?? null });
+    setShowPicker(false);
+  }, [config]);
 
   if (!config) {
+    // Auto-connect OFF and a device we were streaming just went away: wait for
+    // the SAME simulator rather than hopping to another booted one. The manual
+    // "choose another" escape falls through to the boot picker.
+    if (!autoConnect && lastDevice && !showPicker) {
+      // The SSE-pushed config omits deviceName, so prefer the live device list
+      // (which knows the name of any booted/shutdown sim) and fall back to the
+      // name captured when we last had a config.
+      const name = devices.find((d) => d.udid === lastDevice.udid)?.name ?? lastDevice.name;
+      return (
+        <SimulatorDisconnected
+          deviceName={name}
+          onChooseAnother={() => setShowPicker(true)}
+          autoConnect={autoConnect}
+          onAutoConnectChange={setAutoConnect}
+          canAutoConnect={!urlDeviceRef.current}
+        />
+      );
+    }
     return (
       <BootEmptyState
         devices={devices}
@@ -202,6 +264,8 @@ function App() {
       streaming={streaming}
       setStreaming={setStreaming}
       fetchDevices={fetchDevices}
+      autoConnect={autoConnect}
+      setAutoConnect={setAutoConnect}
     />
   );
 }
@@ -226,6 +290,8 @@ interface AppWithConfigProps {
   streaming: boolean;
   setStreaming: (v: boolean) => void;
   fetchDevices: () => Promise<void>;
+  autoConnect: boolean;
+  setAutoConnect: (next: boolean) => void;
 }
 
 function AppWithConfig({
@@ -248,6 +314,8 @@ function AppWithConfig({
   streaming,
   setStreaming,
   fetchDevices,
+  autoConnect,
+  setAutoConnect,
 }: AppWithConfigProps) {
   const selectedDevice = devices.find((d) => d.udid === config.device) ?? null;
   // Prefer the live device-list name; fall back to the name baked into
@@ -969,6 +1037,8 @@ function AppWithConfig({
         recordingSourceRef={recordingSourceRef}
         execToken={config.execToken}
         currentApp={currentApp}
+        autoConnect={autoConnect}
+        onAutoConnectChange={setAutoConnect}
         axOverlayEnabled={axOverlayEnabled}
         onToggleAxOverlay={() => setAxOverlayEnabled((enabled) => !enabled)}
         onOpenStats={() => {
