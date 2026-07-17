@@ -11,6 +11,13 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 import tailwindPlugin from "bun-plugin-tailwind";
 import { createAxStreamerCache } from "./src/ax";
+import { resolveInstalledDeviceMetadata } from "./src/device-metadata";
+import {
+  buildSimLogStreamArgs,
+  createSimLogLineFramer,
+  parseSimLogLevel,
+  parseSimLogProcessId,
+} from "./src/sim-log-stream";
 
 const RN_BUNDLE_IDS = new Set<string>([
   "host.exp.Exponent",
@@ -150,9 +157,20 @@ function endpoint(path: string, device: string): string {
   return `/${path}?device=${encodeURIComponent(device)}`;
 }
 
-function previewConfigForState(state: ServeSimState) {
+function htmlSafeJson(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
+async function previewConfigForState(state: ServeSimState) {
+  const deviceMetadata = await resolveInstalledDeviceMetadata(state.device);
   return {
     ...state,
+    ...deviceMetadata,
     basePath: "/",
     logsEndpoint: endpoint("logs", state.device),
     appStateEndpoint: endpoint("appstate", state.device),
@@ -299,11 +317,11 @@ function scheduleWatchedBuild() {
 
 // ─── HTML shell ───
 
-function buildHtml(selectedDevice?: string | null): string {
+async function buildHtml(selectedDevice?: string | null): Promise<string> {
   const states = readServeSimStates();
   const state = selectServeSimState(states, selectedDevice);
   const configScript = state
-    ? `<script>window.__SIM_PREVIEW__=${JSON.stringify(previewConfigForState(state))}</script>`
+    ? `<script>window.__SIM_PREVIEW__=${htmlSafeJson(await previewConfigForState(state))}</script>`
     : "";
 
   return `<!doctype html>
@@ -359,7 +377,7 @@ Bun.serve({
     if (url.pathname === "/api") {
       const states = readServeSimStates();
       const state = selectServeSimState(states, selectedDevice);
-      return Response.json(state ? previewConfigForState(state) : null, {
+      return Response.json(state ? await previewConfigForState(state) : null, {
         headers: { "Cache-Control": "no-store" },
       });
     }
@@ -469,6 +487,14 @@ Bun.serve({
 
     // SSE logs
     if (url.pathname === "/logs") {
+      const level = parseSimLogLevel(url.searchParams.get("level"));
+      if (!level) {
+        return new Response("Invalid log level", { status: 400 });
+      }
+      const processId = parseSimLogProcessId(url.searchParams.get("processId"));
+      if (processId === undefined) {
+        return new Response("Invalid process id", { status: 400 });
+      }
       const states = readServeSimStates();
       const state = selectServeSimState(states, selectedDevice);
       if (!state) {
@@ -477,24 +503,22 @@ Bun.serve({
       const udid = state.device;
       const stream = new ReadableStream({
         start(controller) {
-          const child: ChildProcess = spawn("xcrun", [
-            "simctl", "spawn", udid, "log", "stream",
-            "--style", "ndjson", "--level", "info",
-          ], { stdio: ["ignore", "pipe", "ignore"] });
+          const child: ChildProcess = spawn(
+            "xcrun",
+            buildSimLogStreamArgs(udid, level, processId),
+            { stdio: ["ignore", "pipe", "ignore"] },
+          );
+          const framer = createSimLogLineFramer();
 
-          let buf = "";
-          child.stdout!.on("data", (chunk: Buffer) => {
-            buf += chunk.toString();
-            let nl: number;
-            while ((nl = buf.indexOf("\n")) !== -1) {
-              const line = buf.slice(0, nl).trim();
-              buf = buf.slice(nl + 1);
-              if (line) {
-                try {
-                  controller.enqueue(`data: ${line}\n\n`);
-                } catch {
-                  child.kill();
-                }
+          child.stdout!.on("data", (chunk: Buffer | string) => {
+            const lines = framer.push(
+              typeof chunk === "string" ? chunk : chunk.toString(),
+            );
+            for (const line of lines) {
+              try {
+                controller.enqueue(`data: ${line}\n\n`);
+              } catch {
+                child.kill();
               }
             }
           });
@@ -601,7 +625,7 @@ Bun.serve({
     }
 
     // Serve the HTML page (fresh on every request — picks up state + rebuild)
-    return new Response(buildHtml(selectedDevice), {
+    return new Response(await buildHtml(selectedDevice), {
       headers: {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store",
