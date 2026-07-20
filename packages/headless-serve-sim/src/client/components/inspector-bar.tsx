@@ -42,6 +42,7 @@ export interface InspectorBarProps {
   recordingSourceRef: MutableRefObject<SimulatorRecordingSource | null>;
   /** Live exec token; rotates on server restart so the settings tool re-auths. */
   execToken?: string;
+  uiSettingsRevision: number;
   currentApp: { bundleId: string; isReactNative: boolean; pid?: number } | null;
   axOverlayEnabled: boolean;
   onToggleAxOverlay: () => void;
@@ -71,6 +72,7 @@ export function InspectorBar({
   onStreamModeChange,
   recordingSourceRef,
   execToken,
+  uiSettingsRevision,
   currentApp,
   axOverlayEnabled,
   onToggleAxOverlay,
@@ -165,7 +167,11 @@ export function InspectorBar({
           }}
         >
           <AppDetectionTool udid={udid} currentApp={currentApp} />
-          <SimulatorSettingsTool udid={udid} execToken={execToken} />
+          <SimulatorSettingsTool
+            udid={udid}
+            execToken={execToken}
+            refreshKey={uiSettingsRevision}
+          />
           <AxTreeTool overlayEnabled={axOverlayEnabled} onToggleOverlay={onToggleAxOverlay} />
           <CameraTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
           <ScreenshotTool udid={udid} />

@@ -329,7 +329,15 @@ const I = {
   ),
 };
 
-export function SimulatorSettingsTool({ udid, execToken }: { udid: string; execToken?: string }) {
+export function SimulatorSettingsTool({
+  udid,
+  execToken,
+  refreshKey,
+}: {
+  udid: string;
+  execToken?: string;
+  refreshKey?: unknown;
+}) {
   const [open, setOpen] = useState(true);
   const [state, setState] = useState<SettingsState | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -362,7 +370,7 @@ export function SimulatorSettingsTool({ udid, execToken }: { udid: string; execT
   useEffect(() => {
     setState(null);
     void refresh();
-  }, [refresh, execToken]);
+  }, [refresh, execToken, refreshKey]);
 
   const apply = useCallback(
     async (option: string, value: string) => {

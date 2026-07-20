@@ -60,6 +60,7 @@ import {
 import { captureScreenshot, downloadScreenshot, screenshotFilename } from "./utils/screenshot";
 import { simEndpoint } from "./utils/sim-endpoint";
 import { SIMULATOR_RESIZE_MAX_SCALE } from "./utils/simulator-resize";
+import { toggleSimulatorAppearance } from "./utils/simulator-appearance";
 import { fitDeviceFrame } from "./utils/frame-geometry";
 import { resolveActiveScreenConfig } from "./utils/screen-config";
 import { readPersistedFlag, writePersistedFlag } from "./utils/persisted-flag";
@@ -518,12 +519,7 @@ function AppWithConfig({
   // mode and sets the opposite, so every invocation is a real toggle — shared
   // by the toolbar button and the ⇧⌘A shortcut.
   const toggleAppearance = useCallback(() => {
-    execOnHost(`xcrun simctl ui ${config.device} appearance`)
-      .then((r) => {
-        const next = r.stdout.trim() === "dark" ? "light" : "dark";
-        return execOnHost(`xcrun simctl ui ${config.device} appearance ${next}`);
-      })
-      .catch(() => {});
+    void toggleSimulatorAppearance(config.device, execOnHost, refreshUiSettings).catch(() => {});
   }, [config.device]);
 
   // Capture the simulator screen and download it immediately — shared by the
@@ -566,6 +562,7 @@ function AppWithConfig({
   const [detectedApp, setDetectedApp] = useState<DetectedAppState | null>(null);
   const currentApp = currentAppForDevice(detectedApp, config.device);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [uiSettingsRevision, refreshUiSettings] = useReducer((revision: number) => revision + 1, 0);
   const [logsOpen, setLogsOpen] = useState(false);
   useEffect(() => {
     pendingStreamModeRef.current = null;
@@ -1067,6 +1064,7 @@ function AppWithConfig({
             onStreamModeChange={onModeChange}
             recordingSourceRef={recordingSourceRef}
             execToken={config.execToken}
+            uiSettingsRevision={uiSettingsRevision}
             currentApp={currentApp}
             axOverlayEnabled={axOverlayEnabled}
             onToggleAxOverlay={() => setAxOverlayEnabled((enabled) => !enabled)}
