@@ -11,3 +11,16 @@ export function currentAppForDevice(
 ): DetectedAppState | null {
   return app?.device === device ? app : null;
 }
+
+export function goHomeAndSelectSpringBoard(
+  device: string,
+  sendHome: () => void,
+  selectApp: (app: DetectedAppState) => void,
+): void {
+  sendHome();
+  selectApp({
+    device,
+    bundleId: "com.apple.springboard",
+    isReactNative: false,
+  });
+}

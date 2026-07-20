@@ -66,7 +66,11 @@ import { resolveActiveScreenConfig } from "./utils/screen-config";
 import { readPersistedFlag, writePersistedFlag } from "./utils/persisted-flag";
 import { resolveEventsDevice } from "./utils/events-device";
 import { previewConfigKey, selectedPreviewConfig } from "./utils/preview-config";
-import { currentAppForDevice, type DetectedAppState } from "./utils/current-app";
+import {
+  currentAppForDevice,
+  goHomeAndSelectSpringBoard,
+  type DetectedAppState,
+} from "./utils/current-app";
 import {
   reconcileStreamMode,
   sendStreamMode,
@@ -561,6 +565,9 @@ function AppWithConfig({
   // Subscribe to app-state SSE.
   const [detectedApp, setDetectedApp] = useState<DetectedAppState | null>(null);
   const currentApp = currentAppForDevice(detectedApp, config.device);
+  const goHome = useCallback(() => {
+    goHomeAndSelectSpringBoard(config.device, () => onStreamButton("home"), setDetectedApp);
+  }, [config.device, onStreamButton]);
   const [statsOpen, setStatsOpen] = useState(false);
   const [uiSettingsRevision, refreshUiSettings] = useReducer((revision: number) => revision + 1, 0);
   const [logsOpen, setLogsOpen] = useState(false);
@@ -714,7 +721,7 @@ function AppWithConfig({
       if (!simFocusedRef.current) return;
       if (e.code === "KeyH" && e.metaKey && e.shiftKey) {
         e.preventDefault();
-        if (type === "down" && !e.repeat) sendWs(0x04, { button: "home" });
+        if (type === "down" && !e.repeat) goHome();
         return;
       }
       if (
@@ -745,7 +752,7 @@ function AppWithConfig({
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [sendWs, config.device, rotateBy, toggleAppearance, captureAndDownloadScreenshot]);
+  }, [sendWs, config.device, rotateBy, toggleAppearance, captureAndDownloadScreenshot, goHome]);
 
   const switchToDevice = useCallback(
     async (d: SimDevice) => {
@@ -910,7 +917,7 @@ function AppWithConfig({
                 <SimulatorToolbar.HomeButton
                   onClick={(e) => {
                     e.preventDefault();
-                    onStreamButton("home");
+                    goHome();
                   }}
                 />
                 <SimulatorToolbar.Button
