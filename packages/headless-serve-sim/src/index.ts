@@ -25,6 +25,7 @@ import { userDefaults } from "./user-defaults";
 import { uiSettings } from "./ui-settings";
 import { appActions } from "./app-actions";
 import { screenshot } from "./screenshot";
+import { cameraShmNameForUdid } from "./camera-shm-name";
 import { debugCli, debugHelper, debugState } from "./debug";
 import type { CommandRequest, CommandResult, CommandTask } from "./runtime/host-commands";
 import { createNodeHostCommands } from "./runtime/node-host-commands";
@@ -1413,12 +1414,6 @@ function buildCameraHelper(): string {
 
 const SIMCAM_STATE_DIR = join(STATE_DIR, "simcam");
 
-function shmNameForUdid(udid: string): string {
-  // POSIX shm names on macOS have a 31-char limit. Hash the UDID short.
-  const short = createHash("sha1").update(udid).digest("hex").slice(0, 8);
-  return `/headless-serve-sim-cam-${short}`;
-}
-
 function helperPidFile(udid: string): string {
   return join(SIMCAM_STATE_DIR, `${udid}.pid`);
 }
@@ -1688,7 +1683,7 @@ async function ensureHelperWithSource(opts: {
   source: ResolvedSource;
   forceBuild: boolean;
 }): Promise<{ helperPid: number | null; shmName: string; relaunched: boolean }> {
-  const shmName = shmNameForUdid(opts.udid);
+  const shmName = cameraShmNameForUdid(opts.udid);
   const sockPath = helperSocketFile(opts.udid);
   if (isHelperAlive(opts.udid)) {
     // Hot-swap source via control socket — no relaunch needed.
