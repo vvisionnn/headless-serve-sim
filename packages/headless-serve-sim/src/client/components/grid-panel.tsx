@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Panel, PanelCloseButton, PanelHeader, PanelTitle } from "../Panel";
 import { useGridDevices } from "../hooks/use-grid-devices";
 import { useGridMemory } from "../hooks/use-grid-memory";
@@ -81,16 +81,6 @@ export function GridPanel({
     },
     [startEndpoint, refresh, waitForHelper, previewEndpoint],
   );
-
-  // If the currently-focused simulator's helper disappears from the API,
-  // hop to another live helper.
-  useEffect(() => {
-    if (!devices || !currentUdid) return;
-    const current = devices.find((d) => d.device === currentUdid);
-    if (current?.helper) return;
-    const next = devices.find((d) => d.helper && d.device !== currentUdid);
-    window.location.assign(next ? gridPreviewHref(previewEndpoint, next.device) : previewEndpoint);
-  }, [devices, currentUdid, previewEndpoint]);
 
   const shutdown = useCallback(
     async (udid: string) => {

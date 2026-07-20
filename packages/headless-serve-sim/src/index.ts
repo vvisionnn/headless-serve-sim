@@ -469,6 +469,17 @@ async function findAvailablePort(start: number): Promise<number> {
 
 async function ensureBooted(udid: string, headed: boolean): Promise<void> {
   bootDevice(udid, headed);
+  await waitForBootReady(udid);
+}
+
+async function requireAlreadyBooted(udid: string): Promise<void> {
+  if (!isDeviceBooted(udid)) {
+    throw new Error(`Device ${udid} is not booted; waiting for the user to boot it.`);
+  }
+  await waitForBootReady(udid);
+}
+
+async function waitForBootReady(udid: string): Promise<void> {
   // `simctl bootstatus -b` blocks until the device's services are actually ready
   // (not just flipped to "Booted"). Much more reliable than polling `simctl list`.
   try {
@@ -654,7 +665,7 @@ async function spawnHelperAttached(opts: SpawnHelperOptions): Promise<{
 async function startHelper(
   udid: string,
   port: number,
-  opts: { detach: boolean; headed: boolean },
+  opts: { detach: boolean; headed: boolean; attachOnly?: boolean },
 ): Promise<{ pid: number; child?: CommandTask }> {
   debugHelper(
     "startHelper udid=%s port=%d detach=%s headed=%s",
@@ -663,7 +674,8 @@ async function startHelper(
     opts.detach,
     opts.headed,
   );
-  await ensureBooted(udid, opts.headed);
+  if (opts.attachOnly) await requireAlreadyBooted(udid);
+  else await ensureBooted(udid, opts.headed);
 
   const host = "127.0.0.1";
   const helperPath = findHelperBinary();
@@ -892,6 +904,7 @@ async function detach(
   devices: string[],
   startPort: number,
   headed: boolean,
+  attachOnly = false,
 ): Promise<ServerState[]> {
   debugCli("detach devices=%o startPort=%d headed=%s", devices, startPort, headed);
   const existingDefault = devices.length === 0 ? readState() : null;
@@ -924,7 +937,7 @@ async function detach(
 
     port = await findAvailablePort(port);
     try {
-      await startHelper(udid, port, { detach: true, headed });
+      await startHelper(udid, port, { detach: true, headed, attachOnly });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (defaultCandidates) {
@@ -2243,6 +2256,7 @@ program
     "127.0.0.1",
   )
   .option("--detach", "Spawn helper and exit (daemon mode)")
+  .option("--attach-only", "Attach to an already-booted simulator; never boot it")
   .option("-q, --quiet", "Suppress human-readable output, JSON only")
   .option("--no-preview", "Skip the web preview server; stream in foreground only")
   .option(
@@ -2280,7 +2294,7 @@ Examples:
       return;
     }
     if (opts.detach) {
-      const states = await detach(devices, startPort ?? 3100, headed);
+      const states = await detach(devices, startPort ?? 3100, headed, !!opts.attachOnly);
       printStatesJSON(states);
     } else if (opts.preview === false) {
       await follow(devices, startPort ?? 3100, !!opts.quiet, headed);

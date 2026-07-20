@@ -1181,8 +1181,11 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
       return;
     }
 
-    // Spawn a headless-serve-sim helper (auto-boots if needed).
-    if (url === base + "/grid/api/start" && req.method === "POST") {
+    // Start is an explicit user action and may boot. Attach is the passive
+    // same-device reconnect path and is allowed only after the user has booted
+    // that simulator themselves.
+    const isAttachOnly = url === base + "/grid/api/attach";
+    if ((url === base + "/grid/api/start" || isAttachOnly) && req.method === "POST") {
       let body = "";
       req.on("data", (chunk: Buffer | string) => {
         body += typeof chunk === "string" ? chunk : chunk.toString();
@@ -1196,6 +1199,14 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
           res.writeHead(400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: false, error: "Invalid or missing udid" }));
           return;
+        }
+        if (isAttachOnly) {
+          const selected = listAllSimulators(hostCommands).find((device) => device.udid === udid);
+          if (selected?.state !== "Booted") {
+            res.writeHead(409, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: "Selected simulator is not booted" }));
+            return;
+          }
         }
         const resolved = resolveServeSimCommand(hostCommands);
         if (!resolved) {
@@ -1211,7 +1222,12 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
         }
         const child = hostCommands.start({
           executable: resolved.command,
-          args: [...resolved.baseArgs, "--detach", udid],
+          args: [
+            ...resolved.baseArgs,
+            "--detach",
+            ...(isAttachOnly ? ["--attach-only"] : []),
+            udid,
+          ],
           stdio: "stream",
         });
         let stdout = "";

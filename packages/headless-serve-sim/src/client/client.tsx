@@ -67,6 +67,12 @@ import { readPersistedFlag, writePersistedFlag } from "./utils/persisted-flag";
 import { resolveEventsDevice } from "./utils/events-device";
 import { previewConfigKey, selectedPreviewConfig } from "./utils/preview-config";
 import {
+  updateSelectedPreviewConnection,
+  type PreviewConnectionState,
+} from "./utils/preview-connection-state";
+import { selectedSimulatorTarget } from "./utils/selected-simulator-connection";
+import { selectedSimulatorReattachRequest } from "./utils/selected-simulator-reattach";
+import {
   currentAppForDevice,
   goHomeAndSelectSpringBoard,
   type DetectedAppState,
@@ -117,8 +123,15 @@ function usePersistedFlag(
 type PreviewConfig = NonNullable<Window["__SIM_PREVIEW__"]>;
 
 function App() {
-  const [config, setConfig] = useState<PreviewConfig | null>(() =>
-    selectedPreviewConfig(window.__SIM_PREVIEW__),
+  const [connection, setConnection] = useState<PreviewConnectionState<PreviewConfig>>(() => {
+    const config = selectedPreviewConfig(window.__SIM_PREVIEW__);
+    return { config, helperAvailable: config !== null };
+  });
+  const { config, helperAvailable } = connection;
+  // Capture the explicit selection once. Reconnection stays pinned to this
+  // identity even while the helper config is temporarily absent.
+  const urlDeviceRef = useRef<string | null>(
+    new URLSearchParams(window.location.search).get("device"),
   );
   const [streaming, setStreaming] = useState(false);
   const [devices, setDevices] = useState<SimDevice[]>([]);
@@ -134,13 +147,12 @@ function App() {
   const [showPicker, setShowPicker] = useState(false);
   const [lastDevice, setLastDevice] = useState<{ udid: string; name: string | null } | null>(() => {
     const p = selectedPreviewConfig(window.__SIM_PREVIEW__);
-    return p ? { udid: p.device, name: p.deviceName ?? null } : null;
+    return selectedSimulatorTarget({
+      urlDevice: urlDeviceRef.current,
+      liveDevice: p?.device ?? null,
+      liveDeviceName: p?.deviceName ?? null,
+    });
   });
-  // The URL's ?device= is captured once at mount; otherwise the subscription
-  // stays pinned to the simulator the user explicitly selected.
-  const urlDeviceRef = useRef<string | null>(
-    new URLSearchParams(window.location.search).get("device"),
-  );
   const eventsDevice = resolveEventsDevice({
     urlDevice: urlDeviceRef.current,
     initialDevice: lastDevice?.udid ?? null,
@@ -178,11 +190,17 @@ function App() {
     const eventsUrl = `${simEndpoint("api/events")}${eventsDevice ? `?device=${encodeURIComponent(eventsDevice)}` : ""}`;
 
     const applyConfig = (next: PreviewConfig | null) => {
-      setConfig((prev) => {
-        if (previewConfigKey(prev) === previewConfigKey(next)) return prev;
-        if (next) window.__SIM_PREVIEW__ = next;
-        else delete window.__SIM_PREVIEW__;
-        return next;
+      const selected = next?.device === eventsDevice ? next : null;
+      if (selected) window.__SIM_PREVIEW__ = selected;
+      setConnection((prev) => {
+        const updated = updateSelectedPreviewConnection(prev, selected, eventsDevice);
+        if (
+          updated.helperAvailable === prev.helperAvailable &&
+          previewConfigKey(updated.config) === previewConfigKey(prev.config)
+        ) {
+          return prev;
+        }
+        return updated;
       });
     };
 
@@ -204,6 +222,34 @@ function App() {
     setLastDevice({ udid: config.device, name: config.deviceName ?? null });
     setShowPicker(false);
   }, [config]);
+
+  useEffect(() => {
+    if (!helperAvailable) setStreaming(false);
+  }, [helperAvailable]);
+
+  useEffect(() => {
+    const request = selectedSimulatorReattachRequest(helperAvailable, eventsDevice);
+    if (!request) return;
+
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    const attach = async () => {
+      try {
+        await fetch(simEndpoint("grid/api/attach"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request),
+        });
+      } catch {}
+      if (!cancelled) retry = setTimeout(attach, 1_000);
+    };
+    void attach();
+
+    return () => {
+      cancelled = true;
+      if (retry) clearTimeout(retry);
+    };
+  }, [eventsDevice, helperAvailable]);
 
   if (!config) {
     // A device we were streaming just went away: wait for the SAME simulator.
