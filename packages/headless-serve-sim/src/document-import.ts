@@ -195,7 +195,7 @@ export function createDocumentImporter(
   return {
     localStorageDir: storageDir,
     importFiles(udid, request) {
-      const sources = request.files.map(files.resolvePath);
+      const sources = request.files.map((path) => files.resolvePath(path));
       const missing = sources.filter((path) => !files.exists(path));
       if (missing.length > 0) {
         throw new Error(`File(s) not found:\n  ${missing.join("\n  ")}`);

@@ -124,6 +124,7 @@ describe("document importer module", () => {
     ]);
     const made: string[] = [];
     const copied: Array<[string, string]> = [];
+    const resolveCalls: unknown[][] = [];
     const files: DocumentFileSystem = {
       exists: (path) => path === "/input/report.pdf",
       list: () => [],
@@ -134,7 +135,10 @@ describe("document importer module", () => {
         copied.push([source, destination]);
       },
       homeDirectory: () => "/home/test",
-      resolvePath: (path) => path,
+      resolvePath: (...paths) => {
+        resolveCalls.push(paths);
+        return paths[0] as string;
+      },
     };
 
     const imported = createDocumentImporter(host, files).importFiles("DEVICE", {
@@ -152,6 +156,7 @@ describe("document importer module", () => {
     expect(copied).toEqual([
       ["/input/report.pdf", "/containers/local/File Provider Storage/Books/renamed.pdf"],
     ]);
+    expect(resolveCalls).toEqual([["/input/report.pdf"]]);
     expect(host.calls).toEqual([
       {
         kind: "run-sync",
