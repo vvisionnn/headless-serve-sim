@@ -4,13 +4,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-// End-to-end proof, using *isolated* throwaway simulators, that /api device
-// resolution (the seam the pinned /api/events SSE uses) never re-targets a
-// different booted simulator:
+// End-to-end proof, using *isolated* throwaway simulators, that /api only
+// resolves an explicit user selection and never targets another booted device:
 //
-//   • GET /api?device=A           -> A's config   (pinned; auto-connect OFF)
-//   • GET /api?device=A (A gone)  -> null          (waits for A; never B)
-//   • GET /api           (A gone) -> B's config    (legacy fallback; auto-connect ON)
+//   • GET /api                    -> null
+//   • GET /api?device=A           -> A's config
+//   • GET /api?device=A (A gone)  -> null (never B)
+//   • GET /api           (A gone) -> null (never B)
+//   • GET /api?device=B           -> B's config only after that explicit pick
 //
 // This machine may have real headless-serve-sim helpers live in the shared state
 // dir, and readServeSimStates() SIGTERMs the pid of any state whose device isn't
@@ -19,9 +20,9 @@ import { join } from "path";
 // test writes there, and the parent test process never imports the middleware
 // (no shared module cache, no env mutation, no risk to the real state dir).
 
-const ISOLATED_TMP = mkdtempSync(join(tmpdir(), "auto-connect-e2e-"));
+const ISOLATED_TMP = mkdtempSync(join(tmpdir(), "explicit-selection-e2e-"));
 const STATE_DIR = join(ISOLATED_TMP, "headless-serve-sim");
-const TOKEN = "auto-connect-e2e-token";
+const TOKEN = "explicit-selection-e2e-token";
 const MIDDLEWARE = join(import.meta.dir, "..", "middleware.ts");
 
 // Every simctl call is bounded so a wedged simulator fails the test instead of
@@ -100,13 +101,13 @@ const { createServer } = require("http");
 
 // Booting and tearing down *isolated* simulators hangs intermittently on shared
 // CI runners (a wedged simctl can block the job for minutes), so skip on CI by
-// default — matching ui-settings.e2e. Set HEADLESS_SERVE_SIM_AUTOCONNECT_E2E=1
+// default — matching ui-settings.e2e. Set HEADLESS_SERVE_SIM_SELECTION_E2E=1
 // to force the suite on a runner where isolated-simulator boot actually works.
-const skipOnCi = !!process.env.CI && process.env.HEADLESS_SERVE_SIM_AUTOCONNECT_E2E !== "1";
+const skipOnCi = !!process.env.CI && process.env.HEADLESS_SERVE_SIM_SELECTION_E2E !== "1";
 
 const describeIfSim = simctlUsable() && !skipOnCi ? describe : describe.skip;
 
-describeIfSim("auto-connect /api pin (isolated simulators)", () => {
+describeIfSim("explicit /api selection (isolated simulators)", () => {
   const created: string[] = [];
   const keepalive: ChildProcess[] = [];
   let child: ChildProcess | undefined;
@@ -143,9 +144,9 @@ describeIfSim("auto-connect /api pin (isolated simulators)", () => {
   beforeAll(async () => {
     mkdirSync(STATE_DIR, { recursive: true });
     const { runtime, type } = pickRuntimeAndType();
-    udidA = xcrun(["simctl", "create", "auto-connect-e2e-A", type, runtime]).trim();
+    udidA = xcrun(["simctl", "create", "explicit-selection-e2e-A", type, runtime]).trim();
     created.push(udidA);
-    udidB = xcrun(["simctl", "create", "auto-connect-e2e-B", type, runtime]).trim();
+    udidB = xcrun(["simctl", "create", "explicit-selection-e2e-B", type, runtime]).trim();
     created.push(udidB);
     xcrun(["simctl", "boot", udidA]);
     xcrun(["simctl", "boot", udidB]);
@@ -197,12 +198,13 @@ describeIfSim("auto-connect /api pin (isolated simulators)", () => {
     } catch {}
   }, 120_000);
 
-  test("a pinned request resolves to exactly that simulator", async () => {
+  test("nothing connects until a simulator is explicitly selected", async () => {
+    expect(await apiConfig()).toBeNull();
     expect((await apiConfig(udidA))?.device).toBe(udidA);
     expect((await apiConfig(udidB))?.device).toBe(udidB);
   });
 
-  test("after the pinned simulator shuts down it returns null — never the other booted one", async () => {
+  test("closing the selected simulator never selects the other booted one", async () => {
     xcrun(["simctl", "shutdown", udidA]);
 
     // getBootedUdids() caches ~1.5s and shutdown isn't instant; poll the seam.
@@ -217,8 +219,9 @@ describeIfSim("auto-connect /api pin (isolated simulators)", () => {
     // The core guarantee: pinned-to-A never hops to B.
     expect(pinned).toBeNull();
 
-    // Contrast: an UNPINNED request (legacy auto-connect ON) does fall back to
-    // the surviving booted simulator — exactly what pinning suppresses.
-    expect((await apiConfig())?.device).toBe(udidB);
+    // B is still booted, but neither a stale A selection nor no selection may
+    // target it. It becomes available only after the user explicitly picks B.
+    expect(await apiConfig()).toBeNull();
+    expect((await apiConfig(udidB))?.device).toBe(udidB);
   }, 60_000);
 });

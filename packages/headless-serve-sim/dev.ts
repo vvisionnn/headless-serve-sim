@@ -149,8 +149,8 @@ function selectServeSimState(
   states: ServeSimState[],
   device?: string | null,
 ): ServeSimState | null {
-  if (device) return states.find((state) => state.device === device) ?? null;
-  return states[0] ?? null;
+  if (!device) return null;
+  return states.find((state) => state.device === device) ?? null;
 }
 
 function endpoint(path: string, device: string): string {

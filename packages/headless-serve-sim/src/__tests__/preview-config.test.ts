@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { previewConfigKey } from "../client/utils/preview-config";
+import { previewConfigKey, selectedPreviewConfig } from "../client/utils/preview-config";
 
 // A minimal config; only the fields previewConfigKey reads matter.
 function cfg(over: Partial<NonNullable<Window["__SIM_PREVIEW__"]>>) {
@@ -79,5 +79,16 @@ describe("previewConfigKey", () => {
         chromeIdentifier: "com.apple.dt.devicekit.chrome.phone11",
       },
     }))).not.toBe(withIdentifier);
+  });
+});
+
+describe("selectedPreviewConfig", () => {
+  test("a token-only bootstrap is not a simulator selection", () => {
+    expect(selectedPreviewConfig({ basePath: "", execToken: "token" })).toBeNull();
+  });
+
+  test("a device config preserves the explicit selection", () => {
+    const selected = cfg({ device: "USER-PICKED" });
+    expect(selectedPreviewConfig(selected)).toBe(selected);
   });
 });

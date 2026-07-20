@@ -2,9 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SimulatorDisconnected } from "../client/components/simulator-disconnected";
 
-// The panel shown when auto-connect is OFF and the pinned simulator disconnects.
-// It must never re-target a different simulator, and — per product — must not use
-// the word "reconnecting".
+// The panel shown when the user-selected simulator disconnects. It must never
+// offer automatic selection; changing devices requires the explicit picker.
 describe("SimulatorDisconnected", () => {
   test("names the disconnected simulator", () => {
     const html = renderToStaticMarkup(
@@ -34,37 +33,11 @@ describe("SimulatorDisconnected", () => {
     expect(html).toContain("This simulator disconnected");
   });
 
-  test("does not offer the auto-connect switch by default", () => {
+  test("never offers auto-connect", () => {
     const html = renderToStaticMarkup(
       <SimulatorDisconnected deviceName="iPhone 16 Pro" onChooseAnother={() => {}} />,
-    );
+    ).toLowerCase();
     expect(html).not.toContain('role="switch"');
-  });
-
-  test("offers the auto-connect switch when enabling it would actually hop", () => {
-    const html = renderToStaticMarkup(
-      <SimulatorDisconnected
-        deviceName="iPhone 16 Pro"
-        onChooseAnother={() => {}}
-        canAutoConnect
-        autoConnect={false}
-        onAutoConnectChange={() => {}}
-      />,
-    );
-    expect(html).toContain('role="switch"');
-    expect(html).toContain('aria-checked="false"');
-    expect(html.toLowerCase()).toContain("auto-connect");
-  });
-
-  test("hides the switch for a URL-pinned session where enabling it is a no-op", () => {
-    const html = renderToStaticMarkup(
-      <SimulatorDisconnected
-        deviceName="iPhone 16 Pro"
-        onChooseAnother={() => {}}
-        canAutoConnect={false}
-        onAutoConnectChange={() => {}}
-      />,
-    );
-    expect(html).not.toContain('role="switch"');
+    expect(html).not.toContain("auto-connect");
   });
 });

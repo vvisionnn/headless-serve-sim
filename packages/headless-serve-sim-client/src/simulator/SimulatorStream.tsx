@@ -58,7 +58,7 @@ export function SimulatorStream({ exec, device, style, imageStyle, className, st
     onActiveDeviceChange?.(info?.device ?? null);
   }, [info?.device, onActiveDeviceChange]);
 
-  // When the hook auto-connects (info transitions null → non-null) in relay mode,
+  // When the hook connects (info transitions null → non-null) in relay mode,
   // start the relay stream automatically.
   useEffect(() => {
     if (relayMode && info && !prevInfo.current) {

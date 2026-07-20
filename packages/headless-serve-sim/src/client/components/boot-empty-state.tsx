@@ -4,10 +4,8 @@ import { simEndpoint } from "../utils/sim-endpoint";
 
 // ─── Empty state: pick a simulator to boot ───
 //
-// When no headless-serve-sim helper is running, the middleware has no state file to
-// inject and `window.__SIM_PREVIEW__` is undefined. Instead of telling the
-// user to drop into a terminal, list available simulators inline and let
-// them boot one + start `headless-serve-sim --detach` from the browser.
+// Until the user selects a simulator, the middleware injects no stream config.
+// List available simulators inline and let the user explicitly start one.
 export function BootEmptyState({
   devices,
   loading,
@@ -96,8 +94,8 @@ export function BootEmptyState({
       <div className="flex flex-col items-center gap-3 text-center">
         <h1 className="font-display text-[24px] font-semibold tracking-[-0.01em] m-0 text-fg">No headless-serve-sim stream running</h1>
         <p className="text-fg-2 text-[15px] tracking-[-0.01em] max-w-120">
-          Pick a shutdown simulator to boot, or start one yourself with{" "}
-          <code className="bg-surface-2 rounded-pill px-2 py-0.5 text-[13px]">bunx headless-serve-sim --detach</code>.
+          Pick a simulator to connect, or start a specific one yourself with{" "}
+          <code className="bg-surface-2 rounded-pill px-2 py-0.5 text-[13px]">bunx headless-serve-sim --detach &lt;device&gt;</code>.
         </p>
         <div className="w-full max-w-90 mt-2 bg-panel-deep rounded-card border border-divider font-mono text-[13px] text-fg text-left max-h-[70vh] overflow-y-auto min-h-0">
           <div className="flex items-center justify-between px-3 py-2.5 text-[12px] text-fg-3 border-b border-divider">

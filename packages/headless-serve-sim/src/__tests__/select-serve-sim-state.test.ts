@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { selectServeSimState, type ServeSimState } from "../middleware";
 
 // The server seam the pinned SSE relies on. When the client subscribes with an
-// explicit ?device= (auto-connect OFF), the server must resolve strictly to that
-// device — returning null once it's gone rather than falling back to a different
-// booted helper. Only the "no device" path (auto-connect ON) may fall back.
+// An explicit ?device= must resolve strictly to that device — returning null
+// once it's gone rather than falling back to a different booted helper. A
+// missing device means the user has not selected anything, so it is also null.
 function state(device: string, port: number): ServeSimState {
   return {
     pid: 1,
@@ -30,9 +30,9 @@ describe("selectServeSimState (pin contract)", () => {
     expect(selectServeSimState([B], "UDID-A")).toBeNull();
   });
 
-  test("no device falls back to the first booted helper (legacy auto-connect)", () => {
-    expect(selectServeSimState([A, B], null)).toBe(A);
-    expect(selectServeSimState([B], undefined)).toBe(B);
+  test("no device never selects a booted helper", () => {
+    expect(selectServeSimState([A, B], null)).toBeNull();
+    expect(selectServeSimState([B], undefined)).toBeNull();
   });
 
   test("no device with nothing booted returns null", () => {

@@ -1817,16 +1817,6 @@ async function serve(servePort: number, devices: string[], portExplicit: boolean
   if (devices.length > 0) {
     const states = await detach(devices, 3100, headed);
     targetDevice = states[0]?.device;
-  } else {
-    // Ensure a headless-serve-sim stream is running (start one if not)
-    const existing = readAllStates();
-    if (existing.length > 0) {
-      targetDevice = existing[0]?.device;
-    } else {
-      console.log("Starting simulator stream...");
-      const states = await detach(devices, 3100, headed);
-      targetDevice = states[0]?.device;
-    }
   }
 
   const { simMiddleware } = await import("./middleware");
@@ -1894,7 +1884,7 @@ program
   .description("Stream iOS Simulator to the browser")
   .helpOption("-h, --help", "Show this help")
   // The default command: start the preview server (or stream / list / kill).
-  .argument("[devices...]", "Simulator(s) to target (udid or name; default: shutdown iPhone)")
+  .argument("[devices...]", "Simulator(s) to target (udid or name); omit to choose in the preview")
   .option("-p, --port <port>", "Starting port (preview default: 3200, stream default: 3100)", (v) => parseInt(v, 10))
   .option(
     "--host <addr>",
@@ -1917,11 +1907,10 @@ program
     "after",
     `
 Examples:
-  headless-serve-sim                              Open simulator preview at localhost:3200
+  headless-serve-sim                              Open the simulator picker at localhost:3200
   headless-serve-sim -p 8080                      Preview on a custom port
-  headless-serve-sim --no-preview                 Boot a shutdown iPhone and stream it in foreground
   headless-serve-sim --no-preview "iPhone 16 Pro" Stream a specific device (no preview)
-  headless-serve-sim --detach                     Start streaming in background (daemon)
+  headless-serve-sim --detach "iPhone 16 Pro"     Start a selected simulator stream in background
   headless-serve-sim --list                       Show all running streams
   headless-serve-sim --kill                       Stop all streams`,
   )
@@ -1936,6 +1925,11 @@ Examples:
     }
     const startPort: number | undefined = opts.port;
     const headed: boolean = !!opts.headed;
+    if (devices.length === 0 && (opts.detach || opts.preview === false)) {
+      console.error("Select a simulator explicitly when starting a stream.");
+      process.exitCode = 1;
+      return;
+    }
     if (opts.detach) {
       const states = await detach(devices, startPort ?? 3100, headed);
       printStatesJSON(states);

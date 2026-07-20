@@ -44,7 +44,7 @@ export function useSimStream({ exec, device: deviceProp }: UseSimStreamOptions):
     return () => { mountedRef.current = false; };
   }, []);
 
-  // Auto-connect/switch when deviceProp changes.
+  // Connect/switch when the explicitly provided device changes.
   // `headless-serve-sim --detach` handles booting, tearing down a previous server
   // for a different device, and returning early if already streaming the
   // requested device — so we just call it with the new UDID.

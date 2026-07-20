@@ -30,8 +30,8 @@ const states: ServeSimState[] = [
 ];
 
 describe("selectServeSimState", () => {
-  test("keeps existing first-state behavior when no device is requested", () => {
-    expect(selectServeSimState(states)?.device).toBe("DEVICE-A");
+  test("returns null when no device is requested", () => {
+    expect(selectServeSimState(states)).toBeNull();
   });
 
   test("selects the requested device state", () => {
