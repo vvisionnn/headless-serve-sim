@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { simMiddleware } from "../middleware";
+import { createSimMiddleware } from "../middleware";
 import { servePreview, type PreviewServer } from "../runtime";
+import { createScriptedHostCommands } from "../test-support/scripted-host-commands";
 
 // The settings sidebar talks to the host over this WebSocket control channel
 // (`/exec-ws`); existing tools keep using POST /exec. This suite runs under
@@ -18,9 +19,14 @@ const PORT = 3461;
 const TOKEN = "exec-ws-test-token";
 
 let server: PreviewServer;
+const hostCommands = createScriptedHostCommands([{ result: { stdout: "channel-works\n" } }]);
 
 beforeAll(async () => {
-  const middleware = simMiddleware({ basePath: "/", execToken: TOKEN });
+  const middleware = createSimMiddleware(hostCommands, {
+    basePath: "/",
+    execToken: TOKEN,
+    serveSimBin: "test-headless-serve-sim",
+  });
   server = await servePreview({ port: PORT, middleware, host: "127.0.0.1" });
 }, 60_000);
 
@@ -108,6 +114,16 @@ describe("exec-ws control channel", () => {
     expect(reply.id).toBe(1);
     expect(reply.exitCode).toBe(0);
     expect(reply.stdout?.trim()).toBe("channel-works");
+    expect(hostCommands.calls).toEqual([
+      {
+        kind: "run",
+        request: {
+          shell: "echo channel-works",
+          maxOutputBytes: 16 * 1024 * 1024,
+        },
+      },
+    ]);
+    expect(hostCommands.remaining).toBe(0);
     channel.close();
   });
 

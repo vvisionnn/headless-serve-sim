@@ -12,7 +12,10 @@ export function SimulatorDisconnected({
     <div className="flex h-screen w-screen flex-col items-center justify-center bg-page p-4 font-system box-border">
       <div className="flex w-full max-w-100 flex-col items-center gap-3 rounded-card border border-divider bg-panel-deep px-6 py-8 text-center">
         {/* Small solid status dot — orange reads as "waiting", not an error. */}
-        <span className="size-2.5 shrink-0 rounded-full" style={{ background: "var(--color-warning)" }} />
+        <span
+          className="size-2.5 shrink-0 rounded-full"
+          style={{ background: "var(--color-warning)" }}
+        />
         <h1 className="m-0 font-display text-[20px] font-semibold tracking-[-0.01em] text-fg">
           {name} disconnected
         </h1>

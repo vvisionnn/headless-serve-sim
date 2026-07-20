@@ -1,227 +1,107 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { execFileSync, spawn, type ChildProcess } from "child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createSimMiddleware } from "../middleware";
+import { createScriptedHostCommands } from "../test-support/scripted-host-commands";
 
-// End-to-end proof, using *isolated* throwaway simulators, that /api only
-// resolves an explicit user selection and never targets another booted device:
-//
-//   • GET /api                    -> null
-//   • GET /api?device=A           -> A's config
-//   • GET /api?device=A (A gone)  -> null (never B)
-//   • GET /api           (A gone) -> null (never B)
-//   • GET /api?device=B           -> B's config only after that explicit pick
-//
-// This machine may have real headless-serve-sim helpers live in the shared state
-// dir, and readServeSimStates() SIGTERMs the pid of any state whose device isn't
-// booted. So the middleware is run in a CHILD bun process whose TMPDIR points at
-// an isolated temp dir — it can only ever see the two synthetic state files this
-// test writes there, and the parent test process never imports the middleware
-// (no shared module cache, no env mutation, no risk to the real state dir).
+const createdDirs: string[] = [];
 
-const ISOLATED_TMP = mkdtempSync(join(tmpdir(), "explicit-selection-e2e-"));
-const STATE_DIR = join(ISOLATED_TMP, "headless-serve-sim");
-const TOKEN = "explicit-selection-e2e-token";
-const MIDDLEWARE = join(import.meta.dir, "..", "middleware.ts");
-
-// Every simctl call is bounded so a wedged simulator fails the test instead of
-// hanging the CI job — bun cannot preempt a blocked synchronous execFileSync.
-const EXEC_TIMEOUT_MS = 30_000;
-
-function xcrun(args: string[]): string {
-  return execFileSync("xcrun", args, {
-    encoding: "utf-8",
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: EXEC_TIMEOUT_MS,
-  });
-}
-
-function simctlUsable(): boolean {
-  try {
-    xcrun(["simctl", "help"]);
-    return true;
-  } catch {
-    return false;
+afterEach(() => {
+  for (const dir of createdDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
   }
-}
+});
 
-function bootedUdids(): Set<string> {
-  const data = JSON.parse(xcrun(["simctl", "list", "devices", "booted", "-j"])) as {
-    devices: Record<string, { udid: string; state: string }[]>;
+function bootedResult(...udids: string[]) {
+  return {
+    result: {
+      stdout: JSON.stringify({
+        devices: {
+          "com.apple.CoreSimulator.SimRuntime.iOS-Test": udids.map((udid) => ({
+            udid,
+            state: "Booted",
+          })),
+        },
+      }),
+    },
   };
-  const set = new Set<string>();
-  for (const list of Object.values(data.devices)) {
-    for (const d of list) if (d.state === "Booted") set.add(d.udid);
-  }
-  return set;
 }
 
-function pickRuntimeAndType(): { runtime: string; type: string } {
-  const data = JSON.parse(xcrun(["simctl", "list", "runtimes", "-j"])) as {
-    runtimes: {
-      identifier: string;
-      name: string;
-      isAvailable?: boolean;
-      supportedDeviceTypes?: { identifier: string; name: string }[];
-    }[];
-  };
-  // Newest iOS runtime that still advertises a compatible iPhone device type.
-  const ios = data.runtimes.filter((r) => r.isAvailable !== false && /iOS/.test(r.name));
-  for (let i = ios.length - 1; i >= 0; i--) {
-    const iphones = (ios[i]!.supportedDeviceTypes ?? []).filter((d) => /iPhone/.test(d.name));
-    const type = iphones[iphones.length - 1];
-    if (type) return { runtime: ios[i]!.identifier, type: type.identifier };
-  }
-  throw new Error("no compatible iOS runtime + iPhone device type pair available");
+function writeState(stateDir: string, device: string, pid: number, port: number): void {
+  writeFileSync(
+    join(stateDir, `server-${device}.json`),
+    JSON.stringify({
+      pid,
+      port,
+      device,
+      url: `http://127.0.0.1:${port}`,
+      streamUrl: `http://127.0.0.1:${port}/stream.mjpeg`,
+      wsUrl: `ws://127.0.0.1:${port}/ws`,
+    }),
+  );
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+describe("explicit /api selection", () => {
+  test("never connects until selected and never falls over to another booted device", async () => {
+    const deviceA = "EXPLICIT-SELECTION-A";
+    const deviceB = "EXPLICIT-SELECTION-B";
+    const pidA = 59_321;
+    const pidB = 59_322;
+    const root = mkdtempSync(join(tmpdir(), "explicit-selection-e2e-"));
+    createdDirs.push(root);
+    const stateDir = join(root, "state");
+    mkdirSync(stateDir);
+    writeState(stateDir, deviceA, pidA, 59_321);
+    writeState(stateDir, deviceB, pidB, 59_322);
 
-async function waitBooted(udid: string, timeoutMs = 120_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (bootedUdids().has(udid)) return;
-    await sleep(500);
-  }
-  throw new Error(`simulator ${udid} never reached Booted`);
-}
-
-// Tiny middleware server whose STATE_DIR is isolated by the child's TMPDIR env.
-const CHILD_SRC = `
-const { createServer } = require("http");
-(async () => {
-  const { simMiddleware } = await import(process.env.MW);
-  const handler = simMiddleware({ basePath: "/", execToken: process.env.TOKEN });
-  const server = createServer((req, res) =>
-    handler(req, res, () => { if (!res.headersSent) res.statusCode = 404; res.end("Not found"); }));
-  server.listen(0, "127.0.0.1", () => console.log("PORT " + server.address().port));
-})();
-`;
-
-// Booting and tearing down *isolated* simulators hangs intermittently on shared
-// CI runners (a wedged simctl can block the job for minutes), so skip on CI by
-// default — matching ui-settings.e2e. Set HEADLESS_SERVE_SIM_SELECTION_E2E=1
-// to force the suite on a runner where isolated-simulator boot actually works.
-const skipOnCi = !!process.env.CI && process.env.HEADLESS_SERVE_SIM_SELECTION_E2E !== "1";
-
-const describeIfSim = simctlUsable() && !skipOnCi ? describe : describe.skip;
-
-describeIfSim("explicit /api selection (isolated simulators)", () => {
-  const created: string[] = [];
-  const keepalive: ChildProcess[] = [];
-  let child: ChildProcess | undefined;
-  let origin = "";
-  let udidA = "";
-  let udidB = "";
-
-  // Synthetic helper state backed by a harmless live process, so the child's
-  // readServeSimStates() liveness probe passes and its recycle path (SIGTERM on
-  // shutdown) only ever hits our own `sleep`.
-  function writeState(udid: string, port: number): void {
-    const proc = spawn("sleep", ["600"], { stdio: "ignore" });
-    keepalive.push(proc);
-    writeFileSync(
-      join(STATE_DIR, `server-${udid}.json`),
-      JSON.stringify({
-        pid: proc.pid,
-        port,
-        device: udid,
-        url: `http://127.0.0.1:${port}`,
-        streamUrl: `http://127.0.0.1:${port}/stream.mjpeg`,
-        wsUrl: `ws://127.0.0.1:${port}/ws`,
+    const host = createScriptedHostCommands(
+      [bootedResult(deviceA, deviceB), bootedResult(deviceB)],
+      { alivePids: [pidA, pidB] },
+    );
+    let now = 10_000;
+    const handler = createSimMiddleware(host, {
+      basePath: "/",
+      execToken: "explicit-selection-e2e-token",
+      serveSimBin: "test-headless-serve-sim",
+      stateDir,
+      now: () => now,
+    });
+    const server = createServer((req, res) =>
+      handler(req, res, () => {
+        res.statusCode = 404;
+        res.end("Not found");
       }),
     );
-  }
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const origin = `http://127.0.0.1:${port}`;
 
-  async function apiConfig(device?: string): Promise<{ device: string } | null> {
-    const qs = device ? `?device=${encodeURIComponent(device)}` : "";
-    const res = await fetch(`${origin}/api${qs}`);
-    expect(res.status).toBe(200);
-    return (await res.json()) as { device: string } | null;
-  }
-
-  beforeAll(async () => {
-    mkdirSync(STATE_DIR, { recursive: true });
-    const { runtime, type } = pickRuntimeAndType();
-    udidA = xcrun(["simctl", "create", "explicit-selection-e2e-A", type, runtime]).trim();
-    created.push(udidA);
-    udidB = xcrun(["simctl", "create", "explicit-selection-e2e-B", type, runtime]).trim();
-    created.push(udidB);
-    xcrun(["simctl", "boot", udidA]);
-    xcrun(["simctl", "boot", udidB]);
-    await waitBooted(udidA);
-    await waitBooted(udidB);
-
-    writeState(udidA, 59321);
-    writeState(udidB, 59322);
-
-    child = spawn("bun", ["-e", CHILD_SRC], {
-      env: { ...process.env, TMPDIR: ISOLATED_TMP, TOKEN, MW: MIDDLEWARE },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    origin = await new Promise<string>((resolve, reject) => {
-      let buf = "";
-      const timer = setTimeout(() => reject(new Error("middleware child never reported a port")), 20_000);
-      child!.stdout!.on("data", (d) => {
-        buf += String(d);
-        const m = buf.match(/PORT (\d+)/);
-        if (m) {
-          clearTimeout(timer);
-          resolve(`http://127.0.0.1:${m[1]}`);
-        }
-      });
-      child!.on("exit", (code) => {
-        clearTimeout(timer);
-        reject(new Error(`middleware child exited early (code ${code})`));
-      });
-    });
-  }, 300_000);
-
-  afterAll(async () => {
-    child?.kill("SIGKILL");
-    for (const c of keepalive) {
-      try {
-        c.kill("SIGKILL");
-      } catch {}
+    async function apiConfig(device?: string): Promise<{ device: string } | null> {
+      const query = device ? `?device=${encodeURIComponent(device)}` : "";
+      const response = await fetch(`${origin}/api${query}`);
+      expect(response.status).toBe(200);
+      return response.json() as Promise<{ device: string } | null>;
     }
-    for (const u of created) {
-      try {
-        xcrun(["simctl", "shutdown", u]);
-      } catch {}
-      try {
-        xcrun(["simctl", "delete", u]);
-      } catch {}
-    }
+
     try {
-      rmSync(ISOLATED_TMP, { recursive: true, force: true });
-    } catch {}
-  }, 120_000);
+      expect(await apiConfig()).toBeNull();
+      expect((await apiConfig(deviceA))?.device).toBe(deviceA);
+      expect((await apiConfig(deviceB))?.device).toBe(deviceB);
 
-  test("nothing connects until a simulator is explicitly selected", async () => {
-    expect(await apiConfig()).toBeNull();
-    expect((await apiConfig(udidA))?.device).toBe(udidA);
-    expect((await apiConfig(udidB))?.device).toBe(udidB);
-  });
+      now += 1_501;
+      expect(await apiConfig(deviceA)).toBeNull();
+      expect(await apiConfig()).toBeNull();
+      expect((await apiConfig(deviceB))?.device).toBe(deviceB);
 
-  test("closing the selected simulator never selects the other booted one", async () => {
-    xcrun(["simctl", "shutdown", udidA]);
-
-    // getBootedUdids() caches ~1.5s and shutdown isn't instant; poll the seam.
-    let pinned: { device: string } | null = { device: udidA };
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
-      pinned = await apiConfig(udidA);
-      if (pinned === null) break;
-      await sleep(500);
+      expect(host.signals).toContainEqual({ pid: pidA, signal: "SIGTERM" });
+      expect(host.calls.map((call) => call.kind)).toEqual(["run-sync", "run-sync"]);
+      expect(host.remaining).toBe(0);
+    } finally {
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     }
-
-    // The core guarantee: pinned-to-A never hops to B.
-    expect(pinned).toBeNull();
-
-    // B is still booted, but neither a stale A selection nor no selection may
-    // target it. It becomes available only after the user explicitly picks B.
-    expect(await apiConfig()).toBeNull();
-    expect((await apiConfig(udidB))?.device).toBe(udidB);
-  }, 60_000);
+  });
 });

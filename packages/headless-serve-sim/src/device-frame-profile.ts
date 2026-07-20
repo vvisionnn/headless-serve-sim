@@ -1,5 +1,3 @@
-import { execFile, execFileSync } from "child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
 import { access, mkdtemp, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -12,6 +10,8 @@ import type {
   DeviceFrameFamily,
   DeviceFrameSpec,
 } from "headless-serve-sim-client/simulator";
+import type { HostCommands } from "./runtime/host-commands";
+import { createNodeHostCommands } from "./runtime/node-host-commands";
 
 export interface CoreSimulatorDeviceType {
   identifier: string;
@@ -26,15 +26,12 @@ export interface BuildDeviceFrameSpecInput {
   profile: unknown;
   chrome: unknown;
   sensorBarSize?: { width: number; height: number } | null;
-  resolveArtworkAsset?: (
-    name: string,
-    scale: number,
-  ) => DeviceFrameArtworkAsset | null;
+  resolveArtworkAsset?: (name: string, scale: number) => DeviceFrameArtworkAsset | null;
 }
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 
@@ -87,9 +84,12 @@ function buildArtwork(
   const paddingBottom = finite(padding.bottom);
   const paddingLeft = finite(padding.left);
   if (
-    paddingTop === null || paddingRight === null ||
-    paddingBottom === null || paddingLeft === null
-  ) return undefined;
+    paddingTop === null ||
+    paddingRight === null ||
+    paddingBottom === null ||
+    paddingLeft === null
+  )
+    return undefined;
 
   const slices = {} as DeviceFrameArtwork["slices"];
   for (const key of SLICE_KEYS) {
@@ -110,16 +110,18 @@ function buildArtwork(
     const anchor = input?.anchor;
     const align = input?.align;
     if (
-      !input || typeof input.name !== "string" || typeof input.image !== "string" ||
+      !input ||
+      typeof input.name !== "string" ||
+      typeof input.image !== "string" ||
       typeof input.onTop !== "boolean" ||
-      !(["left", "right", "top", "bottom"] as const).includes(
-        anchor as DeviceFrameControlAnchor,
-      ) ||
+      !(["left", "right", "top", "bottom"] as const).includes(anchor as DeviceFrameControlAnchor) ||
       !(["leading", "center", "trailing"] as const).includes(
         align as DeviceFrameControlAlignment,
       ) ||
-      !normalOffsetPx || !rolloverOffsetPx
-    ) return undefined;
+      !normalOffsetPx ||
+      !rolloverOffsetPx
+    )
+      return undefined;
     const image = resolveAsset(input.image, scale);
     if (!image) return undefined;
     controls.push({
@@ -159,16 +161,15 @@ export function buildDeviceFrameSpec({
   if (!family || !capabilityRoot || !profileRoot || !chromeRoot) return null;
 
   const chromeIdentifier = profileRoot.chromeIdentifier;
-  if (
-    typeof chromeIdentifier !== "string" ||
-    chromeRoot.identifier !== chromeIdentifier
-  ) return null;
+  if (typeof chromeIdentifier !== "string" || chromeRoot.identifier !== chromeIdentifier)
+    return null;
 
   const displays = Array.isArray(capabilityRoot.displays)
     ? capabilityRoot.displays.map(record).filter((value) => value !== null)
     : [];
-  const display = displays.find((value) => value.deviceName === "primary")
-    ?? displays.find((value) => value.displayType === "integrated");
+  const display =
+    displays.find((value) => value.deviceName === "primary") ??
+    displays.find((value) => value.displayType === "integrated");
   const scale = finite(display?.scale);
   const width = finite(display?.width);
   const height = finite(display?.height);
@@ -190,35 +191,36 @@ export function buildDeviceFrameSpec({
   const outerInsetBottom = finite(outsideInsets?.bottom) ?? 0;
   const outerInsetLeft = finite(outsideInsets?.left) ?? 0;
   if (
-    left === null || right === null || top === null || bottom === null ||
-    outerRadiusX === null || outerRadiusY === null
-  ) return null;
+    left === null ||
+    right === null ||
+    top === null ||
+    bottom === null ||
+    outerRadiusX === null ||
+    outerRadiusY === null
+  )
+    return null;
 
   const radius = (key: string) => (finite(display[key]) ?? 0) * scale;
-  const cutout = family !== "iphone"
-    ? "none"
-    : capabilityRoot.DeviceSupportsDynamicIsland === true
-      ? "dynamic-island"
-      : typeof profileRoot.sensorBarImage === "string"
-        ? "notch"
-        : "none";
-  const cutoutRectPx = cutout === "notch" && sensorBarSize
-    ? {
-        x: (width - sensorBarSize.width * scale) / 2,
-        y: 0,
-        width: sensorBarSize.width * scale,
-        height: sensorBarSize.height * scale,
-      }
-    : null;
+  const cutout =
+    family !== "iphone"
+      ? "none"
+      : capabilityRoot.DeviceSupportsDynamicIsland === true
+        ? "dynamic-island"
+        : typeof profileRoot.sensorBarImage === "string"
+          ? "notch"
+          : "none";
+  const cutoutRectPx =
+    cutout === "notch" && sensorBarSize
+      ? {
+          x: (width - sensorBarSize.width * scale) / 2,
+          y: 0,
+          width: sensorBarSize.width * scale,
+          height: sensorBarSize.height * scale,
+        }
+      : null;
   const chromeWidth = (left + right) * scale + width;
   const chromeHeight = (top + bottom) * scale + height;
-  const artwork = buildArtwork(
-    chromeRoot,
-    scale,
-    chromeWidth,
-    chromeHeight,
-    resolveArtworkAsset,
-  );
+  const artwork = buildArtwork(chromeRoot, scale, chromeWidth, chromeHeight, resolveArtworkAsset);
 
   return {
     deviceTypeIdentifier: deviceType.identifier,
@@ -255,34 +257,43 @@ export function buildDeviceFrameSpec({
 }
 
 const NEGATIVE_CACHE_TTL_MS = 5_000;
-const installedSpecCache = new Map<string, {
-  value: DeviceFrameSpec | null;
-  expiresAt: number;
-}>();
-const installedSpecLoads = new Map<string, Promise<DeviceFrameSpec | null>>();
-let installedDeviceTypesCache: {
-  value: CoreSimulatorDeviceType[];
-  expiresAt: number;
-} | null = null;
 
-function readPlistJson(path: string): unknown {
-  return JSON.parse(execFileSync(
-    "plutil",
-    ["-convert", "json", "-o", "-", path],
-    { encoding: "utf8", timeout: 3_000 },
-  ));
+interface DeviceFrameProfileState {
+  installedSpecCache: Map<
+    string,
+    {
+      value: DeviceFrameSpec | null;
+      expiresAt: number;
+    }
+  >;
+  installedSpecLoads: Map<string, Promise<DeviceFrameSpec | null>>;
+  installedDeviceTypesCache: {
+    value: CoreSimulatorDeviceType[];
+    expiresAt: number;
+  } | null;
+  installedDeviceTypesLoad: Promise<CoreSimulatorDeviceType[]> | null;
 }
 
-function execFileOutput(command: string, args: string[], timeout: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(command, args, { encoding: "utf8", timeout }, (error, stdout) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve(String(stdout));
-    });
-  });
+function createDeviceFrameProfileState(): DeviceFrameProfileState {
+  return {
+    installedSpecCache: new Map(),
+    installedSpecLoads: new Map(),
+    installedDeviceTypesCache: null,
+    installedDeviceTypesLoad: null,
+  };
+}
+
+async function hostOutput(
+  host: HostCommands,
+  executable: string,
+  args: string[],
+  timeoutMs: number,
+): Promise<string> {
+  const result = await host.run({ executable, args, timeoutMs });
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.toString() || `${executable} failed`);
+  }
+  return result.stdout.toString();
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -294,20 +305,12 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-async function readPlistJsonAsync(path: string): Promise<unknown> {
-  return JSON.parse(await execFileOutput(
-    "plutil",
-    ["-convert", "json", "-o", "-", path],
-    3_000,
-  ));
+async function readPlistJsonAsync(host: HostCommands, path: string): Promise<unknown> {
+  return JSON.parse(await hostOutput(host, "plutil", ["-convert", "json", "-o", "-", path], 3_000));
 }
 
-export function parsePdfMediaBoxSize(
-  pdf: string,
-): { width: number; height: number } | null {
-  const match = pdf.match(
-    /\/MediaBox\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\]/,
-  );
+export function parsePdfMediaBoxSize(pdf: string): { width: number; height: number } | null {
+  const match = pdf.match(/\/MediaBox\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\]/);
   if (!match) return null;
   const width = Number(match[3]) - Number(match[1]);
   const height = Number(match[4]) - Number(match[2]);
@@ -316,11 +319,9 @@ export function parsePdfMediaBoxSize(
     : null;
 }
 
-function readPdfMediaBox(path: string): { width: number; height: number } | null {
-  return parsePdfMediaBoxSize(readFileSync(path, "latin1"));
-}
-
-async function readPdfMediaBoxAsync(path: string): Promise<{ width: number; height: number } | null> {
+async function readPdfMediaBoxAsync(
+  path: string,
+): Promise<{ width: number; height: number } | null> {
   return parsePdfMediaBoxSize(await readFile(path, "latin1"));
 }
 
@@ -329,8 +330,9 @@ function primaryDisplayScale(capabilities: unknown): number | null {
   const displays = Array.isArray(capabilityRoot?.displays)
     ? capabilityRoot.displays.map(record).filter((value) => value !== null)
     : [];
-  const display = displays.find((value) => value.deviceName === "primary")
-    ?? displays.find((value) => value.displayType === "integrated");
+  const display =
+    displays.find((value) => value.deviceName === "primary") ??
+    displays.find((value) => value.displayType === "integrated");
   const scale = finite(display?.scale);
   return scale && scale > 0 ? scale : null;
 }
@@ -342,14 +344,17 @@ function artworkAssetNames(chrome: unknown): string[] {
     const name = images?.[key];
     return typeof name === "string" ? [name] : [];
   });
-  const controlNames = (Array.isArray(chromeRoot?.inputs) ? chromeRoot.inputs : []).flatMap((item) => {
-    const name = record(item)?.image;
-    return typeof name === "string" ? [name] : [];
-  });
+  const controlNames = (Array.isArray(chromeRoot?.inputs) ? chromeRoot.inputs : []).flatMap(
+    (item) => {
+      const name = record(item)?.image;
+      return typeof name === "string" ? [name] : [];
+    },
+  );
   return [...new Set([...sliceNames, ...controlNames])];
 }
 
 async function rasterizeArtworkAsset(
+  host: HostCommands,
   name: string,
   scale: number,
   chromeResources: string,
@@ -370,7 +375,8 @@ async function rasterizeArtworkAsset(
   const height = Math.max(1, Math.round(mediaBox.height * scale));
   const pngPath = join(tempDirectory, `asset-${index}.png`);
   try {
-    await execFileOutput(
+    await hostOutput(
+      host,
       "/usr/bin/sips",
       ["-s", "format", "png", "-z", String(height), String(width), pdfPath, "--out", pngPath],
       5_000,
@@ -394,179 +400,57 @@ function parseInstalledDeviceTypes(value: unknown): CoreSimulatorDeviceType[] {
       typeof deviceType.name === "string" &&
       typeof deviceType.productFamily === "string" &&
       typeof deviceType.bundlePath === "string"
-      ? [{
-          identifier: deviceType.identifier,
-          name: deviceType.name,
-          productFamily: deviceType.productFamily,
-          bundlePath: deviceType.bundlePath,
-        }]
+      ? [
+          {
+            identifier: deviceType.identifier,
+            name: deviceType.name,
+            productFamily: deviceType.productFamily,
+            bundlePath: deviceType.bundlePath,
+          },
+        ]
       : [];
   });
 }
 
-function cacheInstalledDeviceTypes(value: CoreSimulatorDeviceType[]): CoreSimulatorDeviceType[] {
-  installedDeviceTypesCache = {
+function cacheInstalledDeviceTypes(
+  state: DeviceFrameProfileState,
+  value: CoreSimulatorDeviceType[],
+): CoreSimulatorDeviceType[] {
+  state.installedDeviceTypesCache = {
     value,
-    expiresAt: value.length > 0
-      ? Number.POSITIVE_INFINITY
-      : Date.now() + NEGATIVE_CACHE_TTL_MS,
+    expiresAt: value.length > 0 ? Number.POSITIVE_INFINITY : Date.now() + NEGATIVE_CACHE_TTL_MS,
   };
   return value;
 }
 
-function listInstalledDeviceTypes(): CoreSimulatorDeviceType[] {
-  if (installedDeviceTypesCache && installedDeviceTypesCache.expiresAt > Date.now()) {
-    return installedDeviceTypesCache.value;
+async function listInstalledDeviceTypesAsync(
+  host: HostCommands,
+  state: DeviceFrameProfileState,
+): Promise<CoreSimulatorDeviceType[]> {
+  if (state.installedDeviceTypesCache && state.installedDeviceTypesCache.expiresAt > Date.now()) {
+    return state.installedDeviceTypesCache.value;
   }
-  try {
-    return cacheInstalledDeviceTypes(parseInstalledDeviceTypes(JSON.parse(execFileSync(
-      "xcrun",
-      ["simctl", "list", "devicetypes", "-j"],
-      { encoding: "utf8", timeout: 3_000 },
-    ))));
-  } catch {
-    return cacheInstalledDeviceTypes([]);
-  }
-}
-
-let installedDeviceTypesLoad: Promise<CoreSimulatorDeviceType[]> | null = null;
-
-async function listInstalledDeviceTypesAsync(): Promise<CoreSimulatorDeviceType[]> {
-  if (installedDeviceTypesCache && installedDeviceTypesCache.expiresAt > Date.now()) {
-    return installedDeviceTypesCache.value;
-  }
-  if (installedDeviceTypesLoad) return installedDeviceTypesLoad;
+  if (state.installedDeviceTypesLoad) return state.installedDeviceTypesLoad;
   const load = (async () => {
     try {
-      return cacheInstalledDeviceTypes(parseInstalledDeviceTypes(JSON.parse(await execFileOutput(
-        "xcrun",
-        ["simctl", "list", "devicetypes", "-j"],
-        3_000,
-      ))));
+      return cacheInstalledDeviceTypes(
+        state,
+        parseInstalledDeviceTypes(
+          JSON.parse(
+            await hostOutput(host, "xcrun", ["simctl", "list", "devicetypes", "-j"], 3_000),
+          ),
+        ),
+      );
     } catch {
-      return cacheInstalledDeviceTypes([]);
+      return cacheInstalledDeviceTypes(state, []);
     }
   })();
-  installedDeviceTypesLoad = load;
+  state.installedDeviceTypesLoad = load;
   const clearLoad = () => {
-    if (installedDeviceTypesLoad === load) installedDeviceTypesLoad = null;
+    if (state.installedDeviceTypesLoad === load) state.installedDeviceTypesLoad = null;
   };
   void load.then(clearLoad, clearLoad);
   return load;
-}
-
-/** Best-effort exact frame profile from the currently selected Xcode toolchain. */
-export function loadInstalledDeviceFrameSpec(
-  deviceTypeIdentifier: string,
-): DeviceFrameSpec | null {
-  const cached = installedSpecCache.get(deviceTypeIdentifier);
-  if (cached && cached.expiresAt > Date.now()) return cached.value;
-
-  let resolved: DeviceFrameSpec | null = null;
-  try {
-    const deviceType = listInstalledDeviceTypes().find(
-      (candidate) => candidate.identifier === deviceTypeIdentifier,
-    );
-    if (!deviceType) throw new Error("device type unavailable");
-    const resources = join(deviceType.bundlePath, "Contents", "Resources");
-    const capabilitiesPath = join(resources, "capabilities.plist");
-    const profilePath = join(resources, "profile.plist");
-    if (!existsSync(capabilitiesPath) || !existsSync(profilePath)) {
-      throw new Error("device profile unavailable");
-    }
-    const capabilities = readPlistJson(capabilitiesPath);
-    const profile = readPlistJson(profilePath);
-    const profileRoot = record(profile);
-    const chromeIdentifier = profileRoot?.chromeIdentifier;
-    if (typeof chromeIdentifier !== "string") throw new Error("chrome unavailable");
-    const chromeName = chromeIdentifier.replace(
-      /^com\.apple\.dt\.devicekit\.chrome\./,
-      "",
-    );
-    if (!/^[A-Za-z0-9._-]+$/.test(chromeName)) throw new Error("invalid chrome");
-    const chromePath = join(
-      "/Library/Developer/DeviceKit/Chrome",
-      `${chromeName}.devicechrome`,
-      "Contents",
-      "Resources",
-      "chrome.json",
-    );
-    if (!existsSync(chromePath)) throw new Error("chrome unavailable");
-    const chromeResources = join(chromePath, "..");
-    const sensorBarImage = profileRoot?.sensorBarImage;
-    const sensorBarSize = typeof sensorBarImage === "string" &&
-        /^[A-Za-z0-9._-]+$/.test(sensorBarImage)
-      ? readPdfMediaBox(join(resources, `${sensorBarImage}.pdf`))
-      : null;
-    const tempDirectory = mkdtempSync(join(tmpdir(), "serve-sim-device-frame-"));
-    try {
-      const assets = new Map<string, DeviceFrameArtworkAsset | null>();
-      const resolveArtworkAsset = (
-        name: string,
-        scale: number,
-      ): DeviceFrameArtworkAsset | null => {
-        const cachedAsset = assets.get(name);
-        if (cachedAsset !== undefined) return cachedAsset;
-        if (
-          name.length === 0 || name.includes("/") || name.includes("\\") ||
-          name.includes("\0")
-        ) {
-          assets.set(name, null);
-          return null;
-        }
-        const pdfPath = join(chromeResources, `${name}.pdf`);
-        const mediaBox = existsSync(pdfPath) ? readPdfMediaBox(pdfPath) : null;
-        if (!mediaBox) {
-          assets.set(name, null);
-          return null;
-        }
-        const width = Math.max(1, Math.round(mediaBox.width * scale));
-        const height = Math.max(1, Math.round(mediaBox.height * scale));
-        const pngPath = join(tempDirectory, `asset-${assets.size}.png`);
-        try {
-          execFileSync(
-            "/usr/bin/sips",
-            [
-              "-s", "format", "png",
-              "-z", String(height), String(width),
-              pdfPath,
-              "--out", pngPath,
-            ],
-            { stdio: "ignore", timeout: 5_000 },
-          );
-          const asset = {
-            pngDataUrl: `data:image/png;base64,${readFileSync(pngPath).toString("base64")}`,
-            width,
-            height,
-          };
-          assets.set(name, asset);
-          return asset;
-        } catch {
-          assets.set(name, null);
-          return null;
-        }
-      };
-      resolved = buildDeviceFrameSpec({
-        deviceType,
-        capabilities,
-        profile,
-        chrome: JSON.parse(readFileSync(chromePath, "utf8")),
-        sensorBarSize,
-        resolveArtworkAsset,
-      });
-    } finally {
-      rmSync(tempDirectory, { force: true, recursive: true });
-    }
-  } catch {
-    resolved = null;
-  }
-  installedSpecCache.set(deviceTypeIdentifier, {
-    value: resolved,
-    expiresAt: resolved?.artwork
-      ? Number.POSITIVE_INFINITY
-      : Date.now() + NEGATIVE_CACHE_TTL_MS,
-  });
-  return resolved;
 }
 
 /**
@@ -575,19 +459,21 @@ export function loadInstalledDeviceFrameSpec(
  * DeviceKit artwork conversion invokes several command-line tools, so callers
  * serving HTTP requests must use this asynchronous variant.
  */
-export function loadInstalledDeviceFrameSpecAsync(
+async function loadInstalledDeviceFrameSpecAsyncWithHost(
+  host: HostCommands,
+  state: DeviceFrameProfileState,
   deviceTypeIdentifier: string,
 ): Promise<DeviceFrameSpec | null> {
-  const cached = installedSpecCache.get(deviceTypeIdentifier);
+  const cached = state.installedSpecCache.get(deviceTypeIdentifier);
   if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.value);
 
-  const inFlight = installedSpecLoads.get(deviceTypeIdentifier);
+  const inFlight = state.installedSpecLoads.get(deviceTypeIdentifier);
   if (inFlight) return inFlight;
 
   const load = (async (): Promise<DeviceFrameSpec | null> => {
     let resolved: DeviceFrameSpec | null = null;
     try {
-      const deviceType = (await listInstalledDeviceTypesAsync()).find(
+      const deviceType = (await listInstalledDeviceTypesAsync(host, state)).find(
         (candidate) => candidate.identifier === deviceTypeIdentifier,
       );
       if (!deviceType) throw new Error("device type unavailable");
@@ -598,16 +484,13 @@ export function loadInstalledDeviceFrameSpecAsync(
         throw new Error("device profile unavailable");
       }
       const [capabilities, profile] = await Promise.all([
-        readPlistJsonAsync(capabilitiesPath),
-        readPlistJsonAsync(profilePath),
+        readPlistJsonAsync(host, capabilitiesPath),
+        readPlistJsonAsync(host, profilePath),
       ]);
       const profileRoot = record(profile);
       const chromeIdentifier = profileRoot?.chromeIdentifier;
       if (typeof chromeIdentifier !== "string") throw new Error("chrome unavailable");
-      const chromeName = chromeIdentifier.replace(
-        /^com\.apple\.dt\.devicekit\.chrome\./,
-        "",
-      );
+      const chromeName = chromeIdentifier.replace(/^com\.apple\.dt\.devicekit\.chrome\./, "");
       if (!/^[A-Za-z0-9._-]+$/.test(chromeName)) throw new Error("invalid chrome");
       const chromePath = join(
         "/Library/Developer/DeviceKit/Chrome",
@@ -619,11 +502,12 @@ export function loadInstalledDeviceFrameSpecAsync(
       if (!(await fileExists(chromePath))) throw new Error("chrome unavailable");
       const chromeResources = join(chromePath, "..");
       const sensorBarImage = profileRoot?.sensorBarImage;
-      const sensorBarPath = typeof sensorBarImage === "string" && assetNameIsSafe(sensorBarImage)
-        ? join(resources, `${sensorBarImage}.pdf`)
-        : null;
+      const sensorBarPath =
+        typeof sensorBarImage === "string" && assetNameIsSafe(sensorBarImage)
+          ? join(resources, `${sensorBarImage}.pdf`)
+          : null;
       let sensorBarSize: { width: number; height: number } | null = null;
-      if (sensorBarPath && await fileExists(sensorBarPath)) {
+      if (sensorBarPath && (await fileExists(sensorBarPath))) {
         try {
           sensorBarSize = await readPdfMediaBoxAsync(sensorBarPath);
         } catch {}
@@ -638,7 +522,7 @@ export function loadInstalledDeviceFrameSpecAsync(
           for (const [index, name] of assetNames.entries()) {
             assets.set(
               name,
-              await rasterizeArtworkAsset(name, scale, chromeResources, tempDirectory, index),
+              await rasterizeArtworkAsset(host, name, scale, chromeResources, tempDirectory, index),
             );
           }
         } finally {
@@ -656,20 +540,38 @@ export function loadInstalledDeviceFrameSpecAsync(
     } catch {
       resolved = null;
     }
-    installedSpecCache.set(deviceTypeIdentifier, {
+    state.installedSpecCache.set(deviceTypeIdentifier, {
       value: resolved,
-      expiresAt: resolved?.artwork
-        ? Number.POSITIVE_INFINITY
-        : Date.now() + NEGATIVE_CACHE_TTL_MS,
+      expiresAt: resolved?.artwork ? Number.POSITIVE_INFINITY : Date.now() + NEGATIVE_CACHE_TTL_MS,
     });
     return resolved;
   })();
-  installedSpecLoads.set(deviceTypeIdentifier, load);
+  state.installedSpecLoads.set(deviceTypeIdentifier, load);
   const clearLoad = () => {
-    if (installedSpecLoads.get(deviceTypeIdentifier) === load) {
-      installedSpecLoads.delete(deviceTypeIdentifier);
+    if (state.installedSpecLoads.get(deviceTypeIdentifier) === load) {
+      state.installedSpecLoads.delete(deviceTypeIdentifier);
     }
   };
   void load.then(clearLoad, clearLoad);
   return load;
+}
+
+export interface DeviceFrameProfileLoader {
+  load(deviceTypeIdentifier: string): Promise<DeviceFrameSpec | null>;
+}
+
+export function createDeviceFrameProfileLoader(host: HostCommands): DeviceFrameProfileLoader {
+  const state = createDeviceFrameProfileState();
+  return {
+    load: (deviceTypeIdentifier) =>
+      loadInstalledDeviceFrameSpecAsyncWithHost(host, state, deviceTypeIdentifier),
+  };
+}
+
+const productionDeviceFrameProfileLoader = createDeviceFrameProfileLoader(createNodeHostCommands());
+
+export function loadInstalledDeviceFrameSpecAsync(
+  deviceTypeIdentifier: string,
+): Promise<DeviceFrameSpec | null> {
+  return productionDeviceFrameProfileLoader.load(deviceTypeIdentifier);
 }

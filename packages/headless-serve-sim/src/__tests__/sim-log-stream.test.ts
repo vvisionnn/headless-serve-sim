@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "events";
-import { PassThrough } from "stream";
+import { PassThrough, type Readable } from "stream";
 import {
   buildSimLogStreamArgs,
   createSimLogLineFramer,
@@ -8,6 +8,34 @@ import {
   parseSimLogProcessId,
   startSimulatorLogStream,
 } from "../sim-log-stream";
+import type { CommandRequest, HostCommands } from "../runtime/host-commands";
+
+function hostWithStream(
+  stdout: Readable,
+  stop: () => void = () => {},
+): { hostCommands: HostCommands; requests: CommandRequest[] } {
+  const requests: CommandRequest[] = [];
+  const hostCommands = {
+    run() {
+      throw new Error("run is not available in this stream test");
+    },
+    start(request: CommandRequest) {
+      requests.push(request);
+      return {
+        pid: undefined,
+        stdout,
+        stderr: null,
+        result: new Promise<never>(() => {}),
+        stop,
+        unref() {},
+      };
+    },
+    signal() {
+      return false;
+    },
+  } as HostCommands;
+  return { hostCommands, requests };
+}
 
 describe("simulator log stream options", () => {
   test("accepts only the log levels supported by simctl", () => {
@@ -65,12 +93,7 @@ describe("createSimLogLineFramer", () => {
 describe("startSimulatorLogStream", () => {
   test("preserves a multibyte log message split across stdout chunks", () => {
     const stdout = new PassThrough();
-    const child = new EventEmitter() as EventEmitter & {
-      stdout: PassThrough;
-      kill: () => void;
-    };
-    child.stdout = stdout;
-    child.kill = () => {};
+    const host = hostWithStream(stdout);
     const response = new EventEmitter() as EventEmitter & {
       writableEnded: boolean;
       writes: string[];
@@ -83,13 +106,15 @@ describe("startSimulatorLogStream", () => {
       response.writes.push(chunk);
       return true;
     };
-    response.end = () => { response.writableEnded = true; };
+    response.end = () => {
+      response.writableEnded = true;
+    };
 
     const stop = startSimulatorLogStream({
       udid: "DEVICE-123",
       level: "info",
       response: response as never,
-      spawnProcess: (() => child) as never,
+      hostCommands: host.hostCommands,
     });
     const line = Buffer.from('{"eventMessage":"你好 👋"}\n');
     const split = line.indexOf(Buffer.from("你")) + 1;
@@ -110,18 +135,21 @@ describe("startSimulatorLogStream", () => {
     let pauses = 0;
     let resumes = 0;
     let destroys = 0;
-    stdout.pause = () => { pauses++; };
-    stdout.resume = () => { resumes++; };
-    stdout.destroy = () => { destroys++; };
+    stdout.pause = () => {
+      pauses++;
+    };
+    stdout.resume = () => {
+      resumes++;
+    };
+    stdout.destroy = () => {
+      destroys++;
+    };
     stdout.setEncoding = () => {};
 
-    const child = new EventEmitter() as EventEmitter & {
-      stdout: typeof stdout;
-      kill: () => void;
-    };
-    child.stdout = stdout;
     let kills = 0;
-    child.kill = () => { kills++; };
+    const host = hostWithStream(stdout as never, () => {
+      kills++;
+    });
 
     const response = new EventEmitter() as EventEmitter & {
       writableEnded: boolean;
@@ -135,13 +163,15 @@ describe("startSimulatorLogStream", () => {
       response.writes.push(chunk);
       return response.writes.length > 1;
     };
-    response.end = () => { response.writableEnded = true; };
+    response.end = () => {
+      response.writableEnded = true;
+    };
 
     const stop = startSimulatorLogStream({
       udid: "DEVICE-123",
       level: "info",
       response: response as never,
-      spawnProcess: (() => child) as never,
+      hostCommands: host.hostCommands,
     });
 
     stdout.emit("data", Buffer.from('{"eventMessage":"hello"}\n'));
@@ -176,12 +206,7 @@ describe("startSimulatorLogStream", () => {
     stdout.destroy = () => {};
     stdout.setEncoding = () => {};
 
-    const child = new EventEmitter() as EventEmitter & {
-      stdout: typeof stdout;
-      kill: () => void;
-    };
-    child.stdout = stdout;
-    child.kill = () => {};
+    const host = hostWithStream(stdout as never);
 
     const response = new EventEmitter() as EventEmitter & {
       writableEnded: boolean;
@@ -195,13 +220,15 @@ describe("startSimulatorLogStream", () => {
       response.writes.push(chunk);
       return response.writes.length > 1;
     };
-    response.end = () => { response.writableEnded = true; };
+    response.end = () => {
+      response.writableEnded = true;
+    };
 
     const stop = startSimulatorLogStream({
       udid: "DEVICE-123",
       level: "info",
       response: response as never,
-      spawnProcess: (() => child) as never,
+      hostCommands: host.hostCommands,
       maxPendingBytes: 64,
     });
 

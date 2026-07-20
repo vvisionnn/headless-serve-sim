@@ -35,10 +35,11 @@ describe("stream quality benchmark", () => {
       ...Array<Rgb>(8).fill(palette[2]!),
     ]);
 
-    const report = analyzeRgbFrames(
-      new Uint8Array([...coherent, ...torn]),
-      { width, height: 16, palette },
-    );
+    const report = analyzeRgbFrames(new Uint8Array([...coherent, ...torn]), {
+      width,
+      height: 16,
+      palette,
+    });
 
     expect(report.totalFrames).toBe(2);
     expect(report.tornFrames).toBe(1);
@@ -49,35 +50,22 @@ describe("stream quality benchmark", () => {
 
   test("converts the public AVCC envelopes into a decodable Annex-B recording", () => {
     const description = new Uint8Array([
-      1, 0x64, 0, 0x1f, 0xff,
-      0xe1, 0, 2, 0x67, 0x64,
-      1, 0, 2, 0x68, 0xee,
+      1, 0x64, 0, 0x1f, 0xff, 0xe1, 0, 2, 0x67, 0x64, 1, 0, 2, 0x68, 0xee,
     ]);
-    const frame = new Uint8Array([
-      0, 0, 0, 2, 0x65, 0x88,
-      0, 0, 0, 1, 0x41,
-    ]);
+    const frame = new Uint8Array([0, 0, 0, 2, 0x65, 0x88, 0, 0, 0, 1, 0x41]);
 
     expect([...avccDescriptionToAnnexB(description).data]).toEqual([
-      0, 0, 0, 1, 0x67, 0x64,
-      0, 0, 0, 1, 0x68, 0xee,
+      0, 0, 0, 1, 0x67, 0x64, 0, 0, 0, 1, 0x68, 0xee,
     ]);
-    expect([...avccFrameToAnnexB(frame, 4)]).toEqual([
-      0, 0, 0, 1, 0x65, 0x88,
-      0, 0, 0, 1, 0x41,
-    ]);
+    expect([...avccFrameToAnnexB(frame, 4)]).toEqual([0, 0, 0, 1, 0x65, 0x88, 0, 0, 0, 1, 0x41]);
   });
 
   test("extracts complete MJPEG images and preserves a split trailing image", () => {
-    const result = extractJpegFrames(new Uint8Array([
-      9, 9,
-      0xff, 0xd8, 1, 2, 0xff, 0xd9,
-      0xff, 0xd8, 3,
-    ]));
+    const result = extractJpegFrames(
+      new Uint8Array([9, 9, 0xff, 0xd8, 1, 2, 0xff, 0xd9, 0xff, 0xd8, 3]),
+    );
 
-    expect(result.frames.map((frame) => [...frame])).toEqual([
-      [0xff, 0xd8, 1, 2, 0xff, 0xd9],
-    ]);
+    expect(result.frames.map((frame) => [...frame])).toEqual([[0xff, 0xd8, 1, 2, 0xff, 0xd9]]);
     expect([...result.remaining]).toEqual([0xff, 0xd8, 3]);
   });
 });

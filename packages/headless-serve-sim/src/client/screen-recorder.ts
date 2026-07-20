@@ -6,7 +6,6 @@ import {
   type DeviceType,
   type SimulatorRecordingSnapshot,
   type SimulatorRecordingSource,
-  type SimulatorRecordingTouch,
   type SimulatorOrientation,
 } from "headless-serve-sim-client/simulator";
 import type { PreparedDeviceFrameArtwork } from "./device-frame-artwork";
@@ -49,7 +48,6 @@ export interface RecordingLayout {
   cutoutRect: RecordingRect | null;
 }
 
-export type RecordingTouch = SimulatorRecordingTouch;
 export type RecordingSnapshot = SimulatorRecordingSnapshot;
 export type RecordingSource = SimulatorRecordingSource;
 
@@ -130,11 +128,7 @@ export type ScreenRecorderState =
   | "error";
 
 const MP4_MIME_TYPES = ["video/mp4;codecs=avc1", "video/mp4"] as const;
-const WEBM_MIME_TYPES = [
-  "video/webm;codecs=vp9",
-  "video/webm;codecs=vp8",
-  "video/webm",
-] as const;
+const WEBM_MIME_TYPES = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"] as const;
 
 function recordingMimeTypeCandidates(format: RecordingFormat): readonly string[] {
   if (format === "mp4") return MP4_MIME_TYPES;
@@ -213,9 +207,8 @@ export function createRecordingLayout(
   const geometry = streamDisplayGeometry(source);
   const display = geometry.displayConfig;
   if (!display) throw new Error("recording source dimensions must be positive");
-  const frameSpec = typeof deviceFrame === "string"
-    ? genericDeviceFrameSpec(deviceFrame)
-    : deviceFrame;
+  const frameSpec =
+    typeof deviceFrame === "string" ? genericDeviceFrameSpec(deviceFrame) : deviceFrame;
   if (frameSpec) {
     const native = frameSpec.nativeScreen;
     const insets = frameSpec.insetsPx;
@@ -252,7 +245,8 @@ export function createRecordingLayout(
       : null;
     const nativeIsLandscape = native.width > native.height;
     const displayIsLandscape = display.width > display.height;
-    const frameRotationDegrees = rotationDegreesForOrientation(source.orientation) ||
+    const frameRotationDegrees =
+      rotationDegreesForOrientation(source.orientation) ||
       (nativeIsLandscape !== displayIsLandscape ? 90 : 0);
     const rotatedScreen = rotateRecordingRect(
       canonicalScreen,
@@ -267,12 +261,7 @@ export function createRecordingLayout(
       frameRotationDegrees,
     );
     const rotatedArtwork = canonicalArtwork
-      ? rotateRecordingRect(
-          canonicalArtwork,
-          boundsWidth,
-          boundsHeight,
-          frameRotationDegrees,
-        )
+      ? rotateRecordingRect(canonicalArtwork, boundsWidth, boundsHeight, frameRotationDegrees)
       : null;
     const frameWidth = Math.abs(frameRotationDegrees) === 90 ? boundsHeight : boundsWidth;
     const frameHeight = Math.abs(frameRotationDegrees) === 90 ? boundsWidth : boundsHeight;
@@ -303,14 +292,8 @@ export function createRecordingLayout(
     let decoratedBottom = scaledFrameHeight;
     for (const shadow of decoration.shadows) {
       decoratedLeft = Math.min(decoratedLeft, shadowRect.x - 2 * shadow.blur);
-      decoratedTop = Math.min(
-        decoratedTop,
-        shadowRect.y + shadow.offsetY - 2 * shadow.blur,
-      );
-      decoratedRight = Math.max(
-        decoratedRight,
-        shadowRect.x + shadowRect.width + 2 * shadow.blur,
-      );
+      decoratedTop = Math.min(decoratedTop, shadowRect.y + shadow.offsetY - 2 * shadow.blur);
+      decoratedRight = Math.max(decoratedRight, shadowRect.x + shadowRect.width + 2 * shadow.blur);
       decoratedBottom = Math.max(
         decoratedBottom,
         shadowRect.y + shadowRect.height + shadow.offsetY + 2 * shadow.blur,
@@ -330,12 +313,7 @@ export function createRecordingLayout(
     });
     const canonicalCutout = frameCutoutRect(frameSpec, chromeRect.x, chromeRect.y);
     const cutoutRect = canonicalCutout
-      ? place(rotateRecordingRect(
-          canonicalCutout,
-          boundsWidth,
-          boundsHeight,
-          frameRotationDegrees,
-        ))
+      ? place(rotateRecordingRect(canonicalCutout, boundsWidth, boundsHeight, frameRotationDegrees))
       : null;
     return {
       width,
@@ -387,7 +365,8 @@ function preparedArtworkMatchesFrame(
   artwork: PreparedDeviceFrameArtwork | null,
 ): artwork is PreparedDeviceFrameArtwork {
   return Boolean(
-    artwork && frame.artwork &&
+    artwork &&
+    frame.artwork &&
     artwork.deviceTypeIdentifier === frame.deviceTypeIdentifier &&
     artwork.chromeIdentifier === frame.chromeIdentifier &&
     artwork.width === frame.artwork.width &&
@@ -469,11 +448,7 @@ function rotateRecordingRect(
   return rect;
 }
 
-function frameCutoutRect(
-  frame: DeviceFrameSpec,
-  offsetX = 0,
-  offsetY = 0,
-): RecordingRect | null {
+function frameCutoutRect(frame: DeviceFrameSpec, offsetX = 0, offsetY = 0): RecordingRect | null {
   if (frame.cutout === "none") return null;
   const screen = frame.nativeScreen;
   if (frame.cutoutRectPx) {
@@ -488,18 +463,16 @@ function frameCutoutRect(
   const height = screen.height * (frame.cutout === "dynamic-island" ? 36 / 845 : 32 / 844);
   return {
     x: offsetX + frame.insetsPx.left + (screen.width - width) / 2,
-    y: offsetY + frame.insetsPx.top +
+    y:
+      offsetY +
+      frame.insetsPx.top +
       (frame.cutout === "dynamic-island" ? screen.height * (13.667 / 845) : 0),
     width,
     height,
   };
 }
 
-function roundedRectPath(
-  ctx: CanvasRenderingContext2D,
-  rect: RecordingRect,
-  radius: number,
-): void {
+function roundedRectPath(ctx: CanvasRenderingContext2D, rect: RecordingRect, radius: number): void {
   const r = Math.max(0, Math.min(radius, rect.width / 2, rect.height / 2));
   const right = rect.x + rect.width;
   const bottom = rect.y + rect.height;
@@ -629,8 +602,7 @@ function compatibleArtwork(
 ): artwork is PreparedDeviceFrameArtwork {
   const spec = layout.frameSpec;
   return Boolean(
-    artwork && spec?.artwork && layout.artworkRect &&
-    preparedArtworkMatchesFrame(spec, artwork),
+    artwork && spec?.artwork && layout.artworkRect && preparedArtworkMatchesFrame(spec, artwork),
   );
 }
 
@@ -693,21 +665,12 @@ function paintRecordingFrameAtScale(
   );
 
   ctx.save();
-  ctx.translate(
-    contentRect.x + contentRect.width / 2,
-    contentRect.y + contentRect.height / 2,
-  );
+  ctx.translate(contentRect.x + contentRect.width / 2, contentRect.y + contentRect.height / 2);
   ctx.rotate((geometry.rotationDegrees * Math.PI) / 180);
   const sideways = Math.abs(geometry.rotationDegrees) === 90;
   const drawWidth = sideways ? contentRect.height : contentRect.width;
   const drawHeight = sideways ? contentRect.width : contentRect.height;
-  ctx.drawImage(
-    snapshot.source,
-    -drawWidth / 2,
-    -drawHeight / 2,
-    drawWidth,
-    drawHeight,
-  );
+  ctx.drawImage(snapshot.source, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
   ctx.restore();
 
   paintTouches(ctx, snapshot, contentRect);
@@ -799,9 +762,8 @@ export class CanvasScreenRecorder {
     const snapshot = this.options.source.snapshot(this.platform.now());
     if (!snapshot) throw new Error("recording source is not ready");
     const format = this.options.format ?? "auto";
-    const mimeTypes = supportedRecordingMimeTypes(
-      format,
-      (candidate) => this.platform.isTypeSupported(candidate),
+    const mimeTypes = supportedRecordingMimeTypes(format, (candidate) =>
+      this.platform.isTypeSupported(candidate),
     );
     if (mimeTypes.length === 0) {
       throw new Error(`no supported ${format.toUpperCase()} recording format`);
@@ -850,7 +812,9 @@ export class CanvasScreenRecorder {
           candidate.onstop = null;
           candidate.onerror = null;
           if (candidate.state !== "inactive") {
-            try { candidate.stop(); } catch {}
+            try {
+              candidate.stop();
+            } catch {}
           }
         }
         this.mediaRecorder = null;
@@ -878,7 +842,9 @@ export class CanvasScreenRecorder {
       this.resolveStop = resolve;
       this.rejectStop = reject;
     });
-    try { this.mediaRecorder.requestData?.(); } catch {}
+    try {
+      this.mediaRecorder.requestData?.();
+    } catch {}
     try {
       this.mediaRecorder.stop();
     } catch (error) {
@@ -891,7 +857,9 @@ export class CanvasScreenRecorder {
     if (this._state === "cancelled") return;
     const mediaRecorder = this.mediaRecorder;
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
-      try { mediaRecorder.stop(); } catch {}
+      try {
+        mediaRecorder.stop();
+      } catch {}
     }
     this.releaseActiveResources();
     this.chunks = [];
@@ -977,7 +945,9 @@ export class CanvasScreenRecorder {
     this._state = "error";
     const mediaRecorder = this.mediaRecorder;
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
-      try { mediaRecorder.stop(); } catch {}
+      try {
+        mediaRecorder.stop();
+      } catch {}
     }
     this.releaseActiveResources();
     this.chunks = [];

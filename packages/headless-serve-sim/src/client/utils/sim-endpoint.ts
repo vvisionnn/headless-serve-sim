@@ -1,7 +1,4 @@
-import type {
-  DeviceFrameSpec,
-  SimulatorOrientation,
-} from "headless-serve-sim-client/simulator";
+import type { DeviceFrameSpec, SimulatorOrientation } from "headless-serve-sim-client/simulator";
 
 declare global {
   interface Window {

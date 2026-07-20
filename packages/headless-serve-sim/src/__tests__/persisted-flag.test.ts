@@ -45,7 +45,7 @@ describe("readPersistedFlag", () => {
     expect(readPersistedFlag("k", true)).toBe(false);
   });
 
-  test("any non-\"1\" value decodes to false (not the fallback)", () => {
+  test('any non-"1" value decodes to false (not the fallback)', () => {
     storage.store.set("k", "true");
     expect(readPersistedFlag("k", true)).toBe(false);
     storage.store.set("k", "");
@@ -65,7 +65,7 @@ describe("readPersistedFlag", () => {
 });
 
 describe("writePersistedFlag", () => {
-  test("writes \"1\" for true and \"0\" for false", () => {
+  test('writes "1" for true and "0" for false', () => {
     writePersistedFlag("k", true);
     expect(storage.store.get("k")).toBe("1");
     writePersistedFlag("k", false);

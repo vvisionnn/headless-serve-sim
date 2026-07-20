@@ -15,7 +15,9 @@ export function useAppIcons(udid: string | null | undefined, bundleIds: string[]
       const cacheKey = `${udid}:${bundleId}`;
       const cached = appIconCache.get(cacheKey);
       if (typeof cached === "string" || cached === null) {
-        setIcons((prev) => (prev[bundleId] === cached ? prev : { ...prev, [bundleId]: cached as string | null }));
+        setIcons((prev) =>
+          prev[bundleId] === cached ? prev : { ...prev, [bundleId]: cached as string | null },
+        );
         continue;
       }
       void fetchAppIcon(execOnHost, udid, bundleId).then((url) => {

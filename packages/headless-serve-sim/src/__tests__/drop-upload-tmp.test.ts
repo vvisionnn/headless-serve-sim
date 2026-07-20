@@ -24,7 +24,12 @@ function recordingExec() {
 describe("uploadFileToTmp", () => {
   test("creates a real (empty) temp file for a 0-byte upload", async () => {
     const { calls, exec } = recordingExec();
-    const tmp = await uploadFileToTmp(mockFile(new Uint8Array(0)), "headless-serve-sim-doc", "txt", exec);
+    const tmp = await uploadFileToTmp(
+      mockFile(new Uint8Array(0)),
+      "headless-serve-sim-doc",
+      "txt",
+      exec,
+    );
     expect(tmp).toMatch(/^\/tmp\/headless-serve-sim-doc-.*\.txt$/);
     // Exactly one call: the truncate-create. No base64 chunk writes.
     expect(calls).toHaveLength(1);
@@ -40,9 +45,13 @@ describe("uploadFileToTmp", () => {
   });
 
   test("throws when the truncate-create fails", async () => {
-    const exec = async (): Promise<ExecResult> => ({ stdout: "", stderr: "disk full", exitCode: 1 });
-    await expect(
-      uploadFileToTmp(mockFile(new Uint8Array(0)), "p", "txt", exec),
-    ).rejects.toThrow("disk full");
+    const exec = async (): Promise<ExecResult> => ({
+      stdout: "",
+      stderr: "disk full",
+      exitCode: 1,
+    });
+    await expect(uploadFileToTmp(mockFile(new Uint8Array(0)), "p", "txt", exec)).rejects.toThrow(
+      "disk full",
+    );
   });
 });

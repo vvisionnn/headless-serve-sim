@@ -1,6 +1,7 @@
-import { execFile } from "child_process";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
 import { loadInstalledDeviceFrameSpecAsync } from "./device-frame-profile";
+import type { HostCommands } from "./runtime/host-commands";
+import { createNodeHostCommands } from "./runtime/node-host-commands";
 
 export const DEVICE_METADATA_RETRY_MS = 5_000;
 
@@ -78,34 +79,28 @@ export function createDeviceMetadataResolver(
   return { resolve };
 }
 
-function execFileOutput(command: string, args: string[], timeout: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(command, args, { encoding: "utf8", timeout }, (error, stdout) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve(String(stdout));
-    });
-  });
-}
-
 async function findInstalledSimulator(
+  host: HostCommands,
   udid: string,
 ): Promise<SimulatorDeviceMetadata | undefined> {
   try {
-    const output = await execFileOutput(
-      "xcrun",
-      ["simctl", "list", "devices", "-j"],
-      3_000,
-    );
+    const result = await host.run({
+      executable: "xcrun",
+      args: ["simctl", "list", "devices", "-j"],
+      timeoutMs: 3_000,
+    });
+    if (result.exitCode !== 0) return undefined;
+    const output = result.stdout.toString();
     const devices = JSON.parse(output) as {
-      devices?: Record<string, Array<{
-        udid?: unknown;
-        name?: unknown;
-        isAvailable?: unknown;
-        deviceTypeIdentifier?: unknown;
-      }>>;
+      devices?: Record<
+        string,
+        Array<{
+          udid?: unknown;
+          name?: unknown;
+          isAvailable?: unknown;
+          deviceTypeIdentifier?: unknown;
+        }>
+      >;
     };
     for (const [runtime, candidates] of Object.entries(devices.devices ?? {})) {
       if (!/SimRuntime\.(iOS|watchOS|visionOS|xrOS)-/i.test(runtime)) continue;
@@ -125,14 +120,21 @@ async function findInstalledSimulator(
   return undefined;
 }
 
-const installedDeviceMetadataResolver = createDeviceMetadataResolver({
-  findSimulator: findInstalledSimulator,
-  loadDeviceFrameSpec: loadInstalledDeviceFrameSpecAsync,
-});
+export function createInstalledDeviceMetadataSource(
+  host: HostCommands,
+  loadDeviceFrameSpec: DeviceMetadataSource["loadDeviceFrameSpec"] = loadInstalledDeviceFrameSpecAsync,
+): DeviceMetadataSource {
+  return {
+    findSimulator: (udid) => findInstalledSimulator(host, udid),
+    loadDeviceFrameSpec,
+  };
+}
+
+const installedDeviceMetadataResolver = createDeviceMetadataResolver(
+  createInstalledDeviceMetadataSource(createNodeHostCommands()),
+);
 
 /** Resolve selected simulator metadata without blocking HTTP/SSE request handling. */
-export function resolveInstalledDeviceMetadata(
-  udid: string,
-): Promise<DeviceMetadata | undefined> {
+export function resolveInstalledDeviceMetadata(udid: string): Promise<DeviceMetadata | undefined> {
   return installedDeviceMetadataResolver.resolve(udid);
 }

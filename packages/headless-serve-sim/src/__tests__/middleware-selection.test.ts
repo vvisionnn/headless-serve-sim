@@ -46,7 +46,9 @@ describe("selectServeSimState", () => {
 describe("previewConfigForState", () => {
   test("returns the full client config shape with device-scoped endpoints", () => {
     const state = states[1]!;
-    expect(previewConfigForState(state, "/preview", "/bin/headless-serve-sim", "token-xyz")).toEqual({
+    expect(
+      previewConfigForState(state, "/preview", "/bin/headless-serve-sim", "token-xyz"),
+    ).toEqual({
       ...state,
       basePath: "/preview",
       logsEndpoint: "/preview/logs?device=DEVICE-B&token=token-xyz",
@@ -148,12 +150,14 @@ describe("foregroundAppIdentityKey", () => {
     activeIdentity = foregroundAppIdentityKey("com.example.new", 202);
     finishDetection(false);
     expect(await stale).toBeNull();
-    expect(await resolveForegroundAppState(
-      "com.example.new",
-      202,
-      (identity) => identity === activeIdentity,
-      async () => true,
-    )).toEqual({
+    expect(
+      await resolveForegroundAppState(
+        "com.example.new",
+        202,
+        (identity) => identity === activeIdentity,
+        async () => true,
+      ),
+    ).toEqual({
       bundleId: "com.example.new",
       pid: 202,
       isReactNative: true,

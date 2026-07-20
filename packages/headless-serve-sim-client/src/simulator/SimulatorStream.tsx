@@ -41,7 +41,21 @@ export interface SimulatorStreamProps {
  * Uses the gateway exec to invoke the `headless-serve-sim` CLI on the host,
  * then connects directly to the headless-serve-sim server for video + touch.
  */
-export function SimulatorStream({ exec, device, style, imageStyle, className, stream, headerless, onStreamingChange, onScreenConfigChange, onError, onActiveDeviceChange, enableDigitalCrown, codec }: SimulatorStreamProps) {
+export function SimulatorStream({
+  exec,
+  device,
+  style,
+  imageStyle,
+  className,
+  stream,
+  headerless,
+  onStreamingChange,
+  onScreenConfigChange,
+  onError,
+  onActiveDeviceChange,
+  enableDigitalCrown,
+  codec,
+}: SimulatorStreamProps) {
   const { info, loading, error, connect, disconnect, sendButton } = useSimStream({ exec, device });
   const [fullscreen, setFullscreen] = useState(false);
   const relayMode = !!stream;
@@ -107,19 +121,30 @@ export function SimulatorStream({ exec, device, style, imageStyle, className, st
               </button>
             )}
             {info ? (
-              <button onClick={() => { if (relayMode) stream.stop(); disconnect(); }} disabled={loading} style={btnStyle}>
+              <button
+                onClick={() => {
+                  if (relayMode) stream.stop();
+                  disconnect();
+                }}
+                disabled={loading}
+                style={btnStyle}
+              >
                 {loading ? "..." : "Disconnect"}
               </button>
             ) : (
-              <button onClick={async () => {
-                console.log(`[headless-serve-sim] Connect clicked`);
-                const ok = await connect();
-                console.log(`[headless-serve-sim] connect() resolved (ok=${ok})`);
-                if (ok && relayMode) {
-                  console.log(`[headless-serve-sim] sending stream:start`);
-                  stream.start({ maxFps: 30 });
-                }
-              }} disabled={loading} style={btnStyle}>
+              <button
+                onClick={async () => {
+                  console.log(`[headless-serve-sim] Connect clicked`);
+                  const ok = await connect();
+                  console.log(`[headless-serve-sim] connect() resolved (ok=${ok})`);
+                  if (ok && relayMode) {
+                    console.log(`[headless-serve-sim] sending stream:start`);
+                    stream.start({ maxFps: 30 });
+                  }
+                }}
+                disabled={loading}
+                style={btnStyle}
+              >
                 {loading ? "Connecting..." : "Connect"}
               </button>
             )}
@@ -139,21 +164,23 @@ export function SimulatorStream({ exec, device, style, imageStyle, className, st
           url={info.url}
           style={fullscreen ? { width: "100%", flex: 1 } : { width: "100%" }}
           imageStyle={imageStyle}
-          onHomePress={() => relayMode ? stream.sendButton("home") : sendButton("home")}
+          onHomePress={() => (relayMode ? stream.sendButton("home") : sendButton("home"))}
           hideControls={headerless}
           onStreamingChange={onStreamingChange}
           onScreenConfigChange={onScreenConfigChange}
           codec={codec}
-          connectionQuality={relayMode ? stream.connectionQuality ?? undefined : undefined}
-          {...(relayMode ? {
-            onStreamTouch: stream.sendTouch,
-            onStreamMultiTouch: stream.sendMultiTouch,
-            onStreamButton: stream.sendButton,
-            onStreamDigitalCrown: stream.sendDigitalCrown,
-            subscribeFrame: stream.subscribeFrame,
-            streamFrame: stream.frame,
-            streamConfig: stream.config,
-          } : {})}
+          connectionQuality={relayMode ? (stream.connectionQuality ?? undefined) : undefined}
+          {...(relayMode
+            ? {
+                onStreamTouch: stream.sendTouch,
+                onStreamMultiTouch: stream.sendMultiTouch,
+                onStreamButton: stream.sendButton,
+                onStreamDigitalCrown: stream.sendDigitalCrown,
+                subscribeFrame: stream.subscribeFrame,
+                streamFrame: stream.frame,
+                streamConfig: stream.config,
+              }
+            : {})}
           enableDigitalCrown={canSendDigitalCrown}
         />
       ) : (
@@ -192,7 +219,17 @@ export function SimulatorStream({ exec, device, style, imageStyle, className, st
                 justifyContent: "center",
               }}
             >
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <svg
+                width="40"
+                height="40"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.25"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
                 <path d="M12 2v10" />
                 <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
               </svg>

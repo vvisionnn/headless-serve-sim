@@ -1,9 +1,9 @@
-import { exec, type ExecException } from "child_process";
 import { createHash, timingSafeEqual } from "crypto";
 import { request as httpRequest, type IncomingMessage } from "http";
 import type { Socket } from "net";
 import type { Duplex } from "stream";
 import { WebSocketServer, type WebSocket } from "ws";
+import type { HostCommands } from "./runtime/host-commands";
 
 // WebSocket control channel for the preview page. Browsers cap HTTP/1.1 at
 // six connections per origin, and every preview tab used to hold several
@@ -58,6 +58,7 @@ export type UiRequestHandler = (payload: unknown) => Promise<Record<string, unkn
 interface ExecChannelOptions {
   path: string;
   execToken: string;
+  hostCommands: HostCommands;
   /** Exact pathnames (query excluded) the channel may proxy as SSE. */
   ssePrefixes?: string[];
   /** In-process handler for `{id, ui}` simulator-settings requests. */
@@ -156,23 +157,31 @@ function wireExecSocket(
       opts
         .onUiRequest(msg.ui)
         .then((reply) => send({ id, ...reply }))
-        .catch((e: unknown) =>
-          send({ id, error: e instanceof Error ? e.message : String(e) }),
-        );
+        .catch((e: unknown) => send({ id, error: e instanceof Error ? e.message : String(e) }));
       return;
     }
     if (typeof msg.id !== "number" || typeof msg.command !== "string" || !msg.command) {
       return;
     }
     const { id, command } = msg;
-    exec(command, { maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
-      send({
-        id,
-        stdout: stdout.toString(),
-        stderr: stderr.toString(),
-        exitCode: err ? ((err as ExecException).code ?? 1) : 0,
+    void opts.hostCommands
+      .run({ shell: command, maxOutputBytes: 16 * 1024 * 1024 })
+      .then((result) => {
+        send({
+          id,
+          stdout: result.stdout.toString(),
+          stderr: result.stderr.toString(),
+          exitCode: result.exitCode ?? 1,
+        });
+      })
+      .catch((error: unknown) => {
+        send({
+          id,
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 1,
+        });
       });
-    });
   });
 
   ws.on("error", () => ws.close());

@@ -31,13 +31,7 @@ const DEFAULT_PAYLOAD = '{"aps":{"alert":"Hello"}}';
 
 type Pending = "open" | "push" | "keychain" | null;
 
-export function AppActionsTool({
-  udid,
-  bundleId,
-}: {
-  udid: string;
-  bundleId: string | null;
-}) {
+export function AppActionsTool({ udid, bundleId }: { udid: string; bundleId: string | null }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
   const [error, setError] = useState<string | null>(null);
@@ -258,7 +252,10 @@ export function AppActionsTool({
           </Section>
 
           {error && (
-            <div className="rounded-card bg-surface-2 border border-divider text-danger text-[12px] px-3 py-2.5 break-words" role="alert">
+            <div
+              className="rounded-card bg-surface-2 border border-divider text-danger text-[12px] px-3 py-2.5 break-words"
+              role="alert"
+            >
               {error}
             </div>
           )}

@@ -76,9 +76,7 @@ export interface DeviceFrameMatch {
 }
 
 function portraitDimensions(screen: { width: number; height: number }) {
-  return screen.width <= screen.height
-    ? screen
-    : { width: screen.height, height: screen.width };
+  return screen.width <= screen.height ? screen : { width: screen.height, height: screen.width };
 }
 
 export function matchDeviceFrameSpec(
@@ -87,17 +85,13 @@ export function matchDeviceFrameSpec(
   specs: readonly DeviceFrameSpec[],
 ): DeviceFrameMatch {
   if (identity.deviceTypeIdentifier) {
-    const exact = specs.find(
-      (spec) => spec.deviceTypeIdentifier === identity.deviceTypeIdentifier,
-    );
+    const exact = specs.find((spec) => spec.deviceTypeIdentifier === identity.deviceTypeIdentifier);
     if (exact) return { spec: exact, matchedBy: "identifier" };
   }
 
   const requestedName = identity.modelName?.trim().toLocaleLowerCase();
   if (requestedName) {
-    const exact = specs.find(
-      (spec) => spec.modelName.toLocaleLowerCase() === requestedName,
-    );
+    const exact = specs.find((spec) => spec.modelName.toLocaleLowerCase() === requestedName);
     if (exact) return { spec: exact, matchedBy: "name" };
   }
 
@@ -127,11 +121,7 @@ export function matchDeviceFrameSpec(
     .sort((a, b) => a.error - b.error);
   const best = ranked[0];
   const next = ranked[1];
-  if (
-    best &&
-    best.error <= 0.01 &&
-    (!next || next.error - best.error > 1e-6)
-  ) {
+  if (best && best.error <= 0.01 && (!next || next.error - best.error > 1e-6)) {
     return { spec: best.spec, matchedBy: "geometry" };
   }
   return { spec: null, matchedBy: "none" };

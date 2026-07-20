@@ -5,12 +5,7 @@ import { StreamModeToggle } from "../client/components/stream-mode-toggle";
 describe("StreamModeToggle", () => {
   test("renders controlled Perf/Quality state and disconnected disabling", () => {
     const html = renderToStaticMarkup(
-      <StreamModeToggle
-        label="Stream quality"
-        mode="quality"
-        disabled
-        onModeChange={() => {}}
-      />,
+      <StreamModeToggle label="Stream quality" mode="quality" disabled onModeChange={() => {}} />,
     );
 
     expect(html).toContain('aria-label="Stream quality"');

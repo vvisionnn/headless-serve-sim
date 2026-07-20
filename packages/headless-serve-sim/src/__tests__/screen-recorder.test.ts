@@ -56,15 +56,17 @@ const REAL_IPHONE_17_PRO_FRAME: DeviceFrameSpec = {
       bottomLeft: { pngDataUrl: "bl", width: 330, height: 330 },
       left: { pngDataUrl: "left", width: 330, height: 3 },
     },
-    controls: [{
-      name: "power",
-      image: { pngDataUrl: "power", width: 48, height: 303 },
-      onTop: false,
-      anchor: "right",
-      align: "leading",
-      normalOffsetPx: { x: -24, y: 786 },
-      rolloverOffsetPx: { x: -9, y: 786 },
-    }],
+    controls: [
+      {
+        name: "power",
+        image: { pngDataUrl: "power", width: 48, height: 303 },
+        onTop: false,
+        anchor: "right",
+        align: "leading",
+        normalOffsetPx: { x: -24, y: 786 },
+        rolloverOffsetPx: { x: -9, y: 786 },
+      },
+    ],
   },
 };
 
@@ -128,21 +130,51 @@ class RecordingContext {
     const state = this.savedStates.pop();
     if (state) Object.assign(this, state);
   }
-  clearRect(...args: number[]) { this.call("clearRect", ...args); }
-  fillRect(...args: number[]) { this.call("fillRect", ...args); }
-  beginPath() { this.call("beginPath"); }
-  moveTo(...args: number[]) { this.call("moveTo", ...args); }
-  lineTo(...args: number[]) { this.call("lineTo", ...args); }
-  quadraticCurveTo(...args: number[]) { this.call("quadraticCurveTo", ...args); }
-  arcTo(...args: number[]) { this.call("arcTo", ...args); }
-  closePath() { this.call("closePath"); }
-  clip() { this.call("clip"); }
-  fill() { this.call("fill"); }
-  stroke() { this.call("stroke"); }
-  arc(...args: number[]) { this.call("arc", ...args); }
-  translate(...args: number[]) { this.call("translate", ...args); }
-  rotate(...args: number[]) { this.call("rotate", ...args); }
-  scale(...args: number[]) { this.call("scale", ...args); }
+  clearRect(...args: number[]) {
+    this.call("clearRect", ...args);
+  }
+  fillRect(...args: number[]) {
+    this.call("fillRect", ...args);
+  }
+  beginPath() {
+    this.call("beginPath");
+  }
+  moveTo(...args: number[]) {
+    this.call("moveTo", ...args);
+  }
+  lineTo(...args: number[]) {
+    this.call("lineTo", ...args);
+  }
+  quadraticCurveTo(...args: number[]) {
+    this.call("quadraticCurveTo", ...args);
+  }
+  arcTo(...args: number[]) {
+    this.call("arcTo", ...args);
+  }
+  closePath() {
+    this.call("closePath");
+  }
+  clip() {
+    this.call("clip");
+  }
+  fill() {
+    this.call("fill");
+  }
+  stroke() {
+    this.call("stroke");
+  }
+  arc(...args: number[]) {
+    this.call("arc", ...args);
+  }
+  translate(...args: number[]) {
+    this.call("translate", ...args);
+  }
+  rotate(...args: number[]) {
+    this.call("rotate", ...args);
+  }
+  scale(...args: number[]) {
+    this.call("scale", ...args);
+  }
   drawImage(...args: unknown[]) {
     if (this.drawImageError) throw this.drawImageError;
     this.call("drawImage", ...args);
@@ -189,7 +221,12 @@ class FakeMediaRecorder implements RecorderMediaRecorder {
 class FakeRecorderPlatform implements ScreenRecorderPlatform {
   readonly context = new RecordingContext();
   readonly recorder = new FakeMediaRecorder();
-  readonly track = { stops: 0, stop: () => { this.track.stops++; } };
+  readonly track = {
+    stops: 0,
+    stop: () => {
+      this.track.stops++;
+    },
+  };
   readonly stream: RecorderMediaStream = { getTracks: () => [this.track] };
   readonly captureFrameRates: number[] = [];
   readonly canvas: RecorderCanvas = {
@@ -234,10 +271,18 @@ class FakeRecorderPlatform implements ScreenRecorderPlatform {
     this.rafCallbacks.delete(id);
   }
 
-  now() { return this.nowMs; }
-  wallClock() { return this.wallClockMs; }
-  createObjectURL(): string { return "blob:recording-1"; }
-  revokeObjectURL(url: string) { this.revokedUrls.push(url); }
+  now() {
+    return this.nowMs;
+  }
+  wallClock() {
+    return this.wallClockMs;
+  }
+  createObjectURL(): string {
+    return "blob:recording-1";
+  }
+  revokeObjectURL(url: string) {
+    this.revokedUrls.push(url);
+  }
 }
 
 describe("screen recording format selection", () => {
@@ -263,11 +308,14 @@ describe("screen recording format selection", () => {
 
 describe("screen recording layout", () => {
   test("adds visible padding beyond the complete framed-video shadow", () => {
-    const layout = createRecordingLayout({
-      width: 1206,
-      height: 2622,
-      orientation: "portrait",
-    }, IPHONE_17_PRO_FRAME);
+    const layout = createRecordingLayout(
+      {
+        width: 1206,
+        height: 2622,
+        orientation: "portrait",
+      },
+      IPHONE_17_PRO_FRAME,
+    );
 
     expect(layout.canvasInsets).toEqual({
       top: 107,
@@ -291,9 +339,9 @@ describe("screen recording layout", () => {
     const visiblePadding = 33;
     expect(layout.frameRect!.x - 2 * ambientBlur).toBe(visiblePadding);
     expect(layout.frameRect!.y + ambientOffsetY - 2 * ambientBlur).toBe(visiblePadding);
-    expect(
-      layout.width - (layout.frameRect!.x + layout.frameRect!.width + 2 * ambientBlur),
-    ).toBe(visiblePadding);
+    expect(layout.width - (layout.frameRect!.x + layout.frameRect!.width + 2 * ambientBlur)).toBe(
+      visiblePadding,
+    );
     expect(
       layout.height -
         (layout.frameRect!.y + layout.frameRect!.height + ambientOffsetY + 2 * ambientBlur),
@@ -301,11 +349,14 @@ describe("screen recording layout", () => {
   });
 
   test("uses the exact iPhone 17 Pro profile without scaling the screen", () => {
-    const layout = createRecordingLayout({
-      width: 1206,
-      height: 2622,
-      orientation: "portrait",
-    }, IPHONE_17_PRO_FRAME);
+    const layout = createRecordingLayout(
+      {
+        width: 1206,
+        height: 2622,
+        orientation: "portrait",
+      },
+      IPHONE_17_PRO_FRAME,
+    );
 
     expect({ width: layout.width, height: layout.height }).toEqual({
       width: 1564,
@@ -320,11 +371,14 @@ describe("screen recording layout", () => {
   });
 
   test("includes DeviceKit artwork padding and hardware controls in the canvas", () => {
-    const layout = createRecordingLayout({
-      width: 1206,
-      height: 2622,
-      orientation: "portrait",
-    }, REAL_IPHONE_17_PRO_FRAME);
+    const layout = createRecordingLayout(
+      {
+        width: 1206,
+        height: 2622,
+        orientation: "portrait",
+      },
+      REAL_IPHONE_17_PRO_FRAME,
+    );
 
     expect({ width: layout.width, height: layout.height }).toEqual({
       width: 1618,
@@ -357,11 +411,14 @@ describe("screen recording layout", () => {
   });
 
   test("rotates the complete metal frame and controls as one physical device", () => {
-    const layout = createRecordingLayout({
-      width: 1206,
-      height: 2622,
-      orientation: "landscape_left",
-    }, REAL_IPHONE_17_PRO_FRAME);
+    const layout = createRecordingLayout(
+      {
+        width: 1206,
+        height: 2622,
+        orientation: "landscape_left",
+      },
+      REAL_IPHONE_17_PRO_FRAME,
+    );
 
     expect({ width: layout.width, height: layout.height }).toEqual({
       width: 2980,
@@ -377,33 +434,43 @@ describe("screen recording layout", () => {
   });
 
   test("falls back to procedural chrome if exact artwork could not be prepared", () => {
-    const withoutArtwork = effectiveRecordingDeviceFrame(
-      REAL_IPHONE_17_PRO_FRAME,
-      null,
-    );
+    const withoutArtwork = effectiveRecordingDeviceFrame(REAL_IPHONE_17_PRO_FRAME, null);
     const withArtwork = effectiveRecordingDeviceFrame(
       REAL_IPHONE_17_PRO_FRAME,
       REAL_IPHONE_17_PRO_ARTWORK,
     );
 
-    expect(createRecordingLayout({
-      width: 1206,
-      height: 2622,
-      orientation: "portrait",
-    }, withoutArtwork).width).toBe(1564);
-    expect(createRecordingLayout({
-      width: 1206,
-      height: 2622,
-      orientation: "portrait",
-    }, withArtwork).width).toBe(1618);
+    expect(
+      createRecordingLayout(
+        {
+          width: 1206,
+          height: 2622,
+          orientation: "portrait",
+        },
+        withoutArtwork,
+      ).width,
+    ).toBe(1564);
+    expect(
+      createRecordingLayout(
+        {
+          width: 1206,
+          height: 2622,
+          orientation: "portrait",
+        },
+        withArtwork,
+      ).width,
+    ).toBe(1618);
   });
 
   test("rotates exact frame insets and cutout with the simulator", () => {
-    const layout = createRecordingLayout({
-      width: 1206,
-      height: 2622,
-      orientation: "landscape_left",
-    }, IPHONE_17_PRO_FRAME);
+    const layout = createRecordingLayout(
+      {
+        width: 1206,
+        height: 2622,
+        orientation: "landscape_left",
+      },
+      IPHONE_17_PRO_FRAME,
+    );
 
     expect({ width: layout.width, height: layout.height }).toEqual({
       width: 2980,
@@ -421,16 +488,22 @@ describe("screen recording layout", () => {
   });
 
   test("uses a wide notch for iPhone 16e instead of a Dynamic Island", () => {
-    const notch = createRecordingLayout({
-      width: 1170,
-      height: 2532,
-      orientation: "portrait",
-    }, IPHONE_16E_FRAME);
-    const island = createRecordingLayout({
-      width: 1206,
-      height: 2622,
-      orientation: "portrait",
-    }, IPHONE_17_PRO_FRAME);
+    const notch = createRecordingLayout(
+      {
+        width: 1170,
+        height: 2532,
+        orientation: "portrait",
+      },
+      IPHONE_16E_FRAME,
+    );
+    const island = createRecordingLayout(
+      {
+        width: 1206,
+        height: 2622,
+        orientation: "portrait",
+      },
+      IPHONE_17_PRO_FRAME,
+    );
 
     expect(notch.cutoutRect!.width).toBe(528);
     expect(island.cutoutRect!.width / island.screenRect.width).toBeLessThan(0.4);
@@ -449,11 +522,14 @@ describe("screen recording layout", () => {
       cutout: "none",
       chromeIdentifier: "com.apple.dt.devicekit.chrome.watch4",
     };
-    const layout = createRecordingLayout({
-      width: 410,
-      height: 502,
-      orientation: "portrait",
-    }, watch);
+    const layout = createRecordingLayout(
+      {
+        width: 410,
+        height: 502,
+        orientation: "portrait",
+      },
+      watch,
+    );
 
     expect(layout.canvasInsets).toEqual({ top: 54, right: 33, bottom: 70, left: 33 });
     expect(layout.frameRect).toEqual({ x: 62, y: 54, width: 534, height: 626 });
@@ -470,11 +546,14 @@ describe("screen recording layout", () => {
       "landscape_right",
       "portrait_upside_down",
     ] as const) {
-      const layout = createRecordingLayout({
-        width: 1206,
-        height: 2622,
-        orientation,
-      }, IPHONE_17_PRO_FRAME);
+      const layout = createRecordingLayout(
+        {
+          width: 1206,
+          height: 2622,
+          orientation,
+        },
+        IPHONE_17_PRO_FRAME,
+      );
       const frame = layout.frameRect!;
       const ambientBlur = 46;
       const ambientOffsetY = 18;
@@ -597,12 +676,14 @@ describe("screen recording composition", () => {
     const layout = createRecordingLayout(snapshot, REAL_IPHONE_17_PRO_FRAME);
     const context = new RecordingContext();
 
-    expect(paintRecordingFrame(
-      context as unknown as CanvasRenderingContext2D,
-      layout,
-      snapshot,
-      prepared,
-    )).toBe(true);
+    expect(
+      paintRecordingFrame(
+        context as unknown as CanvasRenderingContext2D,
+        layout,
+        snapshot,
+        prepared,
+      ),
+    ).toBe(true);
 
     const draws = context.calls.filter((call) => call.name === "drawImage");
     expect(draws.map((draw) => draw.args[0])).toEqual([
@@ -632,38 +713,37 @@ describe("screen recording composition", () => {
     };
     const layout = createRecordingLayout(snapshot, IPHONE_17_PRO_FRAME);
 
-    paintRecordingFrame(
-      ctx as unknown as CanvasRenderingContext2D,
-      layout,
-      snapshot,
-    );
+    paintRecordingFrame(ctx as unknown as CanvasRenderingContext2D, layout, snapshot);
 
-    const background = ctx.calls.find((call) =>
-      call.name === "fillRect" &&
-      call.args[0] === 0 &&
-      call.args[1] === 0 &&
-      call.args[2] === layout.width &&
-      call.args[3] === layout.height
+    const background = ctx.calls.find(
+      (call) =>
+        call.name === "fillRect" &&
+        call.args[0] === 0 &&
+        call.args[1] === 0 &&
+        call.args[2] === layout.width &&
+        call.args[3] === layout.height,
     );
     expect(background?.state.fillStyle).toBe("#f5f5f7");
 
-    const shadowFills = ctx.calls.filter((call) =>
-      call.name === "fill" && call.state.shadowBlur > 0
+    const shadowFills = ctx.calls.filter(
+      (call) => call.name === "fill" && call.state.shadowBlur > 0,
     );
-    expect(shadowFills.map((call) => ({
-      color: call.state.shadowColor,
-      blur: call.state.shadowBlur,
-      offsetX: call.state.shadowOffsetX,
-      offsetY: call.state.shadowOffsetY,
-    }))).toEqual([
+    expect(
+      shadowFills.map((call) => ({
+        color: call.state.shadowColor,
+        blur: call.state.shadowBlur,
+        offsetX: call.state.shadowOffsetX,
+        offsetY: call.state.shadowOffsetY,
+      })),
+    ).toEqual([
       { color: "rgba(0,0,0,0.2)", blur: 46, offsetX: 0, offsetY: 18 },
       { color: "rgba(0,0,0,0.14)", blur: 16, offsetX: 0, offsetY: 5 },
     ]);
 
     const draw = ctx.calls.find((call) => call.name === "drawImage");
     const drawIndex = ctx.calls.indexOf(draw!);
-    const solidFrameFill = ctx.calls.find((call) =>
-      call.name === "fill" && call.state.shadowBlur === 0
+    const solidFrameFill = ctx.calls.find(
+      (call) => call.name === "fill" && call.state.shadowBlur === 0,
     );
     expect(shadowFills.every((call) => ctx.calls.indexOf(call) < drawIndex)).toBe(true);
     expect(ctx.calls.indexOf(solidFrameFill!)).toBeLessThan(drawIndex);
@@ -679,19 +759,15 @@ describe("screen recording composition", () => {
     );
     const ctx = new RecordingContext();
 
-    const painted = paintRecordingFrame(
-      ctx as unknown as CanvasRenderingContext2D,
-      layout,
-      {
-        source,
-        width: 391,
-        height: 845,
-        orientation: "portrait",
-        surfaceWidth: 320,
-        surfaceHeight: 692,
-        touches: [{ x: 0.25, y: 0.75, kind: "single", opacity: 1 }],
-      },
-    );
+    const painted = paintRecordingFrame(ctx as unknown as CanvasRenderingContext2D, layout, {
+      source,
+      width: 391,
+      height: 845,
+      orientation: "portrait",
+      surfaceWidth: 320,
+      surfaceHeight: 692,
+      touches: [{ x: 0.25, y: 0.75, kind: "single", opacity: 1 }],
+    });
 
     expect(painted).toBe(true);
     expect(
@@ -718,13 +794,16 @@ describe("screen recording composition", () => {
 
     expect({ width: layout.width, height: layout.height }).toEqual({ width: 100, height: 200 });
     expect(layout.canvasInsets).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
-    expect(ctx.calls.find((call) =>
-      call.name === "fillRect" &&
-      call.args[0] === 0 &&
-      call.args[1] === 0 &&
-      call.args[2] === layout.width &&
-      call.args[3] === layout.height
-    )?.state.fillStyle).toBe("#000");
+    expect(
+      ctx.calls.find(
+        (call) =>
+          call.name === "fillRect" &&
+          call.args[0] === 0 &&
+          call.args[1] === 0 &&
+          call.args[2] === layout.width &&
+          call.args[3] === layout.height,
+      )?.state.fillStyle,
+    ).toBe("#000");
     expect(ctx.calls.filter((call) => call.state.shadowBlur > 0)).toHaveLength(0);
   });
 
@@ -761,24 +840,27 @@ describe("screen recording composition", () => {
 
   test("recomposes the full landscape device inside a fixed portrait recording canvas", () => {
     const ctx = new RecordingContext();
-    const layout = createRecordingLayout({
-      width: 1206,
-      height: 2622,
-      orientation: "portrait",
-    }, IPHONE_17_PRO_FRAME);
+    const layout = createRecordingLayout(
+      {
+        width: 1206,
+        height: 2622,
+        orientation: "portrait",
+      },
+      IPHONE_17_PRO_FRAME,
+    );
 
     paintRecordingSnapshot(
       ctx as unknown as CanvasRenderingContext2D,
       layout,
       IPHONE_17_PRO_FRAME,
       {
-      source: {} as CanvasImageSource,
-      width: 2622,
-      height: 1206,
-      orientation: "landscape_left",
-      surfaceWidth: 2622,
-      surfaceHeight: 1206,
-      touches: [],
+        source: {} as CanvasImageSource,
+        width: 2622,
+        height: 1206,
+        orientation: "landscape_left",
+        surfaceWidth: 2622,
+        surfaceHeight: 1206,
+        touches: [],
       },
     );
 
@@ -787,31 +869,34 @@ describe("screen recording composition", () => {
     expect(scale).toBeCloseTo(1564 / 2980);
     expect(translate?.[0]).toBeCloseTo(0);
     expect(translate?.[1] as number).toBeGreaterThan(1_000);
-    expect(ctx.calls.filter((call) => call.name === "clearRect").map((call) => call.args)).toContainEqual([
-      0,
-      0,
-      2980,
-      1564,
-    ]);
-    const scaledShadows = ctx.calls.filter((call) =>
-      call.name === "fill" && call.state.shadowBlur > 0
+    expect(
+      ctx.calls.filter((call) => call.name === "clearRect").map((call) => call.args),
+    ).toContainEqual([0, 0, 2980, 1564]);
+    const scaledShadows = ctx.calls.filter(
+      (call) => call.name === "fill" && call.state.shadowBlur > 0,
     );
     expect(scaledShadows[0]?.state.shadowBlur).toBeCloseTo(46 * scale);
     expect(scaledShadows[0]?.state.shadowOffsetY).toBeCloseTo(18 * scale);
-    expect(ctx.calls.find((call) =>
-      call.name === "fillRect" &&
-      call.args[2] === layout.width &&
-      call.args[3] === layout.height
-    )?.state.fillStyle).toBe("#f5f5f7");
+    expect(
+      ctx.calls.find(
+        (call) =>
+          call.name === "fillRect" &&
+          call.args[2] === layout.width &&
+          call.args[3] === layout.height,
+      )?.state.fillStyle,
+    ).toBe("#f5f5f7");
   });
 
   test("keeps alpha-shaped artwork shadows aligned after a fixed-canvas rotation", () => {
     const context = new RecordingContext();
-    const canvasLayout = createRecordingLayout({
-      width: 1206,
-      height: 2622,
-      orientation: "portrait",
-    }, REAL_IPHONE_17_PRO_FRAME);
+    const canvasLayout = createRecordingLayout(
+      {
+        width: 1206,
+        height: 2622,
+        orientation: "portrait",
+      },
+      REAL_IPHONE_17_PRO_FRAME,
+    );
 
     paintRecordingSnapshot(
       context as unknown as CanvasRenderingContext2D,
@@ -830,15 +915,14 @@ describe("screen recording composition", () => {
     );
 
     const scale = canvasLayout.width / 2980;
-    const artworkShadow = context.calls.find((call) =>
-      call.name === "drawImage" &&
-      call.args[0] === REAL_IPHONE_17_PRO_ARTWORK.source &&
-      call.state.shadowBlur > 0
+    const artworkShadow = context.calls.find(
+      (call) =>
+        call.name === "drawImage" &&
+        call.args[0] === REAL_IPHONE_17_PRO_ARTWORK.source &&
+        call.state.shadowBlur > 0,
     );
     expect(artworkShadow?.state.shadowBlur).toBeCloseTo(46 * scale);
-    expect(artworkShadow?.state.shadowOffsetX).toBeCloseTo(
-      (2980 + 2730 + 4 * 46) * scale,
-    );
+    expect(artworkShadow?.state.shadowOffsetX).toBeCloseTo((2980 + 2730 + 4 * 46) * scale);
   });
 
   test("maps single and multi-touch indicators from normalized display coordinates", () => {
@@ -862,7 +946,9 @@ describe("screen recording composition", () => {
       snapshot,
     );
 
-    expect(ctx.calls.filter((call) => call.name === "arc").map((call) => call.args.slice(0, 3))).toEqual([
+    expect(
+      ctx.calls.filter((call) => call.name === "arc").map((call) => call.args.slice(0, 3)),
+    ).toEqual([
       [25, 150, 12],
       [80, 40, 10],
     ]);
@@ -906,22 +992,25 @@ describe("CanvasScreenRecorder lifecycle", () => {
   test("limits compositor snapshots to the requested recording frame rate", () => {
     const platform = new FakeRecorderPlatform();
     let snapshots = 0;
-    const recorder = new CanvasScreenRecorder({
-      source: {
-        snapshot: () => {
-          snapshots++;
-          return {
-            source: {} as CanvasImageSource,
-            width: 100,
-            height: 200,
-            surfaceWidth: 100,
-            surfaceHeight: 200,
-            touches: [],
-          };
+    const recorder = new CanvasScreenRecorder(
+      {
+        source: {
+          snapshot: () => {
+            snapshots++;
+            return {
+              source: {} as CanvasImageSource,
+              width: 100,
+              height: 200,
+              surfaceWidth: 100,
+              surfaceHeight: 200,
+              touches: [],
+            };
+          },
         },
+        fps: 30,
       },
-      fps: 30,
-    }, platform);
+      platform,
+    );
 
     recorder.start();
     for (let frame = 1; frame <= 120; frame++) {
@@ -952,10 +1041,13 @@ describe("CanvasScreenRecorder lifecycle", () => {
         touches: [],
       }),
     };
-    const recorder = new CanvasScreenRecorder({
-      source,
-      deviceFrame: IPHONE_17_PRO_FRAME,
-    }, platform);
+    const recorder = new CanvasScreenRecorder(
+      {
+        source,
+        deviceFrame: IPHONE_17_PRO_FRAME,
+      },
+      platform,
+    );
 
     recorder.start();
     expect({ width: platform.canvas.width, height: platform.canvas.height }).toEqual({
@@ -1008,19 +1100,22 @@ describe("CanvasScreenRecorder lifecycle", () => {
 
   test("repeated stop calls share the same completion", async () => {
     const platform = new FakeRecorderPlatform();
-    const recorder = new CanvasScreenRecorder({
-      source: {
-        snapshot: () => ({
-          source: {} as CanvasImageSource,
-          width: 100,
-          height: 200,
-          orientation: "portrait",
-          surfaceWidth: 100,
-          surfaceHeight: 200,
-          touches: [],
-        }),
+    const recorder = new CanvasScreenRecorder(
+      {
+        source: {
+          snapshot: () => ({
+            source: {} as CanvasImageSource,
+            width: 100,
+            height: 200,
+            orientation: "portrait",
+            surfaceWidth: 100,
+            surfaceHeight: 200,
+            touches: [],
+          }),
+        },
       },
-    }, platform);
+      platform,
+    );
 
     recorder.start();
     const first = recorder.stop();
@@ -1035,18 +1130,21 @@ describe("CanvasScreenRecorder lifecycle", () => {
 
   test("cancel is repeatable and discards the partial recording", async () => {
     const platform = new FakeRecorderPlatform();
-    const recorder = new CanvasScreenRecorder({
-      source: {
-        snapshot: () => ({
-          source: {} as CanvasImageSource,
-          width: 100,
-          height: 200,
-          surfaceWidth: 100,
-          surfaceHeight: 200,
-          touches: [],
-        }),
+    const recorder = new CanvasScreenRecorder(
+      {
+        source: {
+          snapshot: () => ({
+            source: {} as CanvasImageSource,
+            width: 100,
+            height: 200,
+            surfaceWidth: 100,
+            surfaceHeight: 200,
+            touches: [],
+          }),
+        },
       },
-    }, platform);
+      platform,
+    );
 
     recorder.start();
     platform.recorder.emit("partial");
@@ -1065,19 +1163,24 @@ describe("CanvasScreenRecorder lifecycle", () => {
   test("an asynchronous encoder error is reported and releases resources", async () => {
     const platform = new FakeRecorderPlatform();
     const reported: Error[] = [];
-    const recorder = new CanvasScreenRecorder({
-      source: {
-        snapshot: () => ({
-          source: {} as CanvasImageSource,
-          width: 100,
-          height: 200,
-          surfaceWidth: 100,
-          surfaceHeight: 200,
-          touches: [],
-        }),
+    const recorder = new CanvasScreenRecorder(
+      {
+        source: {
+          snapshot: () => ({
+            source: {} as CanvasImageSource,
+            width: 100,
+            height: 200,
+            surfaceWidth: 100,
+            surfaceHeight: 200,
+            touches: [],
+          }),
+        },
+        onError: (error) => {
+          reported.push(error);
+        },
       },
-      onError: (error) => { reported.push(error); },
-    }, platform);
+      platform,
+    );
 
     recorder.start();
     platform.recorder.fail(new Error("encoder failed"));
@@ -1093,19 +1196,22 @@ describe("CanvasScreenRecorder lifecycle", () => {
   test("a compositor error inside an animation frame is reported and releases resources", () => {
     const platform = new FakeRecorderPlatform();
     const reported: Error[] = [];
-    const recorder = new CanvasScreenRecorder({
-      source: {
-        snapshot: () => ({
-          source: {} as CanvasImageSource,
-          width: 100,
-          height: 200,
-          surfaceWidth: 100,
-          surfaceHeight: 200,
-          touches: [],
-        }),
+    const recorder = new CanvasScreenRecorder(
+      {
+        source: {
+          snapshot: () => ({
+            source: {} as CanvasImageSource,
+            width: 100,
+            height: 200,
+            surfaceWidth: 100,
+            surfaceHeight: 200,
+            touches: [],
+          }),
+        },
+        onError: (error) => reported.push(error),
       },
-      onError: (error) => reported.push(error),
-    }, platform);
+      platform,
+    );
 
     recorder.start();
     platform.context.drawImageError = new Error("canvas became unreadable");
@@ -1135,18 +1241,21 @@ describe("CanvasScreenRecorder lifecycle", () => {
       }
     }
     const platform = new FallbackPlatform();
-    const recorder = new CanvasScreenRecorder({
-      source: {
-        snapshot: () => ({
-          source: {} as CanvasImageSource,
-          width: 100,
-          height: 200,
-          surfaceWidth: 100,
-          surfaceHeight: 200,
-          touches: [],
-        }),
+    const recorder = new CanvasScreenRecorder(
+      {
+        source: {
+          snapshot: () => ({
+            source: {} as CanvasImageSource,
+            width: 100,
+            height: 200,
+            surfaceWidth: 100,
+            surfaceHeight: 200,
+            touches: [],
+          }),
+        },
       },
-    }, platform);
+      platform,
+    );
 
     recorder.start();
 
@@ -1157,18 +1266,21 @@ describe("CanvasScreenRecorder lifecycle", () => {
 
   test("cancel after completion revokes the artifact URL exactly once", async () => {
     const platform = new FakeRecorderPlatform();
-    const recorder = new CanvasScreenRecorder({
-      source: {
-        snapshot: () => ({
-          source: {} as CanvasImageSource,
-          width: 100,
-          height: 200,
-          surfaceWidth: 100,
-          surfaceHeight: 200,
-          touches: [],
-        }),
+    const recorder = new CanvasScreenRecorder(
+      {
+        source: {
+          snapshot: () => ({
+            source: {} as CanvasImageSource,
+            width: 100,
+            height: 200,
+            surfaceWidth: 100,
+            surfaceHeight: 200,
+            touches: [],
+          }),
+        },
       },
-    }, platform);
+      platform,
+    );
 
     recorder.start();
     const finished = recorder.stop();
@@ -1183,21 +1295,26 @@ describe("CanvasScreenRecorder lifecycle", () => {
 
   test("artifact creation failure rejects stop and still releases resources", async () => {
     class FailingUrlPlatform extends FakeRecorderPlatform {
-      override createObjectURL(): string { throw new Error("object URL failed"); }
+      override createObjectURL(): string {
+        throw new Error("object URL failed");
+      }
     }
     const platform = new FailingUrlPlatform();
-    const recorder = new CanvasScreenRecorder({
-      source: {
-        snapshot: () => ({
-          source: {} as CanvasImageSource,
-          width: 100,
-          height: 200,
-          surfaceWidth: 100,
-          surfaceHeight: 200,
-          touches: [],
-        }),
+    const recorder = new CanvasScreenRecorder(
+      {
+        source: {
+          snapshot: () => ({
+            source: {} as CanvasImageSource,
+            width: 100,
+            height: 200,
+            surfaceWidth: 100,
+            surfaceHeight: 200,
+            touches: [],
+          }),
+        },
       },
-    }, platform);
+      platform,
+    );
 
     recorder.start();
     const finished = recorder.stop();

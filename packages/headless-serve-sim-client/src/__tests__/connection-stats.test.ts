@@ -33,7 +33,10 @@ describe("ConnectionStatsAccumulator", () => {
 
   test("steady 50fps / 1000B stream yields exact fps + bitrate, zero jitter", () => {
     const acc = new ConnectionStatsAccumulator();
-    feed(acc, [0, 20, 40, 60, 80].map((tMs) => ({ tMs, bytes: 1000, decodeMs: null })));
+    feed(
+      acc,
+      [0, 20, 40, 60, 80].map((tMs) => ({ tMs, bytes: 1000, decodeMs: null })),
+    );
     const s = acc.snapshot(80);
     expect(s.fps).toBeCloseTo(50, 6);
     // exclude first frame: 4 × 1000 B over 80 ms → 400 000 bps
@@ -46,7 +49,10 @@ describe("ConnectionStatsAccumulator", () => {
   test("uneven arrival produces non-zero jitter", () => {
     const acc = new ConnectionStatsAccumulator();
     // intervals 10,30,10,30 → mean 20, population stddev 10
-    feed(acc, [0, 10, 40, 50, 80].map((tMs) => ({ tMs, bytes: 500, decodeMs: null })));
+    feed(
+      acc,
+      [0, 10, 40, 50, 80].map((tMs) => ({ tMs, bytes: 500, decodeMs: null })),
+    );
     const s = acc.snapshot(80);
     expect(s.fps).toBeCloseTo(50, 6);
     expect(s.jitterMs).toBeCloseTo(10, 6);
@@ -76,7 +82,10 @@ describe("ConnectionStatsAccumulator", () => {
     expect(avcc.snapshot(60).decodeMs).toBeCloseTo(4, 6);
 
     const mjpeg = new ConnectionStatsAccumulator();
-    feed(mjpeg, [0, 20, 40].map((tMs) => ({ tMs, bytes: 1, decodeMs: null })));
+    feed(
+      mjpeg,
+      [0, 20, 40].map((tMs) => ({ tMs, bytes: 1, decodeMs: null })),
+    );
     expect(mjpeg.snapshot(40).decodeMs).toBeNull();
   });
 
@@ -84,7 +93,10 @@ describe("ConnectionStatsAccumulator", () => {
     const acc = new ConnectionStatsAccumulator();
     acc.recordDrop();
     acc.recordDrop(2);
-    feed(acc, [0, 20].map((tMs) => ({ tMs, bytes: 1, decodeMs: null })));
+    feed(
+      acc,
+      [0, 20].map((tMs) => ({ tMs, bytes: 1, decodeMs: null })),
+    );
     expect(acc.snapshot(20).droppedFrames).toBe(3);
     acc.reset();
     const cleared = acc.snapshot(20);
@@ -127,16 +139,18 @@ describe("summarize", () => {
 
 describe("parseServerStreamStats", () => {
   test("maps adaptive stats and queue diagnostics from the wire payload", () => {
-    const payload = new TextEncoder().encode(JSON.stringify({
-      mode: "perf",
-      targetBitrate: 12_000_000,
-      maxQP: 46,
-      congested: false,
-      serverFps: 60,
-      queueBytes: 8192,
-      queueMs: 5,
-      droppedFrames: 2,
-    }));
+    const payload = new TextEncoder().encode(
+      JSON.stringify({
+        mode: "perf",
+        targetBitrate: 12_000_000,
+        maxQP: 46,
+        congested: false,
+        serverFps: 60,
+        queueBytes: 8192,
+        queueMs: 5,
+        droppedFrames: 2,
+      }),
+    );
 
     expect(parseServerStreamStats(payload)).toEqual({
       mode: "perf",
@@ -151,26 +165,30 @@ describe("parseServerStreamStats", () => {
   });
 
   test("defaults queue diagnostics for older helpers", () => {
-    const payload = new TextEncoder().encode(JSON.stringify({
-      mode: "perf",
-      targetBitrate: 12_000_000,
-      maxQP: 46,
-      congested: false,
-      serverFps: 60,
-    }));
+    const payload = new TextEncoder().encode(
+      JSON.stringify({
+        mode: "perf",
+        targetBitrate: 12_000_000,
+        maxQP: 46,
+        congested: false,
+        serverFps: 60,
+      }),
+    );
 
     expect(parseServerStreamStats(payload)?.queueMs).toBe(0);
     expect(parseServerStreamStats(payload)?.droppedFrames).toBe(0);
   });
 
   test("rejects an unknown stream mode instead of desynchronizing controlled UI", () => {
-    const payload = new TextEncoder().encode(JSON.stringify({
-      mode: "ultra",
-      targetBitrate: 12_000_000,
-      maxQP: 46,
-      congested: false,
-      serverFps: 60,
-    }));
+    const payload = new TextEncoder().encode(
+      JSON.stringify({
+        mode: "ultra",
+        targetBitrate: 12_000_000,
+        maxQP: 46,
+        congested: false,
+        serverFps: 60,
+      }),
+    );
     expect(parseServerStreamStats(payload)).toBeNull();
   });
 });

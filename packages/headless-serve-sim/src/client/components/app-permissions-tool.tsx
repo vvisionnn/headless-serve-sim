@@ -1,19 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Chevron, ReloadIcon } from "../icons";
 import { execOnHost, shellEscape } from "../utils/exec";
-import {
-  PERMISSION_SERVICES,
-  type PermAction,
-  type PermState,
-} from "../utils/permissions";
+import { PERMISSION_SERVICES, type PermAction, type PermState } from "../utils/permissions";
 
-export function AppPermissionsTool({
-  udid,
-  bundleId,
-}: {
-  udid: string;
-  bundleId: string | null;
-}) {
+export function AppPermissionsTool({ udid, bundleId }: { udid: string; bundleId: string | null }) {
   const [state, setState] = useState<PermState>({});
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +21,10 @@ export function AppPermissionsTool({
   }, []);
 
   // Reset assumed state whenever the foreground app changes.
-  useEffect(() => { setState({}); setError(null); }, [bundleId]);
+  useEffect(() => {
+    setState({});
+    setError(null);
+  }, [bundleId]);
 
   const apply = useCallback(
     async (service: string, action: PermAction) => {
@@ -44,7 +37,9 @@ export function AppPermissionsTool({
           `${cliPrefix} permissions ${action} ${service} ${shellEscape(bundleId)} -d ${shellEscape(udid)}`,
         );
         if (res.exitCode !== 0) {
-          setError(res.stderr.trim() || `headless-serve-sim permissions failed (exit ${res.exitCode})`);
+          setError(
+            res.stderr.trim() || `headless-serve-sim permissions failed (exit ${res.exitCode})`,
+          );
           return;
         }
         setState((s) => ({ ...s, [service]: action === "reset" ? undefined : action }));
@@ -64,7 +59,9 @@ export function AppPermissionsTool({
         `${cliPrefix} permissions reset all ${shellEscape(bundleId)} -d ${shellEscape(udid)}`,
       );
       if (res.exitCode !== 0) {
-        setError(res.stderr.trim() || `headless-serve-sim permissions failed (exit ${res.exitCode})`);
+        setError(
+          res.stderr.trim() || `headless-serve-sim permissions failed (exit ${res.exitCode})`,
+        );
         return;
       }
       setState({});
@@ -89,7 +86,9 @@ export function AppPermissionsTool({
         className="lem-toggle flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full cursor-pointer select-none bg-transparent border-none text-left [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold text-fg-2 uppercase tracking-[0.07em]">Permissions</span>
+        <span className="text-[11px] font-semibold text-fg-2 uppercase tracking-[0.07em]">
+          Permissions
+        </span>
         <Chevron open={open} />
       </button>
 
@@ -102,68 +101,91 @@ export function AppPermissionsTool({
           )}
 
           <div className="relative">
-          <div className="max-h-[260px] overflow-y-auto flex flex-col [scrollbar-width:thin]">
-            {PERMISSION_SERVICES.map(({ key, label }) => {
-              const current = state[key];
-              return (
-                <div key={key} className="flex items-center justify-between gap-2 py-2 border-b border-divider last:border-b-0">
-                  <span className="text-[13px] text-fg overflow-hidden text-ellipsis whitespace-nowrap flex-1 min-w-0 tracking-[-0.01em]">{label}</span>
+            <div className="max-h-[260px] overflow-y-auto flex flex-col [scrollbar-width:thin]">
+              {PERMISSION_SERVICES.map(({ key, label }) => {
+                const current = state[key];
+                return (
                   <div
-                    className="flex shrink-0 gap-0.5 bg-panel-deep border border-divider rounded-pill p-0.5"
-                    role="group"
-                    aria-label={label}
+                    key={key}
+                    className="flex items-center justify-between gap-2 py-2 border-b border-divider last:border-b-0"
                   >
-                    <PermBtn
-                      active={current === "grant"}
-                      pending={pending === `${key}:grant`}
-                      onClick={() => apply(key, "grant")}
-                      variant="grant"
-                      title="Allow"
+                    <span className="text-[13px] text-fg overflow-hidden text-ellipsis whitespace-nowrap flex-1 min-w-0 tracking-[-0.01em]">
+                      {label}
+                    </span>
+                    <div
+                      className="flex shrink-0 gap-0.5 bg-panel-deep border border-divider rounded-pill p-0.5"
+                      role="group"
+                      aria-label={label}
                     >
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="5 12 10 17 19 7" />
-                      </svg>
-                    </PermBtn>
-                    <PermBtn
-                      active={current === "revoke"}
-                      pending={pending === `${key}:revoke`}
-                      onClick={() => apply(key, "revoke")}
-                      variant="revoke"
-                      title="Deny"
-                    >
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                      </svg>
-                    </PermBtn>
-                    <PermBtn
-                      active={false}
-                      pending={pending === `${key}:reset`}
-                      onClick={() => apply(key, "reset")}
-                      variant="reset"
-                      title="Reset"
-                    >
-                      <ReloadIcon size={11} strokeWidth={2.4} />
-                    </PermBtn>
+                      <PermBtn
+                        active={current === "grant"}
+                        pending={pending === `${key}:grant`}
+                        onClick={() => apply(key, "grant")}
+                        variant="grant"
+                        title="Allow"
+                      >
+                        <svg
+                          width="11"
+                          height="11"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <polyline points="5 12 10 17 19 7" />
+                        </svg>
+                      </PermBtn>
+                      <PermBtn
+                        active={current === "revoke"}
+                        pending={pending === `${key}:revoke`}
+                        onClick={() => apply(key, "revoke")}
+                        variant="revoke"
+                        title="Deny"
+                      >
+                        <svg
+                          width="11"
+                          height="11"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <line x1="6" y1="6" x2="18" y2="18" />
+                          <line x1="18" y1="6" x2="6" y2="18" />
+                        </svg>
+                      </PermBtn>
+                      <PermBtn
+                        active={false}
+                        pending={pending === `${key}:reset`}
+                        onClick={() => apply(key, "reset")}
+                        variant="reset"
+                        title="Reset"
+                      >
+                        <ReloadIcon size={11} strokeWidth={2.4} />
+                      </PermBtn>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
+            <div className="absolute top-0 left-0 right-0 h-[14px] pointer-events-none bg-[linear-gradient(to_bottom,var(--color-panel)_0%,transparent_100%)]" />
+            <div className="absolute bottom-0 left-0 right-0 h-[14px] pointer-events-none bg-[linear-gradient(to_top,var(--color-panel)_0%,transparent_100%)]" />
           </div>
-          <div className="absolute top-0 left-0 right-0 h-[14px] pointer-events-none bg-[linear-gradient(to_bottom,var(--color-panel)_0%,transparent_100%)]" />
-          <div className="absolute bottom-0 left-0 right-0 h-[14px] pointer-events-none bg-[linear-gradient(to_top,var(--color-panel)_0%,transparent_100%)]" />
-        </div>
 
-        <div className="flex justify-end">
-          <button
-            onClick={resetAll}
-            disabled={pending === "__all__"}
-            className="bg-transparent border border-divider text-fg-2 hover:bg-hover rounded-pill text-[11px] px-3 py-1.5 min-h-[32px] cursor-pointer tracking-[-0.01em] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
-            title="headless-serve-sim permissions reset all"
-          >
-            {pending === "__all__" ? "…" : "Reset all"}
-          </button>
-        </div>
+          <div className="flex justify-end">
+            <button
+              onClick={resetAll}
+              disabled={pending === "__all__"}
+              className="bg-transparent border border-divider text-fg-2 hover:bg-hover rounded-pill text-[11px] px-3 py-1.5 min-h-[32px] cursor-pointer tracking-[-0.01em] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+              title="headless-serve-sim permissions reset all"
+            >
+              {pending === "__all__" ? "…" : "Reset all"}
+            </button>
+          </div>
         </div>
       )}
     </div>

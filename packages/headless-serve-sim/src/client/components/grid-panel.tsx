@@ -40,9 +40,7 @@ export function GridPanel({
         try {
           const res = await fetch(apiEndpoint, { cache: "no-store" });
           const json = await res.json();
-          const found = (json.devices ?? []).find(
-            (d: GridDevice) => d.device === udid && d.helper,
-          );
+          const found = (json.devices ?? []).find((d: GridDevice) => d.device === udid && d.helper);
           if (found) return found;
         } catch {}
         await new Promise((r) => setTimeout(r, 400));
@@ -91,9 +89,7 @@ export function GridPanel({
     const current = devices.find((d) => d.device === currentUdid);
     if (current?.helper) return;
     const next = devices.find((d) => d.helper && d.device !== currentUdid);
-    window.location.assign(
-      next ? gridPreviewHref(previewEndpoint, next.device) : previewEndpoint,
-    );
+    window.location.assign(next ? gridPreviewHref(previewEndpoint, next.device) : previewEndpoint);
   }, [devices, currentUdid, previewEndpoint]);
 
   const shutdown = useCallback(
@@ -132,7 +128,9 @@ export function GridPanel({
       </PanelHeader>
       <div className="flex-1 min-h-0 overflow-y-auto p-2 grid auto-rows-[minmax(300px,auto)] gap-2 content-start grid-cols-[repeat(auto-fill,minmax(200px,1fr))]">
         {devices === null ? null : devices.length === 0 ? (
-          <div className="col-span-full bg-panel-deep border border-divider rounded-card px-4 py-6 text-fg-3 text-[13px] text-center tracking-[-0.01em]">No iOS simulators available.</div>
+          <div className="col-span-full bg-panel-deep border border-divider rounded-card px-4 py-6 text-fg-3 text-[13px] text-center tracking-[-0.01em]">
+            No iOS simulators available.
+          </div>
         ) : (
           devices.map((d) => (
             <GridTile

@@ -14,7 +14,10 @@ export function AppDetectionTool({
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (!currentApp) { setDetails(null); return; }
+    if (!currentApp) {
+      setDetails(null);
+      return;
+    }
     let cancelled = false;
     setDetails({
       bundleId: currentApp.bundleId,
@@ -32,7 +35,9 @@ export function AppDetectionTool({
         ...extra,
       });
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [udid, currentApp, currentApp?.bundleId, currentApp?.pid, currentApp?.isReactNative]);
 
   if (!details) {
@@ -61,7 +66,9 @@ export function AppDetectionTool({
           <div className="w-10 h-10 shrink-0 border border-divider bg-surface-2 rounded-card" />
         )}
         <div className="min-w-0 flex-1 leading-tight">
-          <div className="text-[11px] font-semibold text-fg-2 uppercase tracking-[0.07em]">Current App</div>
+          <div className="text-[11px] font-semibold text-fg-2 uppercase tracking-[0.07em]">
+            Current App
+          </div>
           <div className="text-[13px] font-semibold text-fg tracking-[-0.01em] truncate">
             {details.displayName ?? details.bundleId}
             {details.loading && <span className="text-fg-3 font-normal"> …</span>}
@@ -82,7 +89,16 @@ export function AppDetectionTool({
           )}
 
           <dl className="m-0 flex flex-col gap-2">
-            <Row label="Version" value={details.shortVersion ? `${details.shortVersion} (${details.bundleVersion ?? "—"})` : details.loading ? "…" : "—"} />
+            <Row
+              label="Version"
+              value={
+                details.shortVersion
+                  ? `${details.shortVersion} (${details.bundleVersion ?? "—"})`
+                  : details.loading
+                    ? "…"
+                    : "—"
+              }
+            />
             <Row label="Min iOS" value={details.minOS ?? (details.loading ? "…" : "—")} />
             <Row label="Executable" value={details.executable ?? (details.loading ? "…" : "—")} />
             <Row label="PID" value={details.pid != null ? String(details.pid) : "—"} />
@@ -95,9 +111,20 @@ export function AppDetectionTool({
                 details.appPath
                   ? {
                       title: "Reveal in Finder",
-                      onClick: () => { execOnHost(`open -R ${shellEscape(details.appPath!)}`); },
+                      onClick: () => {
+                        execOnHost(`open -R ${shellEscape(details.appPath!)}`);
+                      },
                       icon: (
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg
+                          width="11"
+                          height="11"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
                           <line x1="7" y1="17" x2="17" y2="7" />
                           <polyline points="10 7 17 7 17 14" />
                         </svg>
@@ -133,9 +160,7 @@ function Row({
       >
         {value}
         {action && (
-          <div
-            className="absolute top-0 right-0 bottom-0 pl-7 flex items-center justify-end bg-[linear-gradient(to_right,transparent_0%,var(--color-panel)_55%)] [transition:opacity_0.24s_cubic-bezier(0.4,0,0.6,1),transform_0.3s_cubic-bezier(0.4,0,0.6,1)] opacity-0 translate-x-1 pointer-events-none group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:pointer-events-auto"
-          >
+          <div className="absolute top-0 right-0 bottom-0 pl-7 flex items-center justify-end bg-[linear-gradient(to_right,transparent_0%,var(--color-panel)_55%)] [transition:opacity_0.24s_cubic-bezier(0.4,0,0.6,1),transform_0.3s_cubic-bezier(0.4,0,0.6,1)] opacity-0 translate-x-1 pointer-events-none group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:pointer-events-auto">
             <button
               type="button"
               onClick={action.onClick}

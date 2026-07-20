@@ -1,34 +1,25 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "tags": [
-    "-lintignore"
-  ],
-  "ignore": [
-    "**/__tests__/**",
-    "**/*.test.{ts,tsx,js,jsx}"
-  ],
+  "tags": ["-lintignore"],
+  "ignoreBinaries": ["swiftc", "xcode-select"],
+  "ignoreExportsUsedInFile": true,
   "workspaces": {
-    ".": {},
+    ".": {
+      "entry": [".claude/skills/release-and-monitor/scripts/*.ts", "scripts/*.ts"]
+    },
     "packages/headless-serve-sim": {
-      "ignoreDependencies": [
-        "preact"
-      ],
+      "ignoreDependencies": ["preact"],
       "entry": [
         "src/index.ts",
-        "src/middleware.ts",
-        "src/state.ts",
+        "src/__tests__/**/*.test.{ts,tsx}",
+        "src/system-tests/**/*.system.ts",
         "src/client/client.tsx",
         "src/client/global.css",
-        "build.ts",
-        "dev.ts",
         "scripts/build-trails.ts"
       ]
     },
     "packages/headless-serve-sim-client": {
-      "ignoreDependencies": [
-        "react-dom",
-        "@types/react-dom"
-      ]
+      "entry": ["src/__tests__/**/*.test.{ts,tsx}"]
     }
   }
 }

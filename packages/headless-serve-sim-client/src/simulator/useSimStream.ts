@@ -31,7 +31,10 @@ export interface UseSimStreamResult {
   sendButton: (button: string) => Promise<void>;
 }
 
-export function useSimStream({ exec, device: deviceProp }: UseSimStreamOptions): UseSimStreamResult {
+export function useSimStream({
+  exec,
+  device: deviceProp,
+}: UseSimStreamOptions): UseSimStreamResult {
   const [info, setInfo] = useState<SimStreamInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +44,9 @@ export function useSimStream({ exec, device: deviceProp }: UseSimStreamOptions):
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   // Connect/switch when the explicitly provided device changes.
@@ -73,7 +78,9 @@ export function useSimStream({ exec, device: deviceProp }: UseSimStreamOptions):
         const result = await exec(`headless-serve-sim --detach ${deviceProp}`);
         if (cancelled) return;
         if (result.exitCode !== 0) {
-          throw new Error(result.stderr || `headless-serve-sim --detach failed (exit ${result.exitCode})`);
+          throw new Error(
+            result.stderr || `headless-serve-sim --detach failed (exit ${result.exitCode})`,
+          );
         }
         const parsed = JSON.parse(result.stdout.trim()) as SimStreamInfo;
         if (mountedRef.current) setInfo(parsed);
@@ -86,37 +93,46 @@ export function useSimStream({ exec, device: deviceProp }: UseSimStreamOptions):
       }
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [deviceProp, exec]);
 
-  const connect = useCallback(async (device?: string, port?: number): Promise<boolean> => {
-    setLoading(true);
-    setError(null);
-    const t0 = performance.now();
-    console.log(`[headless-serve-sim] connect: starting`);
-    try {
-      const target = device ?? deviceProp ?? undefined;
-      let cmd = "headless-serve-sim --detach";
-      if (target) cmd += ` ${target}`;
-      if (port) cmd += ` --port ${port}`;
+  const connect = useCallback(
+    async (device?: string, port?: number): Promise<boolean> => {
+      setLoading(true);
+      setError(null);
+      const t0 = performance.now();
+      console.log(`[headless-serve-sim] connect: starting`);
+      try {
+        const target = device ?? deviceProp ?? undefined;
+        let cmd = "headless-serve-sim --detach";
+        if (target) cmd += ` ${target}`;
+        if (port) cmd += ` --port ${port}`;
 
-      const result = await exec(cmd);
-      console.log(`[headless-serve-sim] connect: exec returned (+${(performance.now() - t0).toFixed(0)}ms, exit ${result.exitCode})`);
-      if (result.exitCode !== 0) {
-        throw new Error(result.stderr || `headless-serve-sim --detach failed (exit ${result.exitCode})`);
+        const result = await exec(cmd);
+        console.log(
+          `[headless-serve-sim] connect: exec returned (+${(performance.now() - t0).toFixed(0)}ms, exit ${result.exitCode})`,
+        );
+        if (result.exitCode !== 0) {
+          throw new Error(
+            result.stderr || `headless-serve-sim --detach failed (exit ${result.exitCode})`,
+          );
+        }
+        const parsed = JSON.parse(result.stdout.trim()) as SimStreamInfo;
+        if (mountedRef.current) setInfo(parsed);
+        return true;
+      } catch (err) {
+        if (mountedRef.current) {
+          setError(err instanceof Error ? err.message : "Failed to connect");
+        }
+        return false;
+      } finally {
+        if (mountedRef.current) setLoading(false);
       }
-      const parsed = JSON.parse(result.stdout.trim()) as SimStreamInfo;
-      if (mountedRef.current) setInfo(parsed);
-      return true;
-    } catch (err) {
-      if (mountedRef.current) {
-        setError(err instanceof Error ? err.message : "Failed to connect");
-      }
-      return false;
-    } finally {
-      if (mountedRef.current) setLoading(false);
-    }
-  }, [exec, deviceProp]);
+    },
+    [exec, deviceProp],
+  );
 
   const disconnect = useCallback(async () => {
     setLoading(true);
@@ -133,13 +149,16 @@ export function useSimStream({ exec, device: deviceProp }: UseSimStreamOptions):
     }
   }, [exec]);
 
-  const sendButton = useCallback(async (button: string) => {
-    try {
-      await exec(`headless-serve-sim button ${button}`);
-    } catch {
-      // best-effort
-    }
-  }, [exec]);
+  const sendButton = useCallback(
+    async (button: string) => {
+      try {
+        await exec(`headless-serve-sim button ${button}`);
+      } catch {
+        // best-effort
+      }
+    },
+    [exec],
+  );
 
   return { info, loading, error, connect, disconnect, sendButton };
 }

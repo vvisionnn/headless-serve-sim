@@ -1,5 +1,9 @@
-import { AX_UNAVAILABLE_ERROR } from "../../ax-shared";
-import type { AxElement, AxRect, AxSnapshot } from "../../ax-shared";
+import {
+  AX_UNAVAILABLE_ERROR,
+  type AxElement,
+  type AxRect,
+  type AxSnapshot,
+} from "../../ax-shared";
 
 export function isAxeUnavailable(snapshot: AxSnapshot | null) {
   return snapshot?.errors?.includes(AX_UNAVAILABLE_ERROR) ?? false;
@@ -15,8 +19,10 @@ export function axElementsEqual(a: AxElement, b: AxElement) {
     a.role !== b.role ||
     a.type !== b.type ||
     a.enabled !== b.enabled
-  ) return false;
-  const fa = a.frame, fb = b.frame;
+  )
+    return false;
+  const fa = a.frame,
+    fb = b.frame;
   return (
     fa === fb ||
     (fa.x === fb.x && fa.y === fb.y && fa.width === fb.width && fa.height === fb.height)

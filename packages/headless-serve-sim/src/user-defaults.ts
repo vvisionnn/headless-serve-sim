@@ -1,5 +1,6 @@
-import { execFileSync } from "child_process";
 import { findBootedDevice, resolveDevice } from "./device";
+import type { CommandChunk, HostCommands } from "./runtime/host-commands";
+import { createNodeHostCommands } from "./runtime/node-host-commands";
 
 // ─── Argument parsing ───
 //
@@ -40,9 +41,7 @@ const TYPE_BY_FLAG: Record<DefaultsType, string> = {
 };
 const DEFAULTS_TYPES = Object.keys(TYPE_BY_FLAG) as DefaultsType[];
 
-export function parseDefaultsArgs(
-  args: string[],
-): ParsedDefaults | { error: string } {
+export function parseDefaultsArgs(args: string[]): ParsedDefaults | { error: string } {
   let device: string | undefined;
   let type: DefaultsType | undefined;
   let quiet = false;
@@ -92,7 +91,9 @@ export function parseDefaultsArgs(
   // parseStatusBarArgs' "did you forget -d" guard.
   const extra = (n: number) =>
     positional.length > n
-      ? { error: `Unexpected argument: ${positional[n]} (did you forget -d before a device name, or quotes around a value?)` }
+      ? {
+          error: `Unexpected argument: ${positional[n]} (did you forget -d before a device name, or quotes around a value?)`,
+        }
       : null;
 
   if (verb === "read") {
@@ -126,6 +127,81 @@ const USAGE =
   "  headless-serve-sim defaults delete <domain> <key> [-d <udid|name>]\n" +
   "\nDomain is a bundle id (standard prefs) or a suite/group id.";
 
+export interface UserDefaultsModule {
+  execute(udid: string, request: ParsedDefaults): Promise<string | null>;
+}
+
+export function createUserDefaults(host: HostCommands): UserDefaultsModule {
+  const run = async (
+    executable: string,
+    args: readonly string[],
+    input?: CommandChunk,
+  ): Promise<Buffer> => {
+    const result = await host.run({
+      executable,
+      args,
+      ...(input === undefined ? {} : { input }),
+      stdio: "capture",
+    });
+    if (result.exitCode !== 0 || result.timedOut) {
+      throw new Error(
+        result.stderr.toString().trim() ||
+          `Host command failed with exit code ${result.exitCode ?? "unknown"}`,
+      );
+    }
+    return result.stdout;
+  };
+
+  return {
+    async execute(udid, request) {
+      if (request.verb === "read") {
+        const xml = await run("xcrun", [
+          "simctl",
+          "spawn",
+          udid,
+          "defaults",
+          "export",
+          request.domain,
+          "-",
+        ]);
+        const json = await run("plutil", ["-convert", "json", "-o", "-", "-"], xml);
+        return json.toString().trim();
+      }
+      if (request.verb === "delete") {
+        await run("xcrun", [
+          "simctl",
+          "spawn",
+          udid,
+          "defaults",
+          "delete",
+          request.domain,
+          request.key!,
+        ]);
+        return null;
+      }
+      await run("xcrun", [
+        "simctl",
+        "spawn",
+        udid,
+        "defaults",
+        "write",
+        request.domain,
+        request.key!,
+        TYPE_BY_FLAG[request.type!],
+        request.value!,
+      ]);
+      return null;
+    },
+  };
+}
+
+let productionDefaults: UserDefaultsModule | null = null;
+
+function productionUserDefaults(): UserDefaultsModule {
+  productionDefaults ??= createUserDefaults(createNodeHostCommands());
+  return productionDefaults;
+}
+
 export async function userDefaults(args: string[]): Promise<void> {
   const quiet = args.includes("-q") || args.includes("--quiet");
   const rest = args.filter((a) => a !== "-q" && a !== "--quiet");
@@ -143,46 +219,17 @@ export async function userDefaults(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // domain & key are DOMAIN_RE/KEY_RE-validated above; value is a discrete argv
-  // element (never shell-interpolated), so direct use here cannot inject.
+  let output: string | null;
   try {
-    if (parsed.verb === "read") {
-      // `defaults export <domain> -` prints an XML plist (a bare `<dict/>` for
-      // an absent/empty domain). Convert it to JSON on the host with plutil —
-      // no shell pipe: capture stdout, then feed it to plutil via `input`.
-      const xml = execFileSync(
-        "xcrun",
-        ["simctl", "spawn", udid, "defaults", "export", parsed.domain, "-"],
-        { encoding: "buffer", stdio: ["ignore", "pipe", "pipe"] },
-      );
-      const json = execFileSync("plutil", ["-convert", "json", "-o", "-", "-"], {
-        input: xml,
-        encoding: "utf-8",
-      });
-      // plutil prints compact JSON already; emit it as-is so callers can parse.
-      console.log(json.trim());
-      process.exit(0);
-    }
-
-    if (parsed.verb === "delete") {
-      execFileSync(
-        "xcrun",
-        ["simctl", "spawn", udid, "defaults", "delete", parsed.domain, parsed.key!],
-        { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
-      );
-    } else {
-      execFileSync(
-        "xcrun",
-        [
-          "simctl", "spawn", udid, "defaults", "write",
-          parsed.domain, parsed.key!, TYPE_BY_FLAG[parsed.type!], parsed.value!,
-        ],
-        { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
-      );
-    }
-  } catch (e: any) {
-    console.error(String(e?.stderr ?? e?.message ?? e).trim());
+    output = await productionUserDefaults().execute(udid, parsed);
+  } catch (error: unknown) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
+  }
+
+  if (parsed.verb === "read") {
+    console.log(output);
+    process.exit(0);
   }
 
   if (quiet) {

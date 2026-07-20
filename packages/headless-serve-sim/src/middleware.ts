@@ -1,5 +1,4 @@
 import { readdirSync, readFileSync, existsSync, unlinkSync, watch, type FSWatcher } from "fs";
-import { execSync, spawn, exec, execFile, type ChildProcess, type ExecException } from "child_process";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createServer as createNetServer } from "net";
@@ -10,12 +9,10 @@ import { createAxStreamerCache } from "./ax";
 import { debugMw } from "./debug";
 import { resolveInstalledDeviceMetadata } from "./device-metadata";
 import { createExecUpgradeHandler, type UiRequestHandler } from "./exec-ws";
-import {
-  parseSimLogLevel,
-  parseSimLogProcessId,
-  startSimulatorLogStream,
-} from "./sim-log-stream";
-import { UI_OPTIONS, getUiStatus, normalizeUiValue, setUiOption } from "./ui-settings";
+import type { CommandResult, HostCommands } from "./runtime/host-commands";
+import { createNodeHostCommands } from "./runtime/node-host-commands";
+import { parseSimLogLevel, parseSimLogProcessId, startSimulatorLogStream } from "./sim-log-stream";
+import { UI_OPTIONS, createUiSettings, normalizeUiValue, type UiOption } from "./ui-settings";
 
 type SimReq = IncomingMessage;
 type SimRes = ServerResponse;
@@ -85,6 +82,37 @@ type ReleaseRequestBody = { targetId?: string };
 type HighlightRequestBody = { targetId?: string; on?: boolean };
 type ExecRequestBody = { command?: string };
 
+function commandSucceeded(result: CommandResult): boolean {
+  return result.exitCode === 0 && result.signal === null && !result.timedOut;
+}
+
+function commandError(result: CommandResult, fallback: string): string {
+  return result.stderr.toString().trim() || fallback;
+}
+
+function runTextSync(
+  hostCommands: HostCommands,
+  executable: string,
+  args: readonly string[],
+  timeoutMs: number,
+  maxOutputBytes?: number,
+): string {
+  const result = hostCommands.run(
+    {
+      executable,
+      args,
+      stdio: "capture",
+      timeoutMs,
+      maxOutputBytes,
+    },
+    "sync",
+  );
+  if (!commandSucceeded(result)) {
+    throw new Error(commandError(result, `${executable} failed`));
+  }
+  return result.stdout.toString();
+}
+
 export interface ServeSimState {
   pid: number;
   port: number;
@@ -105,8 +133,8 @@ let inspectWebKitBridge: Promise<WebKitBridge> | null = null;
 // Known bundle IDs that are always React Native shells (used as a fallback
 // before the app-container path resolves, since simctl can lag after launch).
 const RN_BUNDLE_IDS = new Set<string>([
-  "host.exp.Exponent",       // Expo Go (App Store)
-  "dev.expo.Exponent",       // Expo Go dev builds
+  "host.exp.Exponent", // Expo Go (App Store)
+  "dev.expo.Exponent", // Expo Go dev builds
 ]);
 
 const RN_MARKERS = [
@@ -121,13 +149,16 @@ const RN_MARKERS = [
 // user-facing app — widgets, extensions, background services. Emitting
 // these to the client causes the app indicator to flicker as the user
 // actually-foreground app switches mid-launch.
-const NON_UI_BUNDLE_RE = /(WidgetRenderer|ExtensionHost|\.extension(\.|$)|Service|PlaceholderApp|InCallService|CallUI|InCallUI|com\.apple\.Preferences\.Cellular|com\.apple\.purplebuddy|com\.apple\.chrono|com\.apple\.shuttle|com\.apple\.usernotificationsui)/i;
+const NON_UI_BUNDLE_RE =
+  /(WidgetRenderer|ExtensionHost|\.extension(\.|$)|Service|PlaceholderApp|InCallService|CallUI|InCallUI|com\.apple\.Preferences\.Cellular|com\.apple\.purplebuddy|com\.apple\.chrono|com\.apple\.shuttle|com\.apple\.usernotificationsui)/i;
 
 function isUserFacingBundle(bundleId: string): boolean {
   return !NON_UI_BUNDLE_RE.test(bundleId);
 }
 
-export function parseForegroundAppLogMessage(message: string): { bundleId: string; pid: number } | null {
+export function parseForegroundAppLogMessage(
+  message: string,
+): { bundleId: string; pid: number } | null {
   // e.g. "[app<com.apple.mobilesafari>:43117] Setting process visibility to: Foreground"
   const match = /\[app<([^>]+)>:(\d+)\] Setting process visibility to: Foreground/.exec(message);
   if (!match) return null;
@@ -149,21 +180,22 @@ export async function resolveForegroundAppState(
   return isCurrent(identity) ? { bundleId, pid, isReactNative } : null;
 }
 
-function detectReactNative(udid: string, bundleId: string): Promise<boolean> {
+async function detectReactNative(
+  hostCommands: HostCommands,
+  udid: string,
+  bundleId: string,
+): Promise<boolean> {
   if (RN_BUNDLE_IDS.has(bundleId)) return Promise.resolve(true);
-  return new Promise((resolve) => {
-    execFile("xcrun", ["simctl", "get_app_container", udid, bundleId, "app"],
-      { timeout: 2000 },
-      (err, stdout) => {
-        if (err) return resolve(false);
-        const appPath = stdout.trim();
-        if (!appPath) return resolve(false);
-        for (const marker of RN_MARKERS) {
-          if (existsSync(join(appPath, marker))) return resolve(true);
-        }
-        resolve(false);
-      });
+  const result = await hostCommands.run({
+    executable: "xcrun",
+    args: ["simctl", "get_app_container", udid, bundleId, "app"],
+    stdio: "capture",
+    timeoutMs: 2_000,
   });
+  if (!commandSucceeded(result)) return false;
+  const appPath = result.stdout.toString().trim();
+  if (!appPath) return false;
+  return RN_MARKERS.some((marker) => existsSync(join(appPath, marker)));
 }
 
 type InstalledApp = {
@@ -185,11 +217,9 @@ export function matchInstalledAppByDisplayName(
   if (!wanted) return null;
 
   for (const [bundleId, app] of Object.entries(apps)) {
-    const names = [
-      app.CFBundleDisplayName,
-      app.CFBundleName,
-      app.CFBundleExecutable,
-    ].filter((value): value is string => typeof value === "string");
+    const names = [app.CFBundleDisplayName, app.CFBundleName, app.CFBundleExecutable].filter(
+      (value): value is string => typeof value === "string",
+    );
     if (names.some((name) => normalizeAppName(name) === wanted)) {
       return app.CFBundleIdentifier || bundleId;
     }
@@ -197,21 +227,23 @@ export function matchInstalledAppByDisplayName(
   return null;
 }
 
-// Cache simctl's booted-device set briefly so per-request cost stays bounded.
-// The middleware runs inside the user's dev server (Metro etc.) and
-// readServeSimStates() is called on every /api and every page load.
-let bootedSnapshot: { at: number; booted: Set<string> | null } = { at: 0, booted: null };
-function getBootedUdids(): Set<string> | null {
-  const now = Date.now();
-  if (bootedSnapshot.booted && now - bootedSnapshot.at < 1500) {
-    return bootedSnapshot.booted;
+type BootedSnapshot = { at: number; booted: Set<string> | null };
+
+function getBootedUdids(
+  hostCommands: HostCommands,
+  snapshot: BootedSnapshot,
+  now: number,
+): Set<string> | null {
+  if (snapshot.booted && now - snapshot.at < 1500) {
+    return snapshot.booted;
   }
   try {
-    const output = execSync("xcrun simctl list devices booted -j", {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 3_000,
-    });
+    const output = runTextSync(
+      hostCommands,
+      "xcrun",
+      ["simctl", "list", "devices", "booted", "-j"],
+      3_000,
+    );
     const data = JSON.parse(output) as SimctlBootedList;
     const booted = new Set<string>();
     for (const runtime of Object.values(data.devices)) {
@@ -219,33 +251,37 @@ function getBootedUdids(): Set<string> | null {
         if (device.state === "Booted") booted.add(device.udid);
       }
     }
-    bootedSnapshot = { at: now, booted };
+    snapshot.at = now;
+    snapshot.booted = booted;
     return booted;
   } catch {
     return null;
   }
 }
 
-function readServeSimStates(): ServeSimState[] {
+function readServeSimStates(
+  hostCommands: HostCommands,
+  stateDir: string,
+  snapshot: BootedSnapshot,
+  now: number,
+): ServeSimState[] {
   let files: string[];
   try {
-    files = readdirSync(STATE_DIR).filter(
-      (f) => f.startsWith("server-") && f.endsWith(".json"),
-    );
+    files = readdirSync(stateDir).filter((f) => f.startsWith("server-") && f.endsWith(".json"));
   } catch {
     return [];
   }
-  const booted = getBootedUdids();
+  const booted = getBootedUdids(hostCommands, snapshot, now);
   const states: ServeSimState[] = [];
   for (const f of files) {
-    const path = join(STATE_DIR, f);
+    const path = join(stateDir, f);
     try {
       const state: ServeSimState = JSON.parse(readFileSync(path, "utf-8"));
-      try {
-        process.kill(state.pid, 0);
-      } catch {
+      if (!hostCommands.signal(state.pid, 0)) {
         debugMw("helper pid=%d gone, removing %s", state.pid, path);
-        try { unlinkSync(path); } catch {}
+        try {
+          unlinkSync(path);
+        } catch {}
         continue;
       }
       // Helper alive but its simulator was shut down — the MJPEG stream
@@ -258,8 +294,10 @@ function readServeSimStates(): ServeSimState[] {
           state.pid,
           state.device,
         );
-        try { process.kill(state.pid, "SIGTERM"); } catch {}
-        try { unlinkSync(path); } catch {}
+        hostCommands.signal(state.pid, "SIGTERM");
+        try {
+          unlinkSync(path);
+        } catch {}
         continue;
       }
       states.push(state);
@@ -420,9 +458,7 @@ export function previewConfigForState(
     ...(deviceMetadata?.deviceTypeIdentifier
       ? { deviceTypeIdentifier: deviceMetadata.deviceTypeIdentifier }
       : {}),
-    ...(deviceMetadata?.deviceFrameSpec
-      ? { deviceFrameSpec: deviceMetadata.deviceFrameSpec }
-      : {}),
+    ...(deviceMetadata?.deviceFrameSpec ? { deviceFrameSpec: deviceMetadata.deviceFrameSpec } : {}),
     basePath: base,
     logsEndpoint: `${endpoint(base, "/logs", state.device)}&token=${encodeURIComponent(execToken)}`,
     appStateEndpoint: endpoint(base, "/appstate", state.device),
@@ -453,7 +489,7 @@ async function existingInspectWebKitBridge(port: number): Promise<WebKitBridge |
   try {
     const versionRes = await fetch(`${cdpUrl}/json/version`);
     if (!versionRes.ok) return null;
-    const version = await versionRes.json() as CdpHttpVersion;
+    const version = (await versionRes.json()) as CdpHttpVersion;
     if (version.Browser !== "Safari/inspect-webkit") return null;
     return {
       port,
@@ -464,7 +500,7 @@ async function existingInspectWebKitBridge(port: number): Promise<WebKitBridge |
         // shape `sim:<udid>:<appId>:<pageId>` and the description string
         // `<deviceLabel> (<bundleId>)` are all we have here.
         const listRes = await fetch(`${cdpUrl}/json/list`);
-        const targets = await listRes.json() as CdpHttpListEntry[];
+        const targets = (await listRes.json()) as CdpHttpListEntry[];
         return targets
           .filter((target) => target.id.startsWith("sim:"))
           .map((target) => {
@@ -510,7 +546,9 @@ async function ensureInspectWebKitBridge(): Promise<WebKitBridge> {
         // (and what the DevTools frontend CSP whitelists). `localhost` resolves
         // to ::1 first on some setups, which would leave the iframe's
         // ws://127.0.0.1:9222 connection refused.
-        const server = await startCdpServer({ host: "127.0.0.1", port }) as Awaited<ReturnType<typeof startCdpServer>> & {
+        const server = (await startCdpServer({ host: "127.0.0.1", port })) as Awaited<
+          ReturnType<typeof startCdpServer>
+        > & {
           highlightTarget?(targetId: string, on: boolean): Promise<void>;
           releaseHighlight?(targetId?: string): void;
         };
@@ -546,7 +584,9 @@ async function ensureInspectWebKitBridge(): Promise<WebKitBridge> {
         throw err;
       }
     }
-    throw new Error(`No available inspect-webkit port found in ${INSPECT_WEBKIT_START_PORT}-${INSPECT_WEBKIT_START_PORT + 49}`);
+    throw new Error(
+      `No available inspect-webkit port found in ${INSPECT_WEBKIT_START_PORT}-${INSPECT_WEBKIT_START_PORT + 49}`,
+    );
   })().catch((err) => {
     inspectWebKitBridge = null;
     throw err;
@@ -580,9 +620,7 @@ let _html: string | null = null;
  * Returns `headless-serve-sim` (resolved on PATH at exec time) when the entry
  * can't be pinpointed — e.g. embedded inside a host dev server.
  */
-export function serveSimBinFor(
-  invocation: { command: string; baseArgs: string[] } | null,
-): string {
+export function serveSimBinFor(invocation: { command: string; baseArgs: string[] } | null): string {
   if (!invocation) return "headless-serve-sim";
   return invocation.baseArgs.length > 0
     ? invocation.baseArgs[invocation.baseArgs.length - 1]!
@@ -595,8 +633,8 @@ export function serveSimBinFor(
  * via /exec regardless of how the server was launched. Crucially this must NOT
  * be a `bun --compile` `/$bunfs/...` virtual path — /bin/sh can't exec it.
  */
-function serveSimBinPath(): string {
-  return serveSimBinFor(resolveServeSimCommand());
+function serveSimBinPath(hostCommands: HostCommands): string {
+  return serveSimBinFor(resolveServeSimCommand(hostCommands));
 }
 
 function loadHtml(): string {
@@ -615,13 +653,9 @@ interface SimctlDevice {
   runtime: string;
 }
 
-function listAllSimulators(): SimctlDevice[] {
+function listAllSimulators(hostCommands: HostCommands): SimctlDevice[] {
   try {
-    const output = execSync("xcrun simctl list devices -j", {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 3_000,
-    });
+    const output = runTextSync(hostCommands, "xcrun", ["simctl", "list", "devices", "-j"], 3_000);
     const data = JSON.parse(output) as SimctlAllList;
     const out: SimctlDevice[] = [];
     for (const [runtime, devices] of Object.entries(data.devices)) {
@@ -653,27 +687,18 @@ interface MemoryReport {
   estimatedAdditional: number;
 }
 
-function readSystemMemory(): { totalBytes: number; availableBytes: number } {
+function readSystemMemory(hostCommands: HostCommands): {
+  totalBytes: number;
+  availableBytes: number;
+} {
   try {
     const totalBytes = Number(
-      execSync("sysctl -n hw.memsize", {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 1500,
-      }).trim(),
+      runTextSync(hostCommands, "sysctl", ["-n", "hw.memsize"], 1_500).trim(),
     );
     const pageSize = Number(
-      execSync("sysctl -n hw.pagesize", {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 1500,
-      }).trim(),
+      runTextSync(hostCommands, "sysctl", ["-n", "hw.pagesize"], 1_500).trim(),
     );
-    const vmStat = execSync("vm_stat", {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 1500,
-    });
+    const vmStat = runTextSync(hostCommands, "vm_stat", [], 1_500);
     const pages = (re: RegExp) => {
       const m = vmStat.match(re);
       return m ? Number(m[1]) : 0;
@@ -696,14 +721,12 @@ function readSystemMemory(): { totalBytes: number; availableBytes: number } {
 // Sum RSS across every process whose argv path includes a CoreSimulator
 // device directory. Groups by UDID so we get a real per-sim footprint that
 // covers launchd_sim plus all child processes the runtime spawns.
-function readSimulatorMemoryUsage(): { perUdid: Record<string, number>; totalBytes: number } {
+function readSimulatorMemoryUsage(hostCommands: HostCommands): {
+  perUdid: Record<string, number>;
+  totalBytes: number;
+} {
   try {
-    const output = execSync("ps -axo rss=,args=", {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 3000,
-      maxBuffer: 8 * 1024 * 1024,
-    });
+    const output = runTextSync(hostCommands, "ps", ["-axo", "rss=,args="], 3_000, 8 * 1024 * 1024);
     const perUdid: Record<string, number> = {};
     let totalBytes = 0;
     const re = /\/Devices\/([0-9A-F-]{36})\//i;
@@ -725,23 +748,19 @@ function readSimulatorMemoryUsage(): { perUdid: Record<string, number>; totalByt
   }
 }
 
-function buildMemoryReport(): MemoryReport {
-  const { totalBytes, availableBytes } = readSystemMemory();
-  const usage = readSimulatorMemoryUsage();
+function buildMemoryReport(hostCommands: HostCommands): MemoryReport {
+  const { totalBytes, availableBytes } = readSystemMemory(hostCommands);
+  const usage = readSimulatorMemoryUsage(hostCommands);
   const runningSimulators = Object.keys(usage.perUdid).length;
-  const measuredAvg = runningSimulators > 0
-    ? usage.totalBytes / runningSimulators
-    : 0;
+  const measuredAvg = runningSimulators > 0 ? usage.totalBytes / runningSimulators : 0;
   // Below ~256MB, the measurement is almost certainly catching a sim mid-boot
   // before its app processes are resident — fall back to the default so we
   // don't over-promise capacity.
   const perSimSource: MemoryReport["perSimSource"] =
     measuredAvg >= 256 * 1024 * 1024 ? "measured" : "estimated";
-  const perSimAvgBytes =
-    perSimSource === "measured" ? measuredAvg : DEFAULT_PER_SIM_BYTES;
-  const estimatedAdditional = perSimAvgBytes > 0
-    ? Math.max(0, Math.floor(availableBytes / perSimAvgBytes))
-    : 0;
+  const perSimAvgBytes = perSimSource === "measured" ? measuredAvg : DEFAULT_PER_SIM_BYTES;
+  const estimatedAdditional =
+    perSimAvgBytes > 0 ? Math.max(0, Math.floor(availableBytes / perSimAvgBytes)) : 0;
   return {
     totalBytes,
     availableBytes,
@@ -799,13 +818,18 @@ export function resolveServeSimInvocation(
   return null;
 }
 
-function lookupServeSimOnPath(): string | null {
+function lookupServeSimOnPath(hostCommands: HostCommands): string | null {
   try {
-    const path = execSync("command -v headless-serve-sim", {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 1_500,
-    }).trim();
+    const result = hostCommands.run(
+      {
+        shell: "command -v headless-serve-sim",
+        stdio: "capture",
+        timeoutMs: 1_500,
+      },
+      "sync",
+    );
+    if (!commandSucceeded(result)) return null;
+    const path = result.stdout.toString().trim();
     return path || null;
   } catch {
     return null;
@@ -816,12 +840,11 @@ function lookupServeSimOnPath(): string | null {
  * Locate the headless-serve-sim CLI for spawning helpers and for the in-page
  * tools. Thin process-bound wrapper over {@link resolveServeSimInvocation}.
  */
-function resolveServeSimCommand(): { command: string; baseArgs: string[] } | null {
-  return resolveServeSimInvocation(
-    process.argv,
-    process.execPath,
-    existsSync,
-    lookupServeSimOnPath,
+function resolveServeSimCommand(
+  hostCommands: HostCommands,
+): { command: string; baseArgs: string[] } | null {
+  return resolveServeSimInvocation(process.argv, process.execPath, existsSync, () =>
+    lookupServeSimOnPath(hostCommands),
   );
 }
 
@@ -844,6 +867,10 @@ export interface SimMiddlewareOptions {
    * a host dev server where auto-detection can't see our own entry.
    */
   serveSimBin?: string;
+  /** Override the helper state directory. Intended for isolated embedding/tests. */
+  stateDir?: string;
+  /** Override the clock used by the short-lived simulator snapshot cache. */
+  now?: () => number;
 }
 
 function safeEqualString(a: string, b: string): boolean {
@@ -869,14 +896,19 @@ function isJsonContentType(value: string | undefined): boolean {
  *   GET  {basePath}/logs    — SSE stream of simctl logs
  *   GET  {basePath}/ax      — SSE stream of normalized accessibility snapshots
  */
-export function simMiddleware(options?: SimMiddlewareOptions) {
+export function createSimMiddleware(hostCommands: HostCommands, options?: SimMiddlewareOptions) {
   const base = (options?.basePath ?? "/.sim").replace(/\/+$/, "");
   // Per-process random token. Anyone who can read the preview HTML same-origin
   // can call /exec; cross-origin pages and LAN clients cannot, because they
   // can't read this value (it's only injected into the preview page's config).
   const execToken = options?.execToken ?? randomBytes(32).toString("base64url");
   // Resolved once per process: the command the in-page tools shell out to.
-  const serveSimBin = options?.serveSimBin ?? serveSimBinPath();
+  const serveSimBin = options?.serveSimBin ?? serveSimBinPath(hostCommands);
+  const stateDir = options?.stateDir ?? STATE_DIR;
+  const uiSettings = createUiSettings(hostCommands);
+  const now = options?.now ?? Date.now;
+  const bootedSnapshot: BootedSnapshot = { at: 0, booted: null };
+  const readStates = () => readServeSimStates(hostCommands, stateDir, bootedSnapshot, now());
 
   // Simulator-settings requests run in-process (just the underlying simctl /
   // ax-tool spawn) instead of round-tripping a full `node <cli>` exec per
@@ -887,12 +919,13 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
       throw new Error("missing or invalid device udid");
     }
     if (p.option === undefined) {
-      return { status: await getUiStatus(p.device) };
+      return { status: await uiSettings.status(p.device) };
     }
-    if (!UI_OPTIONS[p.option]) throw new Error(`unknown option: ${p.option}`);
-    const value = typeof p.value === "string" ? normalizeUiValue(p.option, p.value) : null;
-    if (value === null) throw new Error(`invalid value for ${p.option}: ${p.value}`);
-    await setUiOption(p.device, p.option, value);
+    if (!(p.option in UI_OPTIONS)) throw new Error(`unknown option: ${p.option}`);
+    const option = p.option as UiOption;
+    const value = typeof p.value === "string" ? normalizeUiValue(option, p.value) : null;
+    if (value === null) throw new Error(`invalid value for ${option}: ${p.value}`);
+    await uiSettings.set(p.device, option, value);
     return { ok: true };
   };
 
@@ -909,9 +942,10 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
     // the frontend's relative assets and CSP on the local page.
     if (url === devtoolsFrontendBase || url.startsWith(`${devtoolsFrontendBase}/`)) {
       (async () => {
-        const assetPath = url === devtoolsFrontendBase
-          ? "inspector.html"
-          : url.slice(devtoolsFrontendBase.length + 1);
+        const assetPath =
+          url === devtoolsFrontendBase
+            ? "inspector.html"
+            : url.slice(devtoolsFrontendBase.length + 1);
         // Reject path-traversal segments before they reach the upstream URL.
         if (assetPath.split("/").some((seg) => seg === "..")) {
           res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
@@ -939,7 +973,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
 
     // Serve the preview page
     if (url === base || url === base + "/") {
-      const states = readServeSimStates();
+      const states = readStates();
       const state = selectServeSimState(states, selectedDevice);
       const baseHtml = loadHtml();
 
@@ -977,7 +1011,14 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
           resolveInstalledDeviceMetadata(state.device),
         ]);
         const config = htmlSafeJson(
-          previewConfigForState(remoteState, base, serveSimBin, execToken, screenConfig, deviceMetadata),
+          previewConfigForState(
+            remoteState,
+            base,
+            serveSimBin,
+            execToken,
+            screenConfig,
+            deviceMetadata,
+          ),
         );
         sendHtml(
           baseHtml.replace(
@@ -995,7 +1036,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         "Content-Type": "application/json",
         "Cache-Control": "no-store",
       });
-      res.end(JSON.stringify(buildMemoryReport()));
+      res.end(JSON.stringify(buildMemoryReport(hostCommands)));
       return;
     }
 
@@ -1003,7 +1044,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
     // helper resolves the frontmost PID itself and reads Darwin process
     // counters, so the browser cannot select an unrelated host process.
     if (url === base + "/api/metrics") {
-      const state = selectServeSimState(readServeSimStates(), selectedDevice);
+      const state = selectServeSimState(readStates(), selectedDevice);
       if (!state) {
         res.writeHead(404, { "Content-Type": "application/json", "Cache-Control": "no-store" });
         res.end(JSON.stringify({ error: "No headless-serve-sim device" }));
@@ -1035,9 +1076,9 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
 
     // Grid JSON: every supported simulator, annotated with running helper info if any.
     if (url === base + "/grid/api") {
-      const states = readServeSimStates();
+      const states = readStates();
       const helperByUdid = new Map(states.map((s) => [s.device, s] as const));
-      const sims = listAllSimulators();
+      const sims = listAllSimulators(hostCommands);
       const devices = sims.map((d) => {
         const helper = helperByUdid.get(d.udid);
         const remoteHelper = helper ? rewriteStateForRequestHost(helper, req.headers?.host) : null;
@@ -1068,12 +1109,13 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         if (/vision|reality/i.test(name)) return 4;
         return 5;
       };
-      const stateRank = (x: typeof devices[number]) =>
+      const stateRank = (x: (typeof devices)[number]) =>
         x.helper ? 0 : x.state === "Booted" ? 1 : 2;
-      devices.sort((a, b) =>
-        familyRank(a.name) - familyRank(b.name) ||
-        stateRank(a) - stateRank(b) ||
-        a.name.localeCompare(b.name),
+      devices.sort(
+        (a, b) =>
+          familyRank(a.name) - familyRank(b.name) ||
+          stateRank(a) - stateRank(b) ||
+          a.name.localeCompare(b.name),
       );
       res.writeHead(200, {
         "Content-Type": "application/json",
@@ -1093,7 +1135,9 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
       });
       req.on("end", () => {
         let udid = "";
-        try { udid = (JSON.parse(body) as ShutdownRequestBody).udid ?? ""; } catch {}
+        try {
+          udid = (JSON.parse(body) as ShutdownRequestBody).udid ?? "";
+        } catch {}
         if (!/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i.test(udid)) {
           res.writeHead(400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: false, error: "Invalid or missing udid" }));
@@ -1101,19 +1145,38 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         }
         // Drop the snapshot so the next /grid/api call re-queries simctl
         // and prunes any helper bound to this now-shutdown device.
-        bootedSnapshot = { at: 0, booted: null };
-        execFile("xcrun", ["simctl", "shutdown", udid], { timeout: 30_000 }, (err, _stdout, stderr) => {
-          if (err) {
+        bootedSnapshot.at = 0;
+        bootedSnapshot.booted = null;
+        void hostCommands
+          .run({
+            executable: "xcrun",
+            args: ["simctl", "shutdown", udid],
+            stdio: "capture",
+            timeoutMs: 30_000,
+          })
+          .then((result) => {
+            if (!commandSucceeded(result)) {
+              res.writeHead(500, { "Content-Type": "application/json" });
+              res.end(
+                JSON.stringify({
+                  ok: false,
+                  error: commandError(result, "simctl shutdown failed"),
+                }),
+              );
+              return;
+            }
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: true }));
+          })
+          .catch((error: unknown) => {
             res.writeHead(500, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({
-              ok: false,
-              error: stderr?.toString().trim() || err.message,
-            }));
-            return;
-          }
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ ok: true }));
-        });
+            res.end(
+              JSON.stringify({
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            );
+          });
       });
       return;
     }
@@ -1126,30 +1189,39 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
       });
       req.on("end", () => {
         let udid = "";
-        try { udid = (JSON.parse(body) as StartRequestBody).udid ?? ""; } catch {}
+        try {
+          udid = (JSON.parse(body) as StartRequestBody).udid ?? "";
+        } catch {}
         if (!/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i.test(udid)) {
           res.writeHead(400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: false, error: "Invalid or missing udid" }));
           return;
         }
-        const resolved = resolveServeSimCommand();
+        const resolved = resolveServeSimCommand(hostCommands);
         if (!resolved) {
           res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({
-            ok: false,
-            error: "headless-serve-sim CLI not found in PATH. Install it (npm i -g headless-serve-sim) and retry.",
-          }));
+          res.end(
+            JSON.stringify({
+              ok: false,
+              error:
+                "headless-serve-sim CLI not found in PATH. Install it (npm i -g headless-serve-sim) and retry.",
+            }),
+          );
           return;
         }
-        const child = spawn(
-          resolved.command,
-          [...resolved.baseArgs, "--detach", udid],
-          { stdio: ["ignore", "pipe", "pipe"], detached: false },
-        );
+        const child = hostCommands.start({
+          executable: resolved.command,
+          args: [...resolved.baseArgs, "--detach", udid],
+          stdio: "stream",
+        });
         let stdout = "";
         let stderr = "";
-        child.stdout?.on("data", (c: Buffer) => { stdout += c.toString(); });
-        child.stderr?.on("data", (c: Buffer) => { stderr += c.toString(); });
+        child.stdout?.on("data", (c: Buffer) => {
+          stdout += c.toString();
+        });
+        child.stderr?.on("data", (c: Buffer) => {
+          stderr += c.toString();
+        });
         // A cold iOS simulator can take 60-90s to reach `bootstatus -b`
         // readiness; the prior 60s ceiling was killing headless-serve-sim mid-boot
         // and the helper never got a chance to spawn, so the click ended
@@ -1157,21 +1229,37 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         // upper bound that covers slow first-boots without leaving a
         // wedged child around indefinitely.
         const timer = setTimeout(() => {
-          try { child.kill("SIGTERM"); } catch {}
+          child.stop("SIGTERM");
         }, 180_000);
-        child.on("close", (code) => {
-          clearTimeout(timer);
-          if (code === 0) {
-            res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ ok: true, stdout: stdout.trim() }));
-          } else {
+        void child.result
+          .then((result) => {
+            clearTimeout(timer);
+            if (commandSucceeded(result)) {
+              res.writeHead(200, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ ok: true, stdout: stdout.trim() }));
+            } else {
+              res.writeHead(500, { "Content-Type": "application/json" });
+              res.end(
+                JSON.stringify({
+                  ok: false,
+                  error:
+                    stderr.trim() ||
+                    stdout.trim() ||
+                    `headless-serve-sim exited with code ${result.exitCode}`,
+                }),
+              );
+            }
+          })
+          .catch((error: unknown) => {
+            clearTimeout(timer);
             res.writeHead(500, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({
-              ok: false,
-              error: stderr.trim() || stdout.trim() || `headless-serve-sim exited with code ${code}`,
-            }));
-          }
-        });
+            res.end(
+              JSON.stringify({
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            );
+          });
       });
       return;
     }
@@ -1182,7 +1270,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
     // URLs so the browser UI can embed Chrome DevTools.
     if (url === base + "/devtools") {
       (async () => {
-        const states = readServeSimStates();
+        const states = readStates();
         const state = selectServeSimState(states, selectedDevice);
         if (!state) {
           res.writeHead(404, { "Content-Type": "application/json" });
@@ -1206,15 +1294,19 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
             "Content-Type": "application/json",
             "Cache-Control": "no-store",
           });
-          res.end(JSON.stringify({
-            port: bridge.port,
-            targets,
-          }));
+          res.end(
+            JSON.stringify({
+              port: bridge.port,
+              targets,
+            }),
+          );
         } catch (err) {
           res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({
-            error: err instanceof Error ? err.message : "Failed to start inspect-webkit",
-          }));
+          res.end(
+            JSON.stringify({
+              error: err instanceof Error ? err.message : "Failed to start inspect-webkit",
+            }),
+          );
         }
       })();
       return;
@@ -1235,9 +1327,11 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
           res.end("{}");
         } catch (err) {
           res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({
-            error: err instanceof Error ? err.message : "Failed to release",
-          }));
+          res.end(
+            JSON.stringify({
+              error: err instanceof Error ? err.message : "Failed to release",
+            }),
+          );
         }
       });
       return;
@@ -1268,9 +1362,11 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
           res.end("{}");
         } catch (err) {
           res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({
-            error: err instanceof Error ? err.message : "Failed to highlight target",
-          }));
+          res.end(
+            JSON.stringify({
+              error: err instanceof Error ? err.message : "Failed to highlight target",
+            }),
+          );
         }
       });
       return;
@@ -1278,7 +1374,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
 
     // JSON API: headless-serve-sim state
     if (url === base + "/api") {
-      const states = readServeSimStates();
+      const states = readStates();
       const state = selectServeSimState(states, selectedDevice);
       // The web UI polls /api every ~2s, so logging every hit floods the
       // debug stream with identical lines. Only log when the selection
@@ -1304,18 +1400,20 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         const deviceMetadata = state
           ? await resolveInstalledDeviceMetadata(state.device)
           : undefined;
-        res.end(JSON.stringify(
-          remoteState
-            ? previewConfigForState(
-                remoteState,
-                base,
-                serveSimBin,
-                execToken,
-                null,
-                deviceMetadata,
-              )
-            : null,
-        ));
+        res.end(
+          JSON.stringify(
+            remoteState
+              ? previewConfigForState(
+                  remoteState,
+                  base,
+                  serveSimBin,
+                  execToken,
+                  null,
+                  deviceMetadata,
+                )
+              : null,
+          ),
+        );
       })().catch(() => res.end(JSON.stringify(null)));
       return;
     }
@@ -1326,7 +1424,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
     // on change instead of re-sending identical JSON on a fixed interval.
     if (url === base + "/api/events") {
       const computeConfig = async (): Promise<string> => {
-        const states = readServeSimStates();
+        const states = readStates();
         const state = selectServeSimState(states, selectedDevice);
         const remoteState = state ? rewriteStateForRequestHost(state, req.headers?.host) : null;
         const deviceMetadata = state
@@ -1334,14 +1432,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
           : undefined;
         return JSON.stringify(
           remoteState
-            ? previewConfigForState(
-                remoteState,
-                base,
-              serveSimBin,
-              execToken,
-              null,
-              deviceMetadata,
-            )
+            ? previewConfigForState(remoteState, base, serveSimBin, execToken, null, deviceMetadata)
             : null,
         );
       };
@@ -1372,7 +1463,9 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
           try {
             const next = await computeConfig();
             if (
-              !closed && !res.writableEnded && generation === configGeneration &&
+              !closed &&
+              !res.writableEnded &&
+              generation === configGeneration &&
               next !== lastSent
             ) {
               lastSent = next;
@@ -1444,7 +1537,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
 
     // SSE: normalized accessibility snapshot stream
     if (url === base + "/ax") {
-      const states = readServeSimStates();
+      const states = readStates();
       const state = selectServeSimState(states, selectedDevice);
       if (!state) {
         res.writeHead(404);
@@ -1487,7 +1580,9 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
           const originHost = new URL(origin).host;
           if (originHost !== req.headers.host) {
             res.writeHead(403, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ stdout: "", stderr: "Cross-origin request blocked", exitCode: 1 }));
+            res.end(
+              JSON.stringify({ stdout: "", stderr: "Cross-origin request blocked", exitCode: 1 }),
+            );
             return;
           }
         } catch {
@@ -1529,14 +1624,32 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
           res.end(JSON.stringify({ stdout: "", stderr: "Missing command", exitCode: 1 }));
           return;
         }
-        exec(command, { maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({
-            stdout: stdout.toString(),
-            stderr: stderr.toString(),
-            exitCode: err ? (err as ExecException).code ?? 1 : 0,
-          }));
-        });
+        void hostCommands
+          .run({
+            shell: command,
+            stdio: "capture",
+            maxOutputBytes: 16 * 1024 * 1024,
+          })
+          .then((result) => {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(
+              JSON.stringify({
+                stdout: result.stdout.toString(),
+                stderr: result.stderr.toString(),
+                exitCode: result.exitCode ?? 1,
+              }),
+            );
+          })
+          .catch((error: unknown) => {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(
+              JSON.stringify({
+                stdout: "",
+                stderr: error instanceof Error ? error.message : String(error),
+                exitCode: 1,
+              }),
+            );
+          });
       });
       return;
     }
@@ -1562,7 +1675,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         res.end("Invalid process id");
         return;
       }
-      const states = readServeSimStates();
+      const states = readStates();
       const state = selectServeSimState(states, selectedDevice);
       if (!state) {
         res.writeHead(404);
@@ -1577,7 +1690,13 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         "X-Accel-Buffering": "no",
       });
       res.write(":\n\n");
-      const stop = startSimulatorLogStream({ udid, level, processId, response: res });
+      const stop = startSimulatorLogStream({
+        udid,
+        level,
+        processId,
+        response: res,
+        hostCommands,
+      });
       req.once("aborted", stop);
       req.once("close", stop);
       res.once("close", stop);
@@ -1589,7 +1708,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
     // log line. Filtering is done here (not in the browser) so the SSE stream
     // stays narrow and the client can listen without rate-limit concerns.
     if (url === base + "/appstate") {
-      const states = readServeSimStates();
+      const states = readStates();
       const state = selectServeSimState(states, selectedDevice);
       if (!state) {
         res.writeHead(404);
@@ -1625,10 +1744,12 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
           try {
             const ctrl = new AbortController();
             const timer = setTimeout(() => ctrl.abort(), 1500);
-            const r = await fetch(`http://127.0.0.1:${state.port}/foreground`, { signal: ctrl.signal });
+            const r = await fetch(`http://127.0.0.1:${state.port}/foreground`, {
+              signal: ctrl.signal,
+            });
             clearTimeout(timer);
             if (r.ok) {
-              const info = await r.json() as { bundleId?: string; pid?: number };
+              const info = (await r.json()) as { bundleId?: string; pid?: number };
               if (info.bundleId && isUserFacingBundle(info.bundleId)) {
                 if (res.writableEnded || lastAppIdentity) return;
                 lastAppIdentity = foregroundAppIdentityKey(info.bundleId, info.pid);
@@ -1636,7 +1757,7 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
                   info.bundleId,
                   info.pid,
                   (identity) => !res.writableEnded && identity === lastAppIdentity,
-                  (bundleId) => detectReactNative(udid, bundleId),
+                  (bundleId) => detectReactNative(hostCommands, udid, bundleId),
                 );
                 if (!appState) return;
                 res.write("data: " + JSON.stringify(appState) + "\n\n");
@@ -1650,13 +1771,23 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         }
       })();
 
-      const child: ChildProcess = spawn("xcrun", [
-        "simctl", "spawn", udid, "log", "stream",
-        "--style", "ndjson",
-        "--level", "info",
-        "--predicate",
-        'process == "SpringBoard" AND eventMessage CONTAINS "Setting process visibility to: Foreground"',
-      ], { stdio: ["ignore", "pipe", "ignore"] });
+      const child = hostCommands.start({
+        executable: "xcrun",
+        args: [
+          "simctl",
+          "spawn",
+          udid,
+          "log",
+          "stream",
+          "--style",
+          "ndjson",
+          "--level",
+          "info",
+          "--predicate",
+          'process == "SpringBoard" AND eventMessage CONTAINS "Setting process visibility to: Foreground"',
+        ],
+        stdio: "stream",
+      });
 
       let closed = false;
       const emitApp = async (bundleId: string, pid?: number) => {
@@ -1668,11 +1799,10 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
           bundleId,
           pid,
           (candidate) => !closed && candidate === lastAppIdentity,
-          (candidate) => detectReactNative(udid, candidate),
+          (candidate) => detectReactNative(hostCommands, udid, candidate),
         );
         if (appState) res.write("data: " + JSON.stringify(appState) + "\n\n");
       };
-
 
       let buf = "";
       child.stdout!.on("data", (chunk: Buffer) => {
@@ -1683,7 +1813,11 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
           buf = buf.slice(nl + 1);
           if (!line) continue;
           let msg: string;
-          try { msg = JSON.parse(line).eventMessage ?? ""; } catch { continue; }
+          try {
+            msg = JSON.parse(line).eventMessage ?? "";
+          } catch {
+            continue;
+          }
           const event = parseForegroundAppLogMessage(msg);
           if (!event) continue;
           emitApp(event.bundleId, event.pid);
@@ -1691,15 +1825,19 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
         if (buf.length > SSE_LINE_BUFFER_LIMIT) buf = "";
       });
 
-      child.on("error", () => {
-        closed = true;
-        try { res.end(); } catch {}
-      });
-      child.on("close", () => res.end());
+      void child.result.then(
+        () => res.end(),
+        () => {
+          closed = true;
+          try {
+            res.end();
+          } catch {}
+        },
+      );
       req.on("close", () => {
         closed = true;
         child.stdout?.destroy();
-        child.kill();
+        child.stop();
       });
       return;
     }
@@ -1717,7 +1855,12 @@ export function simMiddleware(options?: SimMiddlewareOptions) {
     handleUpgrade: createExecUpgradeHandler({
       path: `${base}/exec-ws`,
       execToken,
+      hostCommands,
       onUiRequest: handleUiRequest,
     }),
   });
+}
+
+export function simMiddleware(options?: SimMiddlewareOptions) {
+  return createSimMiddleware(createNodeHostCommands(), options);
 }

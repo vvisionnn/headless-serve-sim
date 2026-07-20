@@ -21,7 +21,7 @@ const DEFAULT_TIMEOUT = 2000;
  * Returns `null` if the server is unreachable or returns an unexpected response.
  */
 export async function fetchGatewayStatus(
-  options: DiscoverOptions = {}
+  options: DiscoverOptions = {},
 ): Promise<GatewayStatus | null> {
   const { baseUrl = DEFAULT_BASE_URL, timeout = DEFAULT_TIMEOUT } = options;
 

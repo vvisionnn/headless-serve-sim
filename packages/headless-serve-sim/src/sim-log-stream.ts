@@ -1,25 +1,19 @@
-import { spawn, type ChildProcess } from "child_process";
 import type { ServerResponse } from "http";
+import type { HostCommands } from "./runtime/host-commands";
 
 export const SIM_LOG_LEVELS = ["default", "info", "debug"] as const;
 export type SimLogLevel = (typeof SIM_LOG_LEVELS)[number];
 
 export function parseSimLogLevel(value: string | null | undefined): SimLogLevel | null {
   if (value == null) return "info";
-  return (SIM_LOG_LEVELS as readonly string[]).includes(value)
-    ? value as SimLogLevel
-    : null;
+  return (SIM_LOG_LEVELS as readonly string[]).includes(value) ? (value as SimLogLevel) : null;
 }
 
-export function parseSimLogProcessId(
-  value: string | null | undefined,
-): number | null | undefined {
+export function parseSimLogProcessId(value: string | null | undefined): number | null | undefined {
   if (value == null) return null;
   if (!/^\d+$/.test(value)) return undefined;
   const processId = Number(value);
-  return Number.isSafeInteger(processId) && processId > 0
-    ? processId
-    : undefined;
+  return Number.isSafeInteger(processId) && processId > 0 ? processId : undefined;
 }
 
 export function buildSimLogStreamArgs(
@@ -27,17 +21,7 @@ export function buildSimLogStreamArgs(
   level: SimLogLevel,
   processId: number | null = null,
 ): string[] {
-  const args = [
-    "simctl",
-    "spawn",
-    udid,
-    "log",
-    "stream",
-    "--style",
-    "ndjson",
-    "--level",
-    level,
-  ];
+  const args = ["simctl", "spawn", udid, "log", "stream", "--style", "ndjson", "--level", level];
   if (processId !== null) args.push("--predicate", `processID == ${processId}`);
   return args;
 }
@@ -85,7 +69,7 @@ export interface StartSimulatorLogStreamOptions {
   level: SimLogLevel;
   processId?: number | null;
   response: Pick<ServerResponse, "write" | "end" | "once" | "writableEnded">;
-  spawnProcess?: typeof spawn;
+  hostCommands: HostCommands;
   maxLineLength?: number;
   maxPendingBytes?: number;
 }
@@ -95,15 +79,15 @@ export function startSimulatorLogStream({
   level,
   processId = null,
   response,
-  spawnProcess = spawn,
+  hostCommands,
   maxLineLength,
   maxPendingBytes = 1024 * 1024,
 }: StartSimulatorLogStreamOptions): () => void {
-  const child: ChildProcess = spawnProcess(
-    "xcrun",
-    buildSimLogStreamArgs(udid, level, processId),
-    { stdio: ["ignore", "pipe", "ignore"] },
-  );
+  const child = hostCommands.start({
+    executable: "xcrun",
+    args: buildSimLogStreamArgs(udid, level, processId),
+    stdio: "stream",
+  });
   const stdout = child.stdout;
   const framer = createSimLogLineFramer(maxLineLength);
   let stopped = false;
@@ -115,7 +99,7 @@ export function startSimulatorLogStream({
     if (stopped) return;
     stopped = true;
     stdout?.destroy();
-    child.kill();
+    child.stop();
   };
 
   const endResponse = () => {
@@ -155,17 +139,19 @@ export function startSimulatorLogStream({
     flush();
   });
 
-  child.once("error", () => {
-    endResponse();
-    stop();
-  });
-  child.once("close", () => {
-    endResponse();
-    if (!stopped) {
-      stopped = true;
-      stdout?.destroy();
-    }
-  });
+  void child.result.then(
+    () => {
+      endResponse();
+      if (!stopped) {
+        stopped = true;
+        stdout?.destroy();
+      }
+    },
+    () => {
+      endResponse();
+      stop();
+    },
+  );
 
   return stop;
 }

@@ -119,9 +119,9 @@ describe("serveSimBinFor", () => {
   });
 
   test("bare command (compiled binary / PATH) → command itself", () => {
-    expect(
-      serveSimBinFor({ command: "/opt/homebrew/bin/headless-serve-sim", baseArgs: [] }),
-    ).toBe("/opt/homebrew/bin/headless-serve-sim");
+    expect(serveSimBinFor({ command: "/opt/homebrew/bin/headless-serve-sim", baseArgs: [] })).toBe(
+      "/opt/homebrew/bin/headless-serve-sim",
+    );
   });
 
   test("node + .js entry → the entry path (browser re-derives node from the .js)", () => {
@@ -132,7 +132,10 @@ describe("serveSimBinFor", () => {
 
   test("node + .bin link entry → the link path (browser runs it bare via shebang)", () => {
     expect(
-      serveSimBinFor({ command: "/usr/bin/node", baseArgs: ["/app/node_modules/.bin/headless-serve-sim"] }),
+      serveSimBinFor({
+        command: "/usr/bin/node",
+        baseArgs: ["/app/node_modules/.bin/headless-serve-sim"],
+      }),
     ).toBe("/app/node_modules/.bin/headless-serve-sim");
   });
 });

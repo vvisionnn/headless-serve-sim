@@ -18,7 +18,12 @@ describe("resolveActiveScreenConfig — priority", () => {
 
   test("live overrides ws and injected", () => {
     expect(
-      resolveActiveScreenConfig({ live: iPhone, ws: iPad, injected: iPad, fallback: genericFallback }),
+      resolveActiveScreenConfig({
+        live: iPhone,
+        ws: iPad,
+        injected: iPad,
+        fallback: genericFallback,
+      }),
     ).toEqual(iPhone);
   });
 
@@ -50,7 +55,11 @@ describe("resolveActiveScreenConfig — no first-paint resize (regression)", () 
     // First paint: only the injected __SIM_PREVIEW__.screenConfig is known.
     const firstPaint = resolveActiveScreenConfig({ injected: iPad, fallback: genericFallback });
     // A moment later the live/ws config lands (identical geometry from /config).
-    const afterLive = resolveActiveScreenConfig({ live: iPad, injected: iPad, fallback: genericFallback });
+    const afterLive = resolveActiveScreenConfig({
+      live: iPad,
+      injected: iPad,
+      fallback: genericFallback,
+    });
 
     // The frame's aspect ratio is identical across the two → no resize.
     expect(simulatorAspectRatio(firstPaint)).toBe(simulatorAspectRatio(afterLive));

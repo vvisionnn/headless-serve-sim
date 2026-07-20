@@ -179,58 +179,61 @@ export function ScreenshotTool({ udid }: { udid: string }) {
                   Download
                 </a>
                 {canCopyImage && (
-                <button
-                  type="button"
-                  onClick={copy}
-                  className="lem-ghost flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 min-h-[32px] border border-divider rounded-pill text-[12px] font-medium bg-transparent text-fg-2 cursor-pointer font-[inherit] tracking-[-0.01em] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)]"
-                  aria-label="Copy screenshot to clipboard"
-                >
-                  {copied ? (
-                    <>
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.4"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="text-success"
-                        aria-hidden="true"
-                      >
-                        <polyline points="5 12 10 17 19 7" />
-                      </svg>
-                      Copied
-                    </>
-                  ) : (
-                    <>
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="text-fg-2"
-                        aria-hidden="true"
-                      >
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                      </svg>
-                      Copy
-                    </>
-                  )}
-                </button>
+                  <button
+                    type="button"
+                    onClick={copy}
+                    className="lem-ghost flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 min-h-[32px] border border-divider rounded-pill text-[12px] font-medium bg-transparent text-fg-2 cursor-pointer font-[inherit] tracking-[-0.01em] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+                    aria-label="Copy screenshot to clipboard"
+                  >
+                    {copied ? (
+                      <>
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.4"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="text-success"
+                          aria-hidden="true"
+                        >
+                          <polyline points="5 12 10 17 19 7" />
+                        </svg>
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="text-fg-2"
+                          aria-hidden="true"
+                        >
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                        </svg>
+                        Copy
+                      </>
+                    )}
+                  </button>
                 )}
               </div>
             </div>
           )}
 
           {error && (
-            <div className="bg-surface-2 border border-divider rounded-card text-danger-soft text-[12px] px-3 py-2 break-words tracking-[-0.01em]" role="alert">
+            <div
+              className="bg-surface-2 border border-divider rounded-card text-danger-soft text-[12px] px-3 py-2 break-words tracking-[-0.01em]"
+              role="alert"
+            >
               {error}
             </div>
           )}
@@ -255,9 +258,7 @@ function ChipGroup({
 }) {
   return (
     <div className="flex items-center gap-2.5" role="group" aria-label={label}>
-      <span className="text-[12px] text-fg-3 w-[48px] shrink-0 tracking-[-0.01em]">
-        {label}
-      </span>
+      <span className="text-[12px] text-fg-3 w-[48px] shrink-0 tracking-[-0.01em]">{label}</span>
       <div className="flex gap-0.5 bg-surface-2 border border-divider rounded-pill p-0.5 flex-1">
         {options.map(([val, text]) => (
           <button

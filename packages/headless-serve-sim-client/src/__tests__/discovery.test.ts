@@ -108,9 +108,7 @@ describe("fetchGatewayStatus", () => {
     // This will fail to connect (nothing on default port), returning null
     const status = await fetchGatewayStatus();
     // Can't guarantee default port is free, but function should not throw
-    expect(status === null || (status && typeof status.ok === "boolean")).toBe(
-      true
-    );
+    expect(status === null || (status && typeof status.ok === "boolean")).toBe(true);
   });
 
   test("returns null on timeout", async () => {

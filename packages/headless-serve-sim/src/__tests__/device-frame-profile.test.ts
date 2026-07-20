@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildDeviceFrameSpec,
+  createDeviceFrameProfileLoader,
   parsePdfMediaBoxSize,
 } from "../device-frame-profile";
+import { createScriptedHostCommands } from "../test-support/scripted-host-commands";
 
 const iphone17Pro = {
   identifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
@@ -15,17 +17,19 @@ function capabilities(overrides: Record<string, unknown> = {}) {
   return {
     capabilities: {
       DeviceSupportsDynamicIsland: true,
-      displays: [{
-        deviceName: "primary",
-        displayType: "integrated",
-        width: 1206,
-        height: 2622,
-        scale: 3,
-        cornerRadiusUL: 62,
-        cornerRadiusUR: 62,
-        cornerRadiusLR: 62,
-        cornerRadiusLL: 62,
-      }],
+      displays: [
+        {
+          deviceName: "primary",
+          displayType: "integrated",
+          width: 1206,
+          height: 2622,
+          scale: 3,
+          cornerRadiusUL: 62,
+          cornerRadiusUR: 62,
+          cornerRadiusLR: 62,
+          cornerRadiusLL: 62,
+        },
+      ],
       ...overrides,
     },
   };
@@ -102,15 +106,17 @@ const realChrome = {
 
 describe("buildDeviceFrameSpec", () => {
   test("builds exact native-pixel geometry from CoreSimulator and DeviceKit", () => {
-    expect(buildDeviceFrameSpec({
-      deviceType: iphone17Pro,
-      capabilities: capabilities(),
-      profile: {
-        chromeIdentifier: "com.apple.dt.devicekit.chrome.phone11",
-        sensorBarImage: "sensor_bar_class_04",
-      },
-      chrome,
-    })).toEqual({
+    expect(
+      buildDeviceFrameSpec({
+        deviceType: iphone17Pro,
+        capabilities: capabilities(),
+        profile: {
+          chromeIdentifier: "com.apple.dt.devicekit.chrome.phone11",
+          sensorBarImage: "sensor_bar_class_04",
+        },
+        chrome,
+      }),
+    ).toEqual({
       deviceTypeIdentifier: iphone17Pro.identifier,
       modelName: "iPhone 17 Pro",
       family: "iphone",
@@ -126,16 +132,18 @@ describe("buildDeviceFrameSpec", () => {
   });
 
   test("uses notch metadata instead of drawing an Island on every iPhone", () => {
-    expect(buildDeviceFrameSpec({
-      deviceType: { ...iphone17Pro, identifier: "type.iphone-16e", name: "iPhone 16e" },
-      capabilities: capabilities({ DeviceSupportsDynamicIsland: false }),
-      profile: {
-        chromeIdentifier: "com.apple.dt.devicekit.chrome.phone13",
-        sensorBarImage: "sensor_bar_class_03",
-      },
-      sensorBarSize: { width: 176, height: 34 },
-      chrome: { ...chrome, identifier: "com.apple.dt.devicekit.chrome.phone13" },
-    })).toMatchObject({
+    expect(
+      buildDeviceFrameSpec({
+        deviceType: { ...iphone17Pro, identifier: "type.iphone-16e", name: "iPhone 16e" },
+        capabilities: capabilities({ DeviceSupportsDynamicIsland: false }),
+        profile: {
+          chromeIdentifier: "com.apple.dt.devicekit.chrome.phone13",
+          sensorBarImage: "sensor_bar_class_03",
+        },
+        sensorBarSize: { width: 176, height: 34 },
+        chrome: { ...chrome, identifier: "com.apple.dt.devicekit.chrome.phone13" },
+      }),
+    ).toMatchObject({
       cutout: "notch",
       cutoutRectPx: { x: 339, y: 0, width: 528, height: 102 },
     });
@@ -224,21 +232,22 @@ describe("buildDeviceFrameSpec", () => {
       capabilities: capabilities(),
       profile: { chromeIdentifier: "com.apple.dt.devicekit.chrome.phone11" },
       chrome: realChrome,
-      resolveArtworkAsset: (name) => name === "X_Power BTN"
-        ? null
-        : { pngDataUrl: name, width: 3, height: 3 },
+      resolveArtworkAsset: (name) =>
+        name === "X_Power BTN" ? null : { pngDataUrl: name, width: 3, height: 3 },
     });
 
     expect(frame).not.toHaveProperty("artwork");
   });
 
   test("returns null rather than inventing a phone frame for unsupported profiles", () => {
-    expect(buildDeviceFrameSpec({
-      deviceType: { ...iphone17Pro, productFamily: "Apple Vision" },
-      capabilities: capabilities(),
-      profile: {},
-      chrome: {},
-    })).toBeNull();
+    expect(
+      buildDeviceFrameSpec({
+        deviceType: { ...iphone17Pro, productFamily: "Apple Vision" },
+        capabilities: capabilities(),
+        profile: {},
+        chrome: {},
+      }),
+    ).toBeNull();
   });
 });
 
@@ -247,6 +256,27 @@ describe("parsePdfMediaBoxSize", () => {
     expect(parsePdfMediaBoxSize("/MediaBox [ 12 -4 112 196 ]")).toEqual({
       width: 100,
       height: 200,
+    });
+  });
+});
+
+describe("installed device frame profiles", () => {
+  test("discovers device types through injected host commands", async () => {
+    const host = createScriptedHostCommands([
+      {
+        result: { stdout: JSON.stringify({ devicetypes: [] }) },
+      },
+    ]);
+    const loader = createDeviceFrameProfileLoader(host);
+
+    await expect(loader.load("missing.device.type")).resolves.toBeNull();
+    expect(host.calls[0]).toMatchObject({
+      kind: "run",
+      request: {
+        executable: "xcrun",
+        args: ["simctl", "list", "devicetypes", "-j"],
+        timeoutMs: 3_000,
+      },
     });
   });
 });

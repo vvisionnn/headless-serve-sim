@@ -47,27 +47,17 @@ export function normalizeSimLogEntry(value: unknown, id: string): SimLogEntry | 
   if (message.length === 0) return null;
 
   const timestamp = stringField(raw.timestamp);
-  const process = basename(
-    stringField(raw.processImagePath) || stringField(raw.senderImagePath),
-  );
+  const process = basename(stringField(raw.processImagePath) || stringField(raw.senderImagePath));
   const processId =
-    typeof raw.processID === "number" &&
-    Number.isSafeInteger(raw.processID) &&
-    raw.processID >= 0
+    typeof raw.processID === "number" && Number.isSafeInteger(raw.processID) && raw.processID >= 0
       ? raw.processID
       : null;
   const subsystem = stringField(raw.subsystem);
   const category = stringField(raw.category);
   const level = stringField(raw.messageType).toLowerCase() || "default";
-  const byteSize = utf8.encode([
-    timestamp,
-    process,
-    processId,
-    subsystem,
-    category,
-    level,
-    message,
-  ].join("\0")).byteLength;
+  const byteSize = utf8.encode(
+    [timestamp, process, processId, subsystem, category, level, message].join("\0"),
+  ).byteLength;
 
   return {
     id,
@@ -98,10 +88,7 @@ export function appendSimLogs(
   }
 
   let removeCount = 0;
-  while (
-    entries.length - removeCount > limits.maxEntries ||
-    totalBytes > limits.maxBytes
-  ) {
+  while (entries.length - removeCount > limits.maxEntries || totalBytes > limits.maxBytes) {
     totalBytes -= entries[removeCount]!.byteSize;
     removeCount++;
   }
@@ -121,17 +108,20 @@ export function filterSimLogs(
     if (
       !filter.includeSystem &&
       (filter.appProcessId === null || entry.processId !== filter.appProcessId)
-    ) return false;
+    )
+      return false;
     if (filter.process && entry.process !== filter.process) return false;
     if (!search) return true;
-    return [entry.message, entry.process, entry.subsystem, entry.category]
-      .some((field) => field.toLocaleLowerCase().includes(search));
+    return [entry.message, entry.process, entry.subsystem, entry.category].some((field) =>
+      field.toLocaleLowerCase().includes(search),
+    );
   });
 }
 
 export function simLogProcesses(entries: readonly SimLogEntry[]): string[] {
-  return [...new Set(entries.map((entry) => entry.process).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b));
+  return [...new Set(entries.map((entry) => entry.process).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b),
+  );
 }
 
 export function buildSimLogsUrl(

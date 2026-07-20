@@ -2,11 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { SimLogLevel } from "../../sim-log-stream";
 import { Panel, PanelCloseButton, PanelHeader, PanelTitle } from "../Panel";
 import { useSimLogs, type SimLogsStatus } from "../hooks/use-sim-logs";
-import {
-  filterSimLogs,
-  simLogProcesses,
-  type SimLogEntry,
-} from "../utils/sim-logs";
+import { filterSimLogs, simLogProcesses, type SimLogEntry } from "../utils/sim-logs";
 
 const MAX_RENDERED_ROWS = 800;
 
@@ -55,7 +51,10 @@ export function SimLogRows({ entries }: { entries: readonly SimLogEntry[] }) {
             className="grid grid-cols-[104px_72px_minmax(112px,0.42fr)_minmax(0,1fr)] items-start gap-2 border-b border-divider px-3 py-1.5 font-mono text-[11px] leading-[1.45] last:border-b-0"
             data-log-level={entry.level}
           >
-            <time className="whitespace-nowrap text-fg-3 [font-variant-numeric:tabular-nums]" title={entry.timestamp}>
+            <time
+              className="whitespace-nowrap text-fg-3 [font-variant-numeric:tabular-nums]"
+              title={entry.timestamp}
+            >
               {displayTimestamp(entry.timestamp) || "—"}
             </time>
             <span className="truncate font-semibold" style={{ color: levelColor(entry.level) }}>
@@ -66,7 +65,9 @@ export function SimLogRows({ entries }: { entries: readonly SimLogEntry[] }) {
                 {entry.process || "Simulator"}
               </span>
               {source && (
-                <span className="block truncate text-fg-3" title={source}>{source}</span>
+                <span className="block truncate text-fg-3" title={source}>
+                  {source}
+                </span>
               )}
             </span>
             <span className="min-w-0 whitespace-pre-wrap break-words text-fg select-text">
@@ -100,22 +101,24 @@ export function LogsPanel({
   const followTailRef = useRef(true);
 
   const scoped = useMemo(
-    () => filterSimLogs(logs.entries, {
-      search: "",
-      process: "",
-      appProcessId,
-      includeSystem,
-    }),
+    () =>
+      filterSimLogs(logs.entries, {
+        search: "",
+        process: "",
+        appProcessId,
+        includeSystem,
+      }),
     [appProcessId, includeSystem, logs.entries],
   );
   const processes = useMemo(() => simLogProcesses(scoped), [scoped]);
   const filtered = useMemo(
-    () => filterSimLogs(logs.entries, {
-      search,
-      process,
-      appProcessId,
-      includeSystem,
-    }),
+    () =>
+      filterSimLogs(logs.entries, {
+        search,
+        process,
+        appProcessId,
+        includeSystem,
+      }),
     [appProcessId, includeSystem, logs.entries, search, process],
   );
   const rendered = filtered.slice(-MAX_RENDERED_ROWS);
@@ -142,7 +145,10 @@ export function LogsPanel({
       <PanelHeader>
         <div className="flex min-w-0 items-center gap-3">
           <PanelTitle>Logs</PanelTitle>
-          <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-fg-2" role="status">
+          <span
+            className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-fg-2"
+            role="status"
+          >
             <span
               className="size-2 shrink-0 rounded-full"
               style={{ background: STATUS_COLORS[logs.status] }}
@@ -157,8 +163,18 @@ export function LogsPanel({
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-divider bg-surface-2 px-3 py-2.5">
         <label className="relative min-w-[180px] flex-1">
           <span className="sr-only">Search logs</span>
-          <svg className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-3" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
+          <svg
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-3"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
           </svg>
           <input
             type="search"
@@ -186,7 +202,11 @@ export function LogsPanel({
           className="h-8 max-w-[180px] rounded-card border border-divider bg-panel px-2 text-[12px] text-fg outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
         >
           <option value="">All processes</option>
-          {processes.map((name) => <option key={name} value={name}>{name}</option>)}
+          {processes.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
         </select>
         <label className="flex h-8 cursor-pointer items-center gap-2 rounded-pill border border-divider bg-panel px-3 text-[12px] font-medium text-fg-2 hover:bg-hover">
           <input
@@ -218,7 +238,9 @@ export function LogsPanel({
       </div>
 
       <div className="flex shrink-0 items-center justify-between border-b border-divider px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.05em] text-fg-3">
-        <span>{filtered.length} shown · {logs.entries.length} retained</span>
+        <span>
+          {filtered.length} shown · {logs.entries.length} retained
+        </span>
         <span>{formatBytes(logs.totalBytes)}</span>
       </div>
 
@@ -229,7 +251,8 @@ export function LogsPanel({
         aria-label="Simulator logs"
         onScroll={(event) => {
           const element = event.currentTarget;
-          followTailRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 64;
+          followTailRef.current =
+            element.scrollHeight - element.scrollTop - element.clientHeight < 64;
         }}
         className="min-h-0 flex-1 overflow-auto bg-panel-deep"
       >
@@ -246,9 +269,9 @@ export function LogsPanel({
               ? "No logs match the current filters."
               : logs.status === "waiting"
                 ? "Waiting for a foreground app…"
-              : logs.paused
-                ? "Capture is paused."
-                : "Waiting for simulator logs…"}
+                : logs.paused
+                  ? "Capture is paused."
+                  : "Waiting for simulator logs…"}
           </div>
         )}
       </div>

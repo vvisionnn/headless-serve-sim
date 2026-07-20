@@ -28,18 +28,23 @@ export function Panel({
   );
 }
 
-export function PanelHeader({
-  children,
-  style,
-}: {
-  children: ReactNode;
-  style?: CSSProperties;
-}) {
-  return <header className="flex shrink-0 items-center justify-between gap-2.5 border-b border-divider px-4 py-3" style={style}>{children}</header>;
+export function PanelHeader({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+  return (
+    <header
+      className="flex shrink-0 items-center justify-between gap-2.5 border-b border-divider px-4 py-3"
+      style={style}
+    >
+      {children}
+    </header>
+  );
 }
 
 export function PanelTitle({ children }: { children: ReactNode }) {
-  return <span className="font-display text-[15px] font-semibold tracking-[-0.01em] text-fg">{children}</span>;
+  return (
+    <span className="font-display text-[15px] font-semibold tracking-[-0.01em] text-fg">
+      {children}
+    </span>
+  );
 }
 
 export function PanelCloseButton({

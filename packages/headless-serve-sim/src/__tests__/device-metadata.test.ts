@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   createDeviceMetadataResolver,
+  createInstalledDeviceMetadataSource,
   type DeviceMetadataSource,
 } from "../device-metadata";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
+import { createScriptedHostCommands } from "../test-support/scripted-host-commands";
 
 const FRAME_WITHOUT_ARTWORK: DeviceFrameSpec = {
   deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
@@ -37,9 +39,7 @@ const FRAME_WITH_ARTWORK: DeviceFrameSpec = {
   },
 };
 
-function source(
-  load: DeviceMetadataSource["loadDeviceFrameSpec"],
-): DeviceMetadataSource {
+function source(load: DeviceMetadataSource["loadDeviceFrameSpec"]): DeviceMetadataSource {
   return {
     findSimulator: async () => ({
       udid: "DEVICE-1",
@@ -54,10 +54,13 @@ describe("device metadata resolver", () => {
   test("retries a geometry-only frame and keeps prepared artwork cached", async () => {
     let now = 1_000;
     let loads = 0;
-    const resolver = createDeviceMetadataResolver(source(async () => {
-      loads++;
-      return loads === 1 ? FRAME_WITHOUT_ARTWORK : FRAME_WITH_ARTWORK;
-    }), { now: () => now });
+    const resolver = createDeviceMetadataResolver(
+      source(async () => {
+        loads++;
+        return loads === 1 ? FRAME_WITHOUT_ARTWORK : FRAME_WITH_ARTWORK;
+      }),
+      { now: () => now },
+    );
 
     expect((await resolver.resolve("DEVICE-1"))?.deviceFrameSpec?.artwork).toBeUndefined();
     expect(loads).toBe(1);
@@ -80,10 +83,12 @@ describe("device metadata resolver", () => {
       release = resolve;
     });
     let loads = 0;
-    const resolver = createDeviceMetadataResolver(source(() => {
-      loads++;
-      return pending;
-    }));
+    const resolver = createDeviceMetadataResolver(
+      source(() => {
+        loads++;
+        return pending;
+      }),
+    );
 
     const first = resolver.resolve("DEVICE-1");
     const second = resolver.resolve("DEVICE-1");
@@ -94,5 +99,44 @@ describe("device metadata resolver", () => {
     release(FRAME_WITH_ARTWORK);
     await expect(first).resolves.toMatchObject({ deviceFrameSpec: FRAME_WITH_ARTWORK });
     await expect(second).resolves.toMatchObject({ deviceFrameSpec: FRAME_WITH_ARTWORK });
+  });
+});
+
+describe("installed device metadata source", () => {
+  test("finds selected simulator metadata through injected host commands", async () => {
+    const host = createScriptedHostCommands([
+      {
+        result: {
+          stdout: JSON.stringify({
+            devices: {
+              "com.apple.CoreSimulator.SimRuntime.iOS-26-0": [
+                {
+                  udid: "DEVICE-1",
+                  name: "My iPhone",
+                  state: "Shutdown",
+                  isAvailable: true,
+                  deviceTypeIdentifier: FRAME_WITHOUT_ARTWORK.deviceTypeIdentifier,
+                },
+              ],
+            },
+          }),
+        },
+      },
+    ]);
+    const installed = createInstalledDeviceMetadataSource(host, async () => null);
+
+    await expect(installed.findSimulator("DEVICE-1")).resolves.toMatchObject({
+      udid: "DEVICE-1",
+      name: "My iPhone",
+      deviceTypeIdentifier: FRAME_WITHOUT_ARTWORK.deviceTypeIdentifier,
+    });
+    expect(host.calls[0]).toMatchObject({
+      kind: "run",
+      request: {
+        executable: "xcrun",
+        args: ["simctl", "list", "devices", "-j"],
+        timeoutMs: 3_000,
+      },
+    });
   });
 });

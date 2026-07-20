@@ -82,10 +82,7 @@ export function createSimLogFeed({
       if (entry.byteSize > maxPendingBytes) return;
       pending.push(entry);
       pendingBytes += entry.byteSize;
-      while (
-        pending.length > maxPendingEntries ||
-        pendingBytes > maxPendingBytes
-      ) {
+      while (pending.length > maxPendingEntries || pendingBytes > maxPendingBytes) {
         pendingBytes -= pending.shift()!.byteSize;
       }
       if (frameId == null) frameId = scheduleFrame(flush);
@@ -108,14 +105,7 @@ export function createSimLogFeed({
   };
 }
 
-const PROCESS_COLORS = [
-  "#007aff",
-  "#198754",
-  "#b35c00",
-  "#af52de",
-  "#d10f6a",
-  "#087f8c",
-] as const;
+const PROCESS_COLORS = ["#007aff", "#198754", "#b35c00", "#af52de", "#d10f6a", "#087f8c"] as const;
 
 function processColor(process: string): string {
   let hash = 0;
@@ -132,11 +122,12 @@ export function forwardSimLogToConsole(
   const process = entry.process || "Simulator";
   const source = [entry.subsystem, entry.category].filter(Boolean).join(":");
   const label = source ? `${process} ${source}` : process;
-  const messageColor = entry.level === "error" || entry.level === "fault"
-    ? "#ff3b30"
-    : entry.level === "debug"
-      ? "#6c6c70"
-      : "inherit";
+  const messageColor =
+    entry.level === "error" || entry.level === "fault"
+      ? "#ff3b30"
+      : entry.level === "debug"
+        ? "#6c6c70"
+        : "inherit";
   target.log(
     "%c%s%c %c%s",
     `color:${processColor(process)};font-weight:600`,

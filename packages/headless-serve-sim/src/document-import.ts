@@ -1,8 +1,9 @@
-import { execFileSync } from "child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "fs";
 import { homedir } from "os";
 import { basename, join, resolve } from "path";
 import { findBootedDevice, resolveDevice } from "./device";
+import type { HostCommands } from "./runtime/host-commands";
+import { createNodeHostCommands } from "./runtime/node-host-commands";
 
 // ─── Argument parsing ───
 //
@@ -33,7 +34,8 @@ export interface ParsedDocImport {
 const FILENAME_RE = /^[^/]+$/;
 
 function normalizeInto(raw: string): string | { error: string } {
-  if (raw.startsWith("/")) return { error: `Invalid --into "${raw}": must be a relative subfolder` };
+  if (raw.startsWith("/"))
+    return { error: `Invalid --into "${raw}": must be a relative subfolder` };
   const segments = raw.split("/").filter(Boolean);
   if (segments.some((s) => s === "." || s === "..")) {
     return { error: `Invalid --into "${raw}": path traversal is not allowed` };
@@ -41,9 +43,7 @@ function normalizeInto(raw: string): string | { error: string } {
   return segments.join("/");
 }
 
-export function parseDocumentArgs(
-  args: string[],
-): ParsedDocImport | { error: string } {
+export function parseDocumentArgs(args: string[]): ParsedDocImport | { error: string } {
   let device: string | undefined;
   let into: string | undefined;
   let name: string | undefined;
@@ -107,57 +107,124 @@ export function parseDocumentArgs(
  */
 const LOCAL_STORAGE_GROUP = "group.com.apple.FileProvider.LocalStorage";
 
-export function localStorageDir(udid: string): string {
-  // Primary: list the Files app's app-group containers and pick LocalStorage.
-  // The group GUID is randomized per device, so it must be resolved, never
-  // hardcoded. (A single-group `get_app_container ... <group-id>` lookup is
-  // rejected for system apps on iOS 26, so parse the `groups` listing instead.)
-  try {
-    const out = execFileSync(
-      "xcrun",
-      ["simctl", "get_app_container", udid, "com.apple.DocumentsApp", "groups"],
-      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
-    );
-    for (const line of out.split("\n")) {
-      const tab = line.indexOf("\t");
-      if (tab < 0) continue;
-      if (line.slice(0, tab).trim() === LOCAL_STORAGE_GROUP) {
-        return join(line.slice(tab + 1).trim(), "File Provider Storage");
+export interface DocumentFileSystem {
+  exists(path: string): boolean;
+  list(path: string): string[];
+  makeDirectory(path: string): void;
+  copy(source: string, destination: string): void;
+  homeDirectory(): string;
+  resolvePath(path: string): string;
+}
+
+export interface ImportedDocument {
+  name: string;
+  path: string;
+}
+
+export interface DocumentImporterModule {
+  localStorageDir(udid: string): string;
+  importFiles(udid: string, request: ParsedDocImport): ImportedDocument[];
+}
+
+const nodeDocumentFiles: DocumentFileSystem = {
+  exists: existsSync,
+  list: readdirSync,
+  makeDirectory: (path) => mkdirSync(path, { recursive: true }),
+  copy: copyFileSync,
+  homeDirectory: homedir,
+  resolvePath: resolve,
+};
+
+export function createDocumentImporter(
+  host: HostCommands,
+  files: DocumentFileSystem = nodeDocumentFiles,
+): DocumentImporterModule {
+  const tryRun = (executable: string, args: readonly string[]): Buffer | null => {
+    try {
+      const result = host.run({ executable, args, stdio: "capture" }, "sync");
+      return result.exitCode === 0 && !result.timedOut ? result.stdout : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const storageDir = (udid: string): string => {
+    const groups = tryRun("xcrun", [
+      "simctl",
+      "get_app_container",
+      udid,
+      "com.apple.DocumentsApp",
+      "groups",
+    ]);
+    if (groups) {
+      for (const line of groups.toString().split("\n")) {
+        const tab = line.indexOf("\t");
+        if (tab < 0) continue;
+        if (line.slice(0, tab).trim() === LOCAL_STORAGE_GROUP) {
+          return join(line.slice(tab + 1).trim(), "File Provider Storage");
+        }
       }
     }
-  } catch {
-    // Fall through to the on-disk scan below.
-  }
 
-  // Fallback: scan the device's shared app groups for the LocalStorage group.
-  // Useful on a cold boot before the Files app has registered with simctl.
-  const groupsDir = join(
-    homedir(),
-    "Library/Developer/CoreSimulator/Devices",
-    udid,
-    "data/Containers/Shared/AppGroup",
-  );
-  if (existsSync(groupsDir)) {
-    for (const entry of readdirSync(groupsDir)) {
-      const meta = join(groupsDir, entry, ".com.apple.mobile_container_manager.metadata.plist");
-      if (!existsSync(meta)) continue;
-      try {
-        const xml = execFileSync("plutil", ["-convert", "xml1", "-o", "-", meta], {
-          encoding: "utf-8",
-        });
-        if (xml.includes(LOCAL_STORAGE_GROUP)) {
+    const groupsDir = join(
+      files.homeDirectory(),
+      "Library/Developer/CoreSimulator/Devices",
+      udid,
+      "data/Containers/Shared/AppGroup",
+    );
+    if (files.exists(groupsDir)) {
+      for (const entry of files.list(groupsDir)) {
+        const metadata = join(
+          groupsDir,
+          entry,
+          ".com.apple.mobile_container_manager.metadata.plist",
+        );
+        if (!files.exists(metadata)) continue;
+        const xml = tryRun("plutil", ["-convert", "xml1", "-o", "-", metadata]);
+        if (xml?.toString().includes(LOCAL_STORAGE_GROUP)) {
           return join(groupsDir, entry, "File Provider Storage");
         }
-      } catch {
-        // Ignore unreadable metadata and keep scanning.
       }
     }
-  }
 
-  throw new Error(
-    `Could not locate the Files app local storage for ${udid}. ` +
-      `Is the simulator booted?`,
-  );
+    throw new Error(
+      `Could not locate the Files app local storage for ${udid}. ` + "Is the simulator booted?",
+    );
+  };
+
+  return {
+    localStorageDir: storageDir,
+    importFiles(udid, request) {
+      const sources = request.files.map(files.resolvePath);
+      const missing = sources.filter((path) => !files.exists(path));
+      if (missing.length > 0) {
+        throw new Error(`File(s) not found:\n  ${missing.join("\n  ")}`);
+      }
+      const baseDir = storageDir(udid);
+      const targetDir = request.into ? join(baseDir, request.into) : baseDir;
+      files.makeDirectory(targetDir);
+
+      const imported: ImportedDocument[] = [];
+      try {
+        for (const source of sources) {
+          const name = request.name ?? basename(source);
+          const path = join(targetDir, name);
+          files.copy(source, path);
+          imported.push({ name, path });
+        }
+      } catch (error: unknown) {
+        throw new Error(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      return imported;
+    },
+  };
+}
+
+let productionImporter: DocumentImporterModule | null = null;
+
+function productionDocumentImporter(): DocumentImporterModule {
+  productionImporter ??= createDocumentImporter(createNodeHostCommands());
+  return productionImporter;
 }
 
 // ─── Command entry ───
@@ -181,33 +248,11 @@ export async function document(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const sources = parsed.files.map((f) => resolve(f));
-  const missing = sources.filter((p) => !existsSync(p));
-  if (missing.length > 0) {
-    console.error(`File(s) not found:\n  ${missing.join("\n  ")}`);
-    process.exit(1);
-  }
-
-  let targetDir: string;
+  let imported: ImportedDocument[];
   try {
-    const baseDir = localStorageDir(udid);
-    targetDir = parsed.into ? join(baseDir, parsed.into) : baseDir;
-    mkdirSync(targetDir, { recursive: true });
-  } catch (e: any) {
-    console.error(e?.message ?? String(e));
-    process.exit(1);
-  }
-
-  const imported: Array<{ name: string; path: string }> = [];
-  try {
-    for (const src of sources) {
-      const destName = parsed.name ?? basename(src);
-      const dest = join(targetDir, destName);
-      copyFileSync(src, dest); // overwrites an existing file by default
-      imported.push({ name: destName, path: dest });
-    }
-  } catch (e: any) {
-    console.error(`Import failed: ${e?.message ?? String(e)}`);
+    imported = productionDocumentImporter().importFiles(udid, parsed);
+  } catch (error: unknown) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
 

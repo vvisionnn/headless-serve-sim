@@ -1,4 +1,5 @@
-import { execSync } from "child_process";
+import type { HostCommands } from "./runtime/host-commands";
+import { createNodeHostCommands } from "./runtime/node-host-commands";
 
 export interface SimctlDeviceInfo {
   udid: string;
@@ -18,28 +19,74 @@ export interface DefaultStreamDevice {
   state: string;
 }
 
+export interface DeviceDiscovery {
+  findBootedDevice(): string | null;
+  pickDefaultStreamDevices(): DefaultStreamDevice[];
+  resolveDevice(nameOrUDID: string): string | null;
+}
+
+function simctlDevices(host: HostCommands, bootedOnly = false): SimctlDevicesJson {
+  const args = ["simctl", "list", "devices"];
+  if (bootedOnly) args.push("booted");
+  args.push("-j");
+  const result = host.run({ executable: "xcrun", args }, "sync");
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.toString() || "simctl list devices failed");
+  }
+  return JSON.parse(result.stdout.toString()) as SimctlDevicesJson;
+}
+
+export function createDeviceDiscovery(host: HostCommands): DeviceDiscovery {
+  return {
+    findBootedDevice(): string | null {
+      try {
+        const data = simctlDevices(host, true);
+        let fallback: string | null = null;
+        for (const [runtime, devices] of Object.entries(data.devices)) {
+          for (const device of devices) {
+            if (device.state !== "Booted") continue;
+            if (/iOS/i.test(runtime)) return device.udid;
+            fallback ??= device.udid;
+          }
+        }
+        return fallback;
+      } catch {
+        return null;
+      }
+    },
+    pickDefaultStreamDevices(): DefaultStreamDevice[] {
+      try {
+        return pickDefaultStreamDevicesFromList(simctlDevices(host));
+      } catch {
+        return [];
+      }
+    },
+    resolveDevice(nameOrUDID: string): string | null {
+      if (/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i.test(nameOrUDID)) {
+        return nameOrUDID;
+      }
+      try {
+        const data = simctlDevices(host);
+        for (const runtime of Object.values(data.devices)) {
+          for (const device of runtime) {
+            if (device.name.toLowerCase() === nameOrUDID.toLowerCase()) return device.udid;
+          }
+        }
+      } catch {}
+      return null;
+    },
+  };
+}
+
+const productionDeviceDiscovery = createDeviceDiscovery(createNodeHostCommands());
+
 /**
  * UDID of a booted simulator, or null if none is booted. Prefers an iOS device
  * — a machine may also have a booted watchOS/tvOS sim, which `headless-serve-sim`'s
  * tooling doesn't target.
  */
 export function findBootedDevice(): string | null {
-  try {
-    const output = execSync("xcrun simctl list devices booted -j", { encoding: "utf-8" });
-    const data = JSON.parse(output) as {
-      devices: Record<string, Array<{ udid: string; name: string; state: string }>>;
-    };
-    let fallback: string | null = null;
-    for (const [runtime, devices] of Object.entries(data.devices)) {
-      for (const device of devices) {
-        if (device.state !== "Booted") continue;
-        if (/iOS/i.test(runtime)) return device.udid;
-        fallback ??= device.udid;
-      }
-    }
-    return fallback;
-  } catch {}
-  return null;
+  return productionDeviceDiscovery.findBootedDevice();
 }
 
 function iosRuntimeVersion(runtime: string): [number, number] {
@@ -84,24 +131,14 @@ export function pickDefaultStreamDevicesFromList(data: SimctlDevicesJson): Defau
   }));
 }
 
-export function pickDefaultStreamDeviceFromList(data: SimctlDevicesJson): DefaultStreamDevice | null {
+export function pickDefaultStreamDeviceFromList(
+  data: SimctlDevicesJson,
+): DefaultStreamDevice | null {
   return pickDefaultStreamDevicesFromList(data)[0] ?? null;
 }
 
 export function pickDefaultStreamDevices(): DefaultStreamDevice[] {
-  try {
-    const output = execSync("xcrun simctl list devices -j", { encoding: "utf-8" });
-    return pickDefaultStreamDevicesFromList(JSON.parse(output) as SimctlDevicesJson);
-  } catch {}
-  return [];
-}
-
-/**
- * Pick a shutdown iPhone on the newest available iOS runtime. This is the
- * streaming default used when the user did not pass a device.
- */
-export function pickDefaultStreamDevice(): DefaultStreamDevice | null {
-  return pickDefaultStreamDevices()[0] ?? null;
+  return productionDeviceDiscovery.pickDefaultStreamDevices();
 }
 
 /**
@@ -110,20 +147,8 @@ export function pickDefaultStreamDevice(): DefaultStreamDevice | null {
  * with a clear error when the name cannot be resolved.
  */
 export function resolveDevice(nameOrUDID: string): string {
-  if (/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i.test(nameOrUDID)) {
-    return nameOrUDID;
-  }
-  try {
-    const output = execSync("xcrun simctl list devices -j", { encoding: "utf-8" });
-    const data = JSON.parse(output) as {
-      devices: Record<string, Array<{ udid: string; name: string; state: string }>>;
-    };
-    for (const runtime of Object.values(data.devices)) {
-      for (const device of runtime) {
-        if (device.name.toLowerCase() === nameOrUDID.toLowerCase()) return device.udid;
-      }
-    }
-  } catch {}
+  const udid = productionDeviceDiscovery.resolveDevice(nameOrUDID);
+  if (udid) return udid;
   console.error(`Could not resolve device: ${nameOrUDID}`);
   process.exit(1);
 }

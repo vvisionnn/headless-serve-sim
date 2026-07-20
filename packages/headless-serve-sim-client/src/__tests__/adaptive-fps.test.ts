@@ -37,7 +37,9 @@ function startEchoServer(): {
       message(ws, message) {
         try {
           const parsed = JSON.parse(
-            typeof message === "string" ? message : new TextDecoder().decode(message as unknown as ArrayBuffer),
+            typeof message === "string"
+              ? message
+              : new TextDecoder().decode(message as unknown as ArrayBuffer),
           );
           messages.push(parsed);
         } catch {}

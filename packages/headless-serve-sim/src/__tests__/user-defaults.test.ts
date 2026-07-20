@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { parseDefaultsArgs } from "../user-defaults";
+import { createUserDefaults, parseDefaultsArgs } from "../user-defaults";
+import { createScriptedHostCommands } from "../test-support/scripted-host-commands";
 
 describe("parseDefaultsArgs", () => {
   test("read with a domain", () => {
@@ -12,15 +13,16 @@ describe("parseDefaultsArgs", () => {
   });
 
   test("read captures -d device", () => {
-    expect(
-      parseDefaultsArgs(["read", "com.example.app", "-d", "iPhone 15"]),
-    ).toMatchObject({ device: "iPhone 15", domain: "com.example.app" });
+    expect(parseDefaultsArgs(["read", "com.example.app", "-d", "iPhone 15"])).toMatchObject({
+      device: "iPhone 15",
+      domain: "com.example.app",
+    });
   });
 
   test("read captures --device long form", () => {
-    expect(
-      parseDefaultsArgs(["read", "com.example.app", "--device", "UDID-1"]),
-    ).toMatchObject({ device: "UDID-1" });
+    expect(parseDefaultsArgs(["read", "com.example.app", "--device", "UDID-1"])).toMatchObject({
+      device: "UDID-1",
+    });
   });
 
   test("write full form", () => {
@@ -58,7 +60,12 @@ describe("parseDefaultsArgs", () => {
   test("write keeps a value with a space", () => {
     expect(
       parseDefaultsArgs([
-        "write", "com.example.app", "Greeting", "--type", "string", "hello world",
+        "write",
+        "com.example.app",
+        "Greeting",
+        "--type",
+        "string",
+        "hello world",
       ]),
     ).toMatchObject({ value: "hello world" });
   });
@@ -123,9 +130,9 @@ describe("parseDefaultsArgs", () => {
   });
 
   test("write missing value is an error", () => {
-    expect(
-      parseDefaultsArgs(["write", "com.example.app", "K", "--type", "string"]),
-    ).toEqual({ error: expect.stringContaining("value") });
+    expect(parseDefaultsArgs(["write", "com.example.app", "K", "--type", "string"])).toEqual({
+      error: expect.stringContaining("value"),
+    });
   });
 
   test("delete missing key is an error", () => {
@@ -169,6 +176,84 @@ describe("parseDefaultsArgs", () => {
   test("missing value for -d is an error", () => {
     expect(parseDefaultsArgs(["read", "com.example.app", "-d"])).toEqual({
       error: expect.stringContaining("Missing value for -d"),
+    });
+  });
+});
+
+describe("user defaults module", () => {
+  test("reads exported defaults through plist conversion with byte-preserving stdin", async () => {
+    const xml = Buffer.from("<plist><dict/></plist>");
+    const host = createScriptedHostCommands([
+      { result: { stdout: xml } },
+      { result: { stdout: '{"enabled":true}\n' } },
+    ]);
+
+    await expect(
+      createUserDefaults(host).execute("DEVICE", {
+        verb: "read",
+        domain: "com.example.app",
+        quiet: false,
+      }),
+    ).resolves.toBe('{"enabled":true}');
+    expect(host.calls.map((call) => call.request)).toEqual([
+      {
+        executable: "xcrun",
+        args: ["simctl", "spawn", "DEVICE", "defaults", "export", "com.example.app", "-"],
+        stdio: "capture",
+      },
+      {
+        executable: "plutil",
+        args: ["-convert", "json", "-o", "-", "-"],
+        input: xml,
+        stdio: "capture",
+      },
+    ]);
+  });
+
+  test.each([
+    ["string", "-string", "hello world"],
+    ["int", "-int", "42"],
+    ["float", "-float", "3.14"],
+    ["bool", "-bool", "true"],
+  ] as const)("writes %s values with the native typed flag", async (type, nativeType, value) => {
+    const host = createScriptedHostCommands([{}]);
+    await createUserDefaults(host).execute("DEVICE", {
+      verb: "write",
+      domain: "com.example.app",
+      key: "Setting",
+      type,
+      value,
+      quiet: false,
+    });
+    expect(host.calls[0]?.request).toEqual({
+      executable: "xcrun",
+      args: [
+        "simctl",
+        "spawn",
+        "DEVICE",
+        "defaults",
+        "write",
+        "com.example.app",
+        "Setting",
+        nativeType,
+        value,
+      ],
+      stdio: "capture",
+    });
+  });
+
+  test("deletes one key without invoking a shell", async () => {
+    const host = createScriptedHostCommands([{}]);
+    await createUserDefaults(host).execute("DEVICE", {
+      verb: "delete",
+      domain: "com.example.app",
+      key: "Setting",
+      quiet: false,
+    });
+    expect(host.calls[0]?.request).toEqual({
+      executable: "xcrun",
+      args: ["simctl", "spawn", "DEVICE", "defaults", "delete", "com.example.app", "Setting"],
+      stdio: "capture",
     });
   });
 });

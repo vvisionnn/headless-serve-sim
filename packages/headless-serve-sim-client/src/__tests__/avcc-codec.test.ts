@@ -49,12 +49,7 @@ describe("AvccDemuxer", () => {
         frame(AVCC_TAG_SEED, [0xff, 0xd8, 0xff, 0xd9]),
       ),
     );
-    expect(chunks.map((c) => c.type)).toEqual([
-      "description",
-      "keyframe",
-      "delta",
-      "seed",
-    ]);
+    expect(chunks.map((c) => c.type)).toEqual(["description", "keyframe", "delta", "seed"]);
   });
 
   test("buffers a chunk split across reads (header split)", () => {
@@ -100,9 +95,7 @@ describe("AvccDemuxer", () => {
 
   test("skips unknown tags without stalling the stream", () => {
     const d = new AvccDemuxer();
-    const chunks = d.push(
-      concat(frame(0x7f, [1, 2]), frame(AVCC_TAG_KEYFRAME, [5])),
-    );
+    const chunks = d.push(concat(frame(0x7f, [1, 2]), frame(AVCC_TAG_KEYFRAME, [5])));
     expect(chunks.map((c) => c.type)).toEqual(["keyframe"]);
   });
 

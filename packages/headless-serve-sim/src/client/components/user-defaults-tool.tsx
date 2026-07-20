@@ -60,13 +60,7 @@ function rowsFromJson(parsed: unknown): Row[] {
   return out;
 }
 
-export function UserDefaultsTool({
-  udid,
-  bundleId,
-}: {
-  udid: string;
-  bundleId: string | null;
-}) {
+export function UserDefaultsTool({ udid, bundleId }: { udid: string; bundleId: string | null }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -212,7 +206,9 @@ export function UserDefaultsTool({
         className="lem-toggle flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full bg-transparent border-none text-left cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">User Defaults</span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
+          User Defaults
+        </span>
         <Chevron open={open} />
       </button>
 
@@ -321,7 +317,10 @@ export function UserDefaultsTool({
           )}
 
           {error && (
-            <div className="bg-surface-2 border border-divider rounded-card text-danger text-[12px] px-2.5 py-2 break-words tracking-[-0.01em]" role="alert">
+            <div
+              className="bg-surface-2 border border-divider rounded-card text-danger text-[12px] px-2.5 py-2 break-words tracking-[-0.01em]"
+              role="alert"
+            >
               {error}
             </div>
           )}
@@ -400,7 +399,17 @@ function DefaultsRow({
         title="Delete key"
         className="lem-trash shrink-0 flex items-center justify-center w-7 h-7 border-none rounded-full p-0 bg-transparent text-fg-2 cursor-pointer [transition:color_0.3s_cubic-bezier(0.4,0,0.6,1),background_0.3s_cubic-bezier(0.4,0,0.6,1)]"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
           <polyline points="3 6 5 6 21 6" />
           <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
         </svg>
@@ -452,7 +461,10 @@ function TypeSelect({
         onChange={(v) => onChange(v as DefaultsType)}
         className="lem-select bg-surface-3 border border-divider rounded-card text-fg text-[13px] py-2 pr-[26px] pl-2.5 [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
       />
-      <span className="absolute right-[9px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center" aria-hidden="true">
+      <span
+        className="absolute right-[9px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center"
+        aria-hidden="true"
+      >
         <Chevron open={false} />
       </span>
     </div>

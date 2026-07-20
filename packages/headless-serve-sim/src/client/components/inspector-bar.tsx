@@ -104,11 +104,27 @@ export function InspectorBar({
           style={{ height: topBarHeight }}
         >
           <span className="ml-2.5 flex items-center gap-1.5 whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-fg-2)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
-              <line x1="21" x2="14" y1="4" y2="4" /><line x1="10" x2="3" y1="4" y2="4" />
-              <line x1="21" x2="12" y1="12" y2="12" /><line x1="8" x2="3" y1="12" y2="12" />
-              <line x1="21" x2="16" y1="20" y2="20" /><line x1="12" x2="3" y1="20" y2="20" />
-              <line x1="14" x2="14" y1="2" y2="6" /><line x1="8" x2="8" y1="10" y2="14" /><line x1="16" x2="16" y1="18" y2="22" />
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--color-fg-2)"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="shrink-0"
+              aria-hidden
+            >
+              <line x1="21" x2="14" y1="4" y2="4" />
+              <line x1="10" x2="3" y1="4" y2="4" />
+              <line x1="21" x2="12" y1="12" y2="12" />
+              <line x1="8" x2="3" y1="12" y2="12" />
+              <line x1="21" x2="16" y1="20" y2="20" />
+              <line x1="12" x2="3" y1="20" y2="20" />
+              <line x1="14" x2="14" y1="2" y2="6" />
+              <line x1="8" x2="8" y1="10" y2="14" />
+              <line x1="16" x2="16" y1="18" y2="22" />
             </svg>
             Inspector
           </span>
@@ -169,10 +185,22 @@ export function InspectorBar({
           <AppActionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
           <AppPermissionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
 
-          <InspectorLauncher label="Connection Stats" onClick={onOpenStats} expanded={openOverlay === "stats"} />
+          <InspectorLauncher
+            label="Connection Stats"
+            onClick={onOpenStats}
+            expanded={openOverlay === "stats"}
+          />
           <InspectorLauncher label="Logs" onClick={onOpenLogs} expanded={openOverlay === "logs"} />
-          <InspectorLauncher label="Simulators" onClick={onOpenGrid} expanded={openOverlay === "grid"} />
-          <InspectorLauncher label="WebKit DevTools" onClick={onOpenDevtools} expanded={openOverlay === "devtools"} />
+          <InspectorLauncher
+            label="Simulators"
+            onClick={onOpenGrid}
+            expanded={openOverlay === "grid"}
+          />
+          <InspectorLauncher
+            label="WebKit DevTools"
+            onClick={onOpenDevtools}
+            expanded={openOverlay === "devtools"}
+          />
         </div>
       </div>
     </aside>

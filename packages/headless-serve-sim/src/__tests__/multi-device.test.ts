@@ -18,7 +18,9 @@ describe("multi-device state", () => {
   });
 
   afterEach(() => {
-    try { rmSync(testDir, { recursive: true }); } catch {}
+    try {
+      rmSync(testDir, { recursive: true });
+    } catch {}
   });
 
   it("stateFileForDevice returns unique paths per UDID", () => {
@@ -43,11 +45,31 @@ describe("multi-device state", () => {
     const file2 = stateFileForDevice(udid2);
 
     try {
-      writeFileSync(file1, JSON.stringify({ pid: process.pid, port: 3100, device: udid1, url: "http://127.0.0.1:3100", streamUrl: "http://127.0.0.1:3100/stream.mjpeg", wsUrl: "ws://127.0.0.1:3100/ws" }));
-      writeFileSync(file2, JSON.stringify({ pid: process.pid, port: 3101, device: udid2, url: "http://127.0.0.1:3101", streamUrl: "http://127.0.0.1:3101/stream.mjpeg", wsUrl: "ws://127.0.0.1:3101/ws" }));
+      writeFileSync(
+        file1,
+        JSON.stringify({
+          pid: process.pid,
+          port: 3100,
+          device: udid1,
+          url: "http://127.0.0.1:3100",
+          streamUrl: "http://127.0.0.1:3100/stream.mjpeg",
+          wsUrl: "ws://127.0.0.1:3100/ws",
+        }),
+      );
+      writeFileSync(
+        file2,
+        JSON.stringify({
+          pid: process.pid,
+          port: 3101,
+          device: udid2,
+          url: "http://127.0.0.1:3101",
+          streamUrl: "http://127.0.0.1:3101/stream.mjpeg",
+          wsUrl: "ws://127.0.0.1:3101/ws",
+        }),
+      );
 
       const files = listStateFiles();
-      const matching = files.filter(f => f.includes("TEST-"));
+      const matching = files.filter((f) => f.includes("TEST-"));
       expect(matching.length).toBeGreaterThanOrEqual(2);
 
       // Both files contain correct data
@@ -58,8 +80,12 @@ describe("multi-device state", () => {
       expect(data1.port).toBe(3100);
       expect(data2.port).toBe(3101);
     } finally {
-      try { rmSync(file1); } catch {}
-      try { rmSync(file2); } catch {}
+      try {
+        rmSync(file1);
+      } catch {}
+      try {
+        rmSync(file2);
+      } catch {}
     }
   });
 
@@ -73,14 +99,17 @@ describe("multi-device state", () => {
       writeFileSync(otherFile, "{}");
 
       const files = listStateFiles();
-      const hasValid = files.some(f => f.includes("TEST-VALID-UDID"));
-      const hasOther = files.some(f => f.includes("other-file"));
+      const hasValid = files.some((f) => f.includes("TEST-VALID-UDID"));
+      const hasOther = files.some((f) => f.includes("other-file"));
       expect(hasValid).toBe(true);
       expect(hasOther).toBe(false);
     } finally {
-      try { rmSync(validFile); } catch {}
-      try { rmSync(otherFile); } catch {}
+      try {
+        rmSync(validFile);
+      } catch {}
+      try {
+        rmSync(otherFile);
+      } catch {}
     }
   });
 });
-

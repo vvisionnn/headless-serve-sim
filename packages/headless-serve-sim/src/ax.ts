@@ -1,5 +1,4 @@
-import { AX_UNAVAILABLE_ERROR } from "./ax-shared";
-import type { AxElement, AxRect, AxSnapshot } from "./ax-shared";
+import { AX_UNAVAILABLE_ERROR, type AxElement, type AxRect, type AxSnapshot } from "./ax-shared";
 
 export type { AxElement, AxRect, AxSnapshot } from "./ax-shared";
 
@@ -21,12 +20,14 @@ interface RawAxeNode {
 }
 
 function chooseScreenFrame(roots: RawAxeNode[]) {
-  return roots[0]?.frame ?? {
-    x: 0,
-    y: 0,
-    width: 1,
-    height: 1,
-  };
+  return (
+    roots[0]?.frame ?? {
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+    }
+  );
 }
 
 function sameRect(a: AxRect, b: AxRect) {
@@ -97,7 +98,7 @@ async function snapshotFromHelper(port: number): Promise<AxSnapshot> {
     if (!res.ok) {
       throw new Error(`HTTP ${res.status} ${res.statusText}`);
     }
-    return normalizeAxTree(await res.json() as RawAxeNode[]);
+    return normalizeAxTree((await res.json()) as RawAxeNode[]);
   } finally {
     clearTimeout(timer);
   }
@@ -108,11 +109,7 @@ function isAxUnavailableSnapshot(snapshot: AxSnapshot | null) {
 }
 
 function isUsableAxSnapshot(snapshot: AxSnapshot) {
-  return (
-    snapshot.elements.length > 0 &&
-    snapshot.screen.width > 1 &&
-    snapshot.screen.height > 1
-  );
+  return snapshot.elements.length > 0 && snapshot.screen.width > 1 && snapshot.screen.height > 1;
 }
 
 async function collectAxSnapshot(port: number) {

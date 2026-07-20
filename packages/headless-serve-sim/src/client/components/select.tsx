@@ -90,11 +90,14 @@ export function Select({
   }, [open, pos, options, value]);
 
   const onPopupKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const items = [...(popupRef.current?.querySelectorAll<HTMLButtonElement>("[role=option]") ?? [])];
+    const items = [
+      ...(popupRef.current?.querySelectorAll<HTMLButtonElement>("[role=option]") ?? []),
+    ];
     const idx = items.indexOf(document.activeElement as HTMLButtonElement);
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      const next = e.key === "ArrowDown" ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
+      const next =
+        e.key === "ArrowDown" ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
       items[next]?.focus();
     } else if (e.key === "Escape") {
       e.preventDefault();

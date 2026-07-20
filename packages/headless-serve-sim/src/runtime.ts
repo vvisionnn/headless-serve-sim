@@ -38,11 +38,7 @@ export interface PreviewServer {
 }
 
 /** Connect-style middleware signature, matching what `simMiddleware` returns. */
-type ConnectMiddleware = ((
-  req: IncomingMessage,
-  res: ServerResponse,
-  next: () => void,
-) => void) & {
+type ConnectMiddleware = ((req: IncomingMessage, res: ServerResponse, next: () => void) => void) & {
   /** WebSocket upgrade hook (exec channel); returns true when handled. */
   handleUpgrade?: (req: IncomingMessage, socket: Duplex, head: Buffer) => boolean;
 };

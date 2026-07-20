@@ -33,10 +33,14 @@ function startEchoServer(): {
       message(ws, message) {
         // Handle binary touch messages
         if (typeof message !== "string") {
-          const buf = (message instanceof ArrayBuffer ? message : (message as Buffer).buffer.slice(
-            (message as Buffer).byteOffset,
-            (message as Buffer).byteOffset + (message as Buffer).byteLength,
-          )) as ArrayBuffer;
+          const buf = (
+            message instanceof ArrayBuffer
+              ? message
+              : (message as Buffer).buffer.slice(
+                  (message as Buffer).byteOffset,
+                  (message as Buffer).byteOffset + (message as Buffer).byteLength,
+                )
+          ) as ArrayBuffer;
           if (isBinaryTouchMessage(buf)) {
             const decoded = decodeTouchMessage(buf);
             if (decoded) {
@@ -52,7 +56,9 @@ function startEchoServer(): {
         // Handle JSON messages (buttons, etc.)
         try {
           const parsed = JSON.parse(
-            typeof message === "string" ? message : new TextDecoder().decode(message as unknown as ArrayBuffer),
+            typeof message === "string"
+              ? message
+              : new TextDecoder().decode(message as unknown as ArrayBuffer),
           );
           messages.push(parsed);
         } catch {}

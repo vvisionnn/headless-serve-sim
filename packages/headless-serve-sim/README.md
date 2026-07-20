@@ -1,6 +1,7 @@
 # headless-serve-sim
 
 > [!IMPORTANT]
+>
 > ### 🔱 Self-maintained fork
 >
 > **This is a self-maintained version of the original project, [`EvanBacon/serve-sim`](https://github.com/EvanBacon/serve-sim).**
@@ -11,9 +12,9 @@
 >
 > ### 👉 https://github.com/EvanBacon/serve-sim
 
-The `npx serve` of Apple Simulators. 
+The `npx serve` of Apple Simulators.
 
-Host your simulator for use with Agent tools like Codex, Cursor, or Claude Desktop — locally, over your LAN, or host on a remote mac and tunnel anywhere. 
+Host your simulator for use with Agent tools like Codex, Cursor, or Claude Desktop — locally, over your LAN, or host on a remote mac and tunnel anywhere.
 
 ```sh
 npx headless-serve-sim
@@ -24,13 +25,13 @@ https://github.com/user-attachments/assets/fbf890f4-c8c7-4684-82be-d677b8a188f8
 
 `headless-serve-sim` spawns a small Swift helper that captures the simulator's framebuffer via `simctl io`, exposes it as an MJPEG stream + WebSocket control channel, and serves a React preview UI on top. It works with any booted iOS Simulator — no Xcode plugin, no instrumentation in your app.
 
-## Features 
+## Features
 
 - Full 60 FPS video stream in the browser.
 - Swipe from the bottom to go home.
 - gestures like pinch to zoom by holding the option key.
 - Simulator logs are forwarded to the browser for browser-use MCP tools to read from.
-- Drag and drop videos and images to add them to the simulator device. 
+- Drag and drop videos and images to add them to the simulator device.
 - Keyboard commands and hot keys are forwarded to the simulator, including CMD+SHIFT+H to go home.
 - Apple Watch, iPad, and iOS support.
 

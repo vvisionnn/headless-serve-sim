@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  DeviceFrameArtworkAsset,
-  DeviceFrameSpec,
-} from "headless-serve-sim-client/simulator";
+import type { DeviceFrameArtworkAsset, DeviceFrameSpec } from "headless-serve-sim-client/simulator";
 import {
   deviceFrameControlRect,
   paintDeviceFrameArtwork,
@@ -68,16 +65,30 @@ const frame: DeviceFrameSpec = {
 class ArtworkContext {
   fillStyle = "";
   calls: Array<{ name: string; args: unknown[] }> = [];
-  beginPath() { this.calls.push({ name: "beginPath", args: [] }); }
-  moveTo(...args: number[]) { this.calls.push({ name: "moveTo", args }); }
-  lineTo(...args: number[]) { this.calls.push({ name: "lineTo", args }); }
-  ellipse(...args: number[]) { this.calls.push({ name: "ellipse", args }); }
+  beginPath() {
+    this.calls.push({ name: "beginPath", args: [] });
+  }
+  moveTo(...args: number[]) {
+    this.calls.push({ name: "moveTo", args });
+  }
+  lineTo(...args: number[]) {
+    this.calls.push({ name: "lineTo", args });
+  }
+  ellipse(...args: number[]) {
+    this.calls.push({ name: "ellipse", args });
+  }
   quadraticCurveTo(...args: number[]) {
     this.calls.push({ name: "quadraticCurveTo", args });
   }
-  closePath() { this.calls.push({ name: "closePath", args: [] }); }
-  fill() { this.calls.push({ name: "fill", args: [] }); }
-  drawImage(...args: unknown[]) { this.calls.push({ name: "drawImage", args }); }
+  closePath() {
+    this.calls.push({ name: "closePath", args: [] });
+  }
+  fill() {
+    this.calls.push({ name: "fill", args: [] });
+  }
+  drawImage(...args: unknown[]) {
+    this.calls.push({ name: "drawImage", args });
+  }
 }
 
 describe("DeviceKit frame artwork", () => {
@@ -102,22 +113,32 @@ describe("DeviceKit frame artwork", () => {
     const artwork = frame.artwork!;
     const base = artwork.controls[0]!;
 
-    expect(deviceFrameControlRect({
-      ...base,
-      anchor: "top",
-      align: "trailing",
-      image: asset("top-control", 60, 30),
-      normalOffsetPx: { x: -15, y: 12 },
-      rolloverOffsetPx: { x: -9, y: 6 },
-    }, artwork)).toEqual({ x: 1260, y: -12, width: 60, height: 30 });
-    expect(deviceFrameControlRect({
-      ...base,
-      anchor: "bottom",
-      align: "center",
-      image: asset("bottom-control", 60, 30),
-      normalOffsetPx: { x: 0, y: -12 },
-      rolloverOffsetPx: { x: 0, y: -6 },
-    }, artwork)).toEqual({ x: 654, y: 2712, width: 60, height: 30 });
+    expect(
+      deviceFrameControlRect(
+        {
+          ...base,
+          anchor: "top",
+          align: "trailing",
+          image: asset("top-control", 60, 30),
+          normalOffsetPx: { x: -15, y: 12 },
+          rolloverOffsetPx: { x: -9, y: 6 },
+        },
+        artwork,
+      ),
+    ).toEqual({ x: 1260, y: -12, width: 60, height: 30 });
+    expect(
+      deviceFrameControlRect(
+        {
+          ...base,
+          anchor: "bottom",
+          align: "center",
+          image: asset("bottom-control", 60, 30),
+          normalOffsetPx: { x: 0, y: -12 },
+          rolloverOffsetPx: { x: 0, y: -6 },
+        },
+        artwork,
+      ),
+    ).toEqual({ x: 654, y: 2712, width: 60, height: 30 });
   });
 
   test("nine-slices real metal around the body and respects control z-order", () => {
@@ -129,11 +150,9 @@ describe("DeviceKit frame artwork", () => {
     for (const item of assets) images.set(item.pngDataUrl, { id: item.pngDataUrl } as never);
     const context = new ArtworkContext();
 
-    expect(paintDeviceFrameArtwork(
-      context as unknown as CanvasRenderingContext2D,
-      frame,
-      images,
-    )).toBe(true);
+    expect(
+      paintDeviceFrameArtwork(context as unknown as CanvasRenderingContext2D, frame, images),
+    ).toBe(true);
 
     const draws = context.calls.filter((call) => call.name === "drawImage");
     expect(draws.map((draw) => (draw.args[0] as { id: string }).id)).toEqual([
@@ -162,11 +181,9 @@ describe("DeviceKit frame artwork", () => {
     for (const item of assets) images.set(item.pngDataUrl, { id: item.pngDataUrl } as never);
     const context = new ArtworkContext();
 
-    expect(paintDeviceFrameArtwork(
-      context as unknown as CanvasRenderingContext2D,
-      frame,
-      images,
-    )).toBe(true);
+    expect(
+      paintDeviceFrameArtwork(context as unknown as CanvasRenderingContext2D, frame, images),
+    ).toBe(true);
 
     expect(context.calls.filter((call) => call.name === "fill")).toEqual([]);
   });
@@ -190,18 +207,20 @@ describe("DeviceKit frame artwork", () => {
       },
     });
 
-    expect(new Set(loaded)).toEqual(new Set([
-      "top-left",
-      "top",
-      "top-right",
-      "right",
-      "bottom-right",
-      "bottom",
-      "bottom-left",
-      "left",
-      "action",
-      "power",
-    ]));
+    expect(new Set(loaded)).toEqual(
+      new Set([
+        "top-left",
+        "top",
+        "top-right",
+        "right",
+        "bottom-right",
+        "bottom",
+        "bottom-left",
+        "left",
+        "action",
+        "power",
+      ]),
+    );
     expect(canvases).toEqual([{ width: 1368, height: 2730 }]);
     expect(prepared).toMatchObject({
       width: 1368,

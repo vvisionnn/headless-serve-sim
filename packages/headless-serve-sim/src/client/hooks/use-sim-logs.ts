@@ -5,11 +5,7 @@ import {
   forwardSimLogToConsole,
   type SimLogFeedStatus,
 } from "../utils/sim-log-feed";
-import {
-  appendSimLogs,
-  type SimLogBuffer,
-  type SimLogEntry,
-} from "../utils/sim-logs";
+import { appendSimLogs, type SimLogBuffer, type SimLogEntry } from "../utils/sim-logs";
 
 const EMPTY_BUFFER: SimLogBuffer = { entries: [], totalBytes: 0 };
 const LOG_BUFFER_LIMITS = {

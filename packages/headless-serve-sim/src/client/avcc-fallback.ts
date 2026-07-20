@@ -45,9 +45,7 @@ export function avccFallbackReducer(
       // Only fall back if AVCC never produced a frame. A later stall (helper
       // dies mid-session) is handled by the normal reconnect path, not by
       // permanently downgrading a stream that was working.
-      return state.streamed || state.fellBack
-        ? state
-        : { ...state, fellBack: true };
+      return state.streamed || state.fellBack ? state : { ...state, fellBack: true };
     case "reset":
       return initialAvccFallback;
   }

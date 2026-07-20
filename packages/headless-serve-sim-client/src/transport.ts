@@ -3,8 +3,18 @@ import type { ClientMessage, ServerMessage, StreamConfig } from "./types";
 import { encodeSingleTouch, encodeMultiTouch } from "./touch-codec";
 
 export type { ClientMessage, ServerMessage, SimulatorOrientation, StreamConfig } from "./types";
-export { encodeSingleTouch, encodeMultiTouch, decodeTouchMessage, isBinaryTouchMessage } from "./touch-codec";
-export type { SingleTouchData, MultiTouchData, DecodedSingleTouch, DecodedMultiTouch } from "./touch-codec";
+export {
+  encodeSingleTouch,
+  encodeMultiTouch,
+  decodeTouchMessage,
+  isBinaryTouchMessage,
+} from "./touch-codec";
+export type {
+  SingleTouchData,
+  MultiTouchData,
+  DecodedSingleTouch,
+  DecodedMultiTouch,
+} from "./touch-codec";
 
 export interface HeartbeatConfig {
   /** Interval between ping messages in ms (default: 25000). */
@@ -131,10 +141,21 @@ export class GatewayTransport {
   // Touch throttle state
   private touchSeq = 0;
   private lastTouchSendTime = 0;
-  private pendingTouch: PendingMove<{ type: "begin" | "move" | "end"; x: number; y: number; edge?: number }> | null = null;
+  private pendingTouch: PendingMove<{
+    type: "begin" | "move" | "end";
+    x: number;
+    y: number;
+    edge?: number;
+  }> | null = null;
   private multiTouchSeq = 0;
   private lastMultiTouchSendTime = 0;
-  private pendingMultiTouch: PendingMove<{ type: "begin" | "move" | "end"; x1: number; y1: number; x2: number; y2: number }> | null = null;
+  private pendingMultiTouch: PendingMove<{
+    type: "begin" | "move" | "end";
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  }> | null = null;
 
   constructor(options: GatewayTransportOptions) {
     this._fileOpTimeoutMs = options.fileOpTimeoutMs ?? DEFAULT_FILE_OP_TIMEOUT_MS;
@@ -251,9 +272,7 @@ export class GatewayTransport {
 
       let parsed: any;
       try {
-        parsed = JSON.parse(
-          typeof event.data === "string" ? event.data : event.data.toString()
-        );
+        parsed = JSON.parse(typeof event.data === "string" ? event.data : event.data.toString());
       } catch {
         return;
       }
@@ -365,7 +384,7 @@ export class GatewayTransport {
   exec(
     command: string,
     args: string[],
-    options?: { onStdout?: (data: string) => void; onStderr?: (data: string) => void }
+    options?: { onStdout?: (data: string) => void; onStderr?: (data: string) => void },
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     return new Promise((resolve, reject) => {
       const id = crypto.randomUUID();
@@ -503,7 +522,10 @@ export class GatewayTransport {
     this.ws.send(JSON.stringify(msg));
   }
 
-  streamTouch(data: { type: "begin" | "move" | "end"; x: number; y: number; edge?: number }, _device?: string): void {
+  streamTouch(
+    data: { type: "begin" | "move" | "end"; x: number; y: number; edge?: number },
+    _device?: string,
+  ): void {
     if (data.type === "end") {
       // Flush the pending move BEFORE we allocate `end`'s seq. The flushed
       // move keeps whatever seq the buffered move owned, and `end` gets the
@@ -561,7 +583,10 @@ export class GatewayTransport {
     }
   }
 
-  streamMultiTouch(data: { type: "begin" | "move" | "end"; x1: number; y1: number; x2: number; y2: number }, _device?: string): void {
+  streamMultiTouch(
+    data: { type: "begin" | "move" | "end"; x1: number; y1: number; x2: number; y2: number },
+    _device?: string,
+  ): void {
     if (data.type === "end") {
       // Same seq-allocation ordering as streamTouch — flush first, then
       // give `end` the next seq so the two events can't collide.
@@ -670,17 +695,23 @@ export class GatewayTransport {
 
   onStreamFrame(listener: StreamFrameListener): () => void {
     this.streamFrameListeners.add(listener);
-    return () => { this.streamFrameListeners.delete(listener); };
+    return () => {
+      this.streamFrameListeners.delete(listener);
+    };
   }
 
   onStreamConfig(listener: StreamConfigListener): () => void {
     this.streamConfigListeners.add(listener);
-    return () => { this.streamConfigListeners.delete(listener); };
+    return () => {
+      this.streamConfigListeners.delete(listener);
+    };
   }
 
   onAdaptiveFps(listener: AdaptiveFpsListener): () => void {
     this.adaptiveFpsListeners.add(listener);
-    return () => { this.adaptiveFpsListeners.delete(listener); };
+    return () => {
+      this.adaptiveFpsListeners.delete(listener);
+    };
   }
 
   get adaptiveFps(): number {
@@ -770,7 +801,9 @@ export class GatewayTransport {
 
   onConnectionQualityChange(listener: ConnectionQualityListener): () => void {
     this.connectionQualityListeners.add(listener);
-    return () => { this.connectionQualityListeners.delete(listener); };
+    return () => {
+      this.connectionQualityListeners.delete(listener);
+    };
   }
 
   // ─── Heartbeat ───
@@ -820,7 +853,7 @@ export class GatewayTransport {
 }
 
 export async function createGatewayTransport(
-  options: GatewayTransportOptions
+  options: GatewayTransportOptions,
 ): Promise<GatewayTransport> {
   const transport = new GatewayTransport(options);
   await transport.waitForOpen();

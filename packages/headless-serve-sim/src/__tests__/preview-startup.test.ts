@@ -27,7 +27,7 @@ async function freePort(): Promise<number> {
         return;
       }
       const port = address.port;
-      server.close((error) => error ? reject(error) : resolve(port));
+      server.close((error) => (error ? reject(error) : resolve(port)));
     });
   });
 }
@@ -55,11 +55,18 @@ describe("preview startup", () => {
     children.push(child);
 
     let output = "";
-    child.stdout!.on("data", (chunk) => { output += String(chunk); });
-    child.stderr!.on("data", (chunk) => { output += String(chunk); });
+    child.stdout!.on("data", (chunk) => {
+      output += String(chunk);
+    });
+    child.stderr!.on("data", (chunk) => {
+      output += String(chunk);
+    });
 
     await new Promise<void>((resolve, reject) => {
-      const deadline = setTimeout(() => reject(new Error(`preview did not start:\n${output}`)), 5_000);
+      const deadline = setTimeout(
+        () => reject(new Error(`preview did not start:\n${output}`)),
+        5_000,
+      );
       const check = () => {
         if (output.includes("- Local:")) {
           clearTimeout(deadline);
@@ -105,8 +112,12 @@ describe("preview startup", () => {
     });
     children.push(child);
     let output = "";
-    child.stdout!.on("data", (chunk) => { output += String(chunk); });
-    child.stderr!.on("data", (chunk) => { output += String(chunk); });
+    child.stdout!.on("data", (chunk) => {
+      output += String(chunk);
+    });
+    child.stderr!.on("data", (chunk) => {
+      output += String(chunk);
+    });
     const exitCode = await new Promise<number | null>((resolve) => child.once("close", resolve));
 
     expect(exitCode).toBe(1);

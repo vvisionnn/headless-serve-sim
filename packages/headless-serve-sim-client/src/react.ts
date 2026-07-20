@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import Gateway from "./gateway";
-import type { ConnectOptions, GatewayShell, ShellResult } from "./gateway";
-import { fetchGatewayStatus } from "./discovery";
-import type { GatewayStatus, DiscoverOptions } from "./discovery";
+import Gateway, { type ConnectOptions, type GatewayShell, type ShellResult } from "./gateway";
+import { fetchGatewayStatus, type DiscoverOptions, type GatewayStatus } from "./discovery";
 import type { AdaptiveState, ConnectionQuality } from "./transport";
 import type { StreamConfig } from "./types";
 
@@ -23,8 +21,19 @@ export interface HistoryEntry {
 export interface StreamAPI {
   start: (options?: { maxFps?: number }) => void;
   stop: () => void;
-  sendTouch: (data: { type: "begin" | "move" | "end"; x: number; y: number; edge?: number }) => void;
-  sendMultiTouch: (data: { type: "begin" | "move" | "end"; x1: number; y1: number; x2: number; y2: number }) => void;
+  sendTouch: (data: {
+    type: "begin" | "move" | "end";
+    x: number;
+    y: number;
+    edge?: number;
+  }) => void;
+  sendMultiTouch: (data: {
+    type: "begin" | "move" | "end";
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  }) => void;
   sendButton: (button: string) => void;
   sendDigitalCrown?: (delta: number) => void;
   /** Subscribe to frame updates (bypasses React state for performance). Returns unsubscribe fn.
@@ -141,9 +150,7 @@ export function useGateway(options: UseGatewayOptions): UseGatewayResult {
   const exec = useCallback(async (command: string): Promise<ShellResult> => {
     const $ = shellRef.current;
     if (!$) {
-      throw new Error(
-        "Gateway not connected. Start the gateway server on your Mac.",
-      );
+      throw new Error("Gateway not connected. Start the gateway server on your Mac.");
     }
     const result = await $.exec(command);
     setHistory((prev) => [
@@ -166,23 +173,30 @@ export function useGateway(options: UseGatewayOptions): UseGatewayResult {
     frameListenersRef.current.add(cb);
     // Send current frame immediately if available
     if (streamFrameRef.current) cb(streamFrameRef.current, streamFrameBytesRef.current);
-    return () => { frameListenersRef.current.delete(cb); };
+    return () => {
+      frameListenersRef.current.delete(cb);
+    };
   }, []);
 
-  const stream: StreamAPI = useMemo(() => ({
-    start: (options) => shellRef.current?.transport.streamStart(options),
-    stop: () => shellRef.current?.transport.streamStop(),
-    sendTouch: (data) => shellRef.current?.transport.streamTouch(data),
-    sendMultiTouch: (data) => shellRef.current?.transport.streamMultiTouch(data),
-    sendButton: (button) => shellRef.current?.transport.streamButton(button),
-    sendDigitalCrown: (delta) => shellRef.current?.transport.streamDigitalCrown(delta),
-    subscribeFrame,
-    get frame() { return streamFrameRef.current; },
-    config: streamConfig,
-    adaptiveFps,
-    adaptiveState,
-    connectionQuality,
-  }), [streamConfig, subscribeFrame, adaptiveFps, adaptiveState, connectionQuality]);
+  const stream: StreamAPI = useMemo(
+    () => ({
+      start: (options) => shellRef.current?.transport.streamStart(options),
+      stop: () => shellRef.current?.transport.streamStop(),
+      sendTouch: (data) => shellRef.current?.transport.streamTouch(data),
+      sendMultiTouch: (data) => shellRef.current?.transport.streamMultiTouch(data),
+      sendButton: (button) => shellRef.current?.transport.streamButton(button),
+      sendDigitalCrown: (delta) => shellRef.current?.transport.streamDigitalCrown(delta),
+      subscribeFrame,
+      get frame() {
+        return streamFrameRef.current;
+      },
+      config: streamConfig,
+      adaptiveFps,
+      adaptiveState,
+      connectionQuality,
+    }),
+    [streamConfig, subscribeFrame, adaptiveFps, adaptiveState, connectionQuality],
+  );
 
   return { status, error, exec, history, clearHistory, stream };
 }
@@ -204,9 +218,7 @@ export interface UseGatewayStatusResult {
 /**
  * Poll a gateway's `/status` endpoint to detect whether it's running.
  */
-export function useGatewayStatus(
-  options: UseGatewayStatusOptions = {}
-): UseGatewayStatusResult {
+export function useGatewayStatus(options: UseGatewayStatusOptions = {}): UseGatewayStatusResult {
   const { baseUrl, timeout, pollInterval = 3000 } = options;
   const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus | null>(null);
   const [loading, setLoading] = useState(true);

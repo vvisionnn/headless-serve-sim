@@ -1,14 +1,18 @@
-import { execFileSync } from "child_process";
-import {
-  chmodSync,
-  existsSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "fs";
-import { homedir, tmpdir } from "os";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
-import { findBootedDevice, resolveDevice } from "./device";
+import type { CommandRequest, CommandResult, HostCommands } from "./runtime/host-commands";
+
+export interface PermissionsDependencies {
+  host: HostCommands;
+  findBootedDevice(): string | null;
+  resolveDevice(device: string): string | null;
+  simulatorLibraryDir(udid: string): string;
+  writeStdout(message: string): void;
+  writeStderr(message: string): void;
+  now(): number;
+  sleep(milliseconds: number): void;
+}
 
 // ─── Permission catalogue ───
 
@@ -55,8 +59,7 @@ const ALIASES: Record<string, { permission: string; value?: string }> = {
 
 export function resolvePermission(name: string): PermissionSpec | null {
   if (name === "notifications") return { kind: "notifications", values: ["critical"] };
-  if (name === "location")
-    return { kind: "location", values: ["always", "inuse", "never"] };
+  if (name === "location") return { kind: "location", values: ["always", "inuse", "never"] };
   const service = TCC_SERVICES[name];
   if (service) {
     return {
@@ -89,9 +92,7 @@ export interface ParsedArgs {
 
 const BUNDLE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
 
-export function parsePermissionsArgs(
-  args: string[],
-): ParsedArgs | { error: string } {
+export function parsePermissionsArgs(args: string[]): ParsedArgs | { error: string } {
   let device: string | undefined;
   let value: string | undefined;
   const positional: string[] = [];
@@ -175,75 +176,101 @@ export function parsePermissionsArgs(
   return { verb, permission, value, bundleId, device };
 }
 
-// ─── Simulator paths ───
-
-function simLibraryDir(udid: string): string {
-  return join(
-    homedir(),
-    "Library/Developer/CoreSimulator/Devices",
-    udid,
-    "data/Library",
-  );
+function commandFailure(
+  request: CommandRequest,
+  result: CommandResult,
+): Error & { stdout: Buffer; stderr: Buffer } {
+  const target =
+    "shell" in request ? request.shell : [request.executable, ...(request.args ?? [])].join(" ");
+  const error = new Error(
+    result.stderr.toString().trim() ||
+      `Command failed (${result.exitCode ?? result.signal ?? "unknown"}): ${target}`,
+  ) as Error & { stdout: Buffer; stderr: Buffer };
+  error.stdout = result.stdout;
+  error.stderr = result.stderr;
+  return error;
 }
 
-export function tccDbPath(udid: string): string {
-  return join(simLibraryDir(udid), "TCC/TCC.db");
+function errorText(error: unknown, properties: readonly string[] = ["message"]): string {
+  if (typeof error === "object" && error !== null) {
+    const record = error as Record<string, unknown>;
+    for (const property of properties) {
+      const value = record[property];
+      if (value !== undefined && value !== null && String(value).trim()) {
+        return String(value).trim();
+      }
+    }
+  }
+  return String(error).trim();
 }
 
-export function bulletinDir(udid: string): string {
-  return join(simLibraryDir(udid), "BulletinBoard");
+function runCommand(host: HostCommands, request: CommandRequest): CommandResult {
+  const result = host.run(request, "sync");
+  if (result.exitCode !== 0 || result.signal !== null || result.timedOut) {
+    throw commandFailure(request, result);
+  }
+  return result;
 }
 
-export function locationdPlistPath(udid: string): string {
-  return join(simLibraryDir(udid), "Caches/locationd/clients.plist");
+function dependencyPath(
+  dependencies: PermissionsDependencies,
+  udid: string,
+  relative: string,
+): string {
+  return join(dependencies.simulatorLibraryDir(udid), relative);
 }
 
 // ─── TCC.db writer ───
 
-function withSqliteRetry<T>(fn: () => T): T {
-  const deadline = Date.now() + 5000;
+function withSqliteRetry<T>(dependencies: PermissionsDependencies, fn: () => T): T {
+  const deadline = dependencies.now() + 5000;
   for (;;) {
     try {
       return fn();
-    } catch (e: any) {
-      const msg = String(e?.stderr ?? e?.message ?? e);
-      if (Date.now() < deadline && /database is locked|database is busy/i.test(msg)) {
+    } catch (error: unknown) {
+      const msg = errorText(error, ["stderr", "message"]);
+      if (dependencies.now() < deadline && /database is locked|database is busy/i.test(msg)) {
         // Boot race — CoreSimulator briefly holds TCC.db. Retry.
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+        dependencies.sleep(200);
         continue;
       }
-      throw e;
+      throw error;
     }
   }
 }
 
-function sqlite(dbPath: string, sql: string): string {
-  return withSqliteRetry(() =>
-    execFileSync("sqlite3", [dbPath, sql], { encoding: "utf-8" }),
+function sqlite(dependencies: PermissionsDependencies, dbPath: string, sql: string): string {
+  return withSqliteRetry(dependencies, () =>
+    runCommand(dependencies.host, {
+      executable: "sqlite3",
+      args: [dbPath, sql],
+      stdio: "capture",
+    }).stdout.toString(),
   );
 }
 
 function writeTcc(
+  dependencies: PermissionsDependencies,
   udid: string,
   service: string,
   authVersion: number,
   bundleId: string,
   authValue: number | "delete",
 ): void {
-  const db = tccDbPath(udid);
+  const db = dependencyPath(dependencies, udid, "TCC/TCC.db");
   if (!existsSync(db)) {
-    throw new Error(
-      `TCC.db not found for ${udid}. Is the simulator booted?\n  ${db}`,
-    );
+    throw new Error(`TCC.db not found for ${udid}. Is the simulator booted?\n  ${db}`);
   }
   // `service` comes from our fixed catalogue and `bundleId` is regex-validated
   // by the parser, so direct interpolation here cannot inject SQL.
   sqlite(
+    dependencies,
     db,
     `DELETE FROM access WHERE service='${service}' AND client='${bundleId}' AND client_type=0;`,
   );
   if (authValue !== "delete") {
     sqlite(
+      dependencies,
       db,
       `INSERT INTO access (service, client, client_type, auth_value, auth_reason, auth_version, flags) ` +
         `VALUES ('${service}', '${bundleId}', 0, ${authValue}, 2, ${authVersion}, 0);`,
@@ -257,14 +284,15 @@ const TCC_NAME_BY_SERVICE: Record<string, string> = Object.fromEntries(
   Object.entries(TCC_SERVICES).map(([name, service]) => [service, name]),
 );
 
-function readTcc(udid: string, bundleId?: string): Record<string, number> {
-  const db = tccDbPath(udid);
+function readTcc(
+  dependencies: PermissionsDependencies,
+  udid: string,
+  bundleId?: string,
+): Record<string, number> {
+  const db = dependencyPath(dependencies, udid, "TCC/TCC.db");
   if (!existsSync(db)) return {};
   const where = bundleId ? ` WHERE client='${bundleId}'` : "";
-  const out = sqlite(
-    db,
-    `SELECT service, auth_value FROM access${where};`,
-  );
+  const out = sqlite(dependencies, db, `SELECT service, auth_value FROM access${where};`);
   const result: Record<string, number> = {};
   for (const line of out.split("\n")) {
     const [service, authValue] = line.split("|");
@@ -275,8 +303,12 @@ function readTcc(udid: string, bundleId?: string): Record<string, number> {
 
 // ─── plist helpers ───
 
-function plutil(args: string[]): string {
-  return execFileSync("plutil", args, { encoding: "utf-8" });
+function plutil(dependencies: PermissionsDependencies, args: string[]): string {
+  return runCommand(dependencies.host, {
+    executable: "plutil",
+    args,
+    stdio: "capture",
+  }).stdout.toString();
 }
 
 /**
@@ -286,6 +318,7 @@ function plutil(args: string[]): string {
  * indices insert rather than replace.
  */
 function plistBuddy(
+  dependencies: PermissionsDependencies,
   file: string,
   commands: string[],
   opts: { ignoreErrors?: boolean } = {},
@@ -294,13 +327,14 @@ function plistBuddy(
   for (const c of commands) args.push("-c", c);
   args.push(file);
   try {
-    return execFileSync("/usr/libexec/PlistBuddy", args, {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } catch (e: any) {
-    if (opts.ignoreErrors) return String(e?.stdout ?? "");
-    throw new Error(String(e?.stderr ?? e?.stdout ?? e?.message ?? e).trim());
+    return runCommand(dependencies.host, {
+      executable: "/usr/libexec/PlistBuddy",
+      args,
+      stdio: "capture",
+    }).stdout.toString();
+  } catch (error: unknown) {
+    if (opts.ignoreErrors) return errorText(error, ["stdout"]);
+    throw new Error(errorText(error, ["stderr", "stdout", "message"]));
   }
 }
 
@@ -316,6 +350,7 @@ function makeTmpDir(): string {
 // plain-bundle-id entry is ignored. `simctl privacy` understands the format
 // and is reliable specifically for location, so delegate to it here.
 function setLocation(
+  dependencies: PermissionsDependencies,
   udid: string,
   bundleId: string,
   mode: "grant" | "revoke" | "reset",
@@ -331,27 +366,29 @@ function setLocation(
     service = "location-always";
   }
   try {
-    execFileSync("xcrun", ["simctl", "privacy", udid, action, service, bundleId], {
-      stdio: ["ignore", "ignore", "pipe"],
+    runCommand(dependencies.host, {
+      executable: "xcrun",
+      args: ["simctl", "privacy", udid, action, service, bundleId],
+      stdio: "capture",
     });
-  } catch (e: any) {
+  } catch (error: unknown) {
     throw new Error(
-      `simctl privacy ${action} ${service} failed: ` +
-        String(e?.stderr ?? e?.message ?? e).trim(),
+      `simctl privacy ${action} ${service} failed: ` + errorText(error, ["stderr", "message"]),
     );
   }
 }
 
 function readLocation(
+  dependencies: PermissionsDependencies,
   udid: string,
   bundleId: string | undefined,
 ): { Authorization: number } | null {
   if (!bundleId) return null;
-  const path = locationdPlistPath(udid);
+  const path = dependencyPath(dependencies, udid, "Caches/locationd/clients.plist");
   if (!existsSync(path)) return null;
   let xml: string;
   try {
-    xml = plutil(["-convert", "xml1", "-o", "-", path]);
+    xml = plutil(dependencies, ["-convert", "xml1", "-o", "-", path]);
   } catch {
     return null;
   }
@@ -373,8 +410,8 @@ function readLocation(
 const NOTIF_TEMPLATE_B64 =
   "YnBsaXN0MDDUAQIDBAUGTU5YJHZlcnNpb25YJG9iamVjdHNZJGFyY2hpdmVyVCR0b3ASAAGGoKgHCDAxQUgfSVUkbnVsbN8QFQkKCwwNDg8QERITFBUWFxgZGhscHR4fHiEiIx4jJicfHygjIh8jIyMjI18QFHN1cHByZXNzRnJvbVNldHRpbmdzXxASc3VwcHJlc3NlZFNldHRpbmdzWmhpZGVXZWVBcHBZc2VjdGlvbklEW2Rpc3BsYXlOYW1lVGljb25fEBlkaXNwbGF5c0NyaXRpY2FsQnVsbGV0aW5zW3N1YnNlY3Rpb25zXxATc2VjdGlvbkluZm9TZXR0aW5nc1YkY2xhc3NfEA9zZWN0aW9uQ2F0ZWdvcnlfEBJzdWJzZWN0aW9uUHJpb3JpdHlXdmVyc2lvbl8QGm1hbmFnZWRTZWN0aW9uSW5mb1NldHRpbmdzV2FwcE5hbWVbc2VjdGlvblR5cGVfEBBmYWN0b3J5U2VjdGlvbklEXxAPZGF0YVByb3ZpZGVySURzXHN1YnNlY3Rpb25JRFdmaWx0ZXJzXxAYcGF0aFRvV2VlQXBwUGx1Z2luQnVuZGxlCBAACIACgAWAAAiAAIADgAeABoAAgAWAAIAAgACAAIAAXxAmY29tLkxlb05hdGFuLkxOUG9wdXBDb250cm9sbGVyRXhhbXBsZS3ZMjM0NTY3Ejg5Ojs7Ox8fPjtAXHB1c2hTZXR0aW5nc18QGXNob3dzSW5Ob3RpZmljYXRpb25DZW50ZXJfEBNhbGxvd3NOb3RpZmljYXRpb25zXxAWc2hvd3NPbkV4dGVybmFsRGV2aWNlc18QFWNvbnRlbnRQcmV2aWV3U2V0dGluZ15jYXJQbGF5U2V0dGluZ18QEXNob3dzSW5Mb2NrU2NyZWVuWWFsZXJ0VHlwZRA/CQkJgAQJEAHSQkNERVokY2xhc3NuYW1lWCRjbGFzc2VzXxAVQkJTZWN0aW9uSW5mb1NldHRpbmdzokZHXxAVQkJTZWN0aW9uSW5mb1NldHRpbmdzWE5TT2JqZWN0V0xOUG9wdXDSQkNKS11CQlNlY3Rpb25JbmZvokxHXUJCU2VjdGlvbkluZm9fEA9OU0tleWVkQXJjaGl2ZXLRT1BUcm9vdIABAAgAEQAaACMALQAyADcAQABGAHMAigCfAKoAtADAAMUA4QDtAQMBCgEcATEBOQFWAV4BagF9AY8BnAGkAb8BwAHCAcMBxQHHAckBygHMAc4B0AHSAdQB1gHYAdoB3AHeAeACCQIcAikCRQJbAnQCjAKbAq8CuQK7ArwCvQK+AsACwQLDAsgC0wLcAvQC9wMPAxgDIAMlAzMDNgNEA1YDWQNeAAAAAAAAAgEAAAAAAAAAUQAAAAAAAAAAAAAAAAAAA2A=";
 
-function bulletinPlistPath(udid: string): string {
-  return join(bulletinDir(udid), "VersionedSectionInfo.plist");
+function bulletinPlistPath(dependencies: PermissionsDependencies, udid: string): string {
+  return dependencyPath(dependencies, udid, "BulletinBoard/VersionedSectionInfo.plist");
 }
 
 /**
@@ -383,6 +420,7 @@ function bulletinPlistPath(udid: string): string {
  * value into the destination BulletinBoard plist.
  */
 function buildSectionInfoBlob(
+  dependencies: PermissionsDependencies,
   dir: string,
   bundleId: string,
   enabled: boolean,
@@ -390,7 +428,7 @@ function buildSectionInfoBlob(
 ): string {
   const blob = join(dir, "section-info.plist");
   writeFileSync(blob, Buffer.from(NOTIF_TEMPLATE_B64, "base64"));
-  plistBuddy(blob, [
+  plistBuddy(dependencies, blob, [
     `Set :$objects:2 ${bundleId}`,
     `Set :$objects:3:allowsNotifications ${enabled ? "true" : "false"}`,
     `Add :$objects:3:criticalAlertSetting integer ${critical ? 2 : 0}`,
@@ -398,24 +436,25 @@ function buildSectionInfoBlob(
     "Save",
   ]);
   // PlistBuddy rewrites as XML; SpringBoard stores these archives as binary.
-  plutil(["-convert", "binary1", blob]);
+  plutil(dependencies, ["-convert", "binary1", blob]);
   return blob;
 }
 
 function setNotifications(
+  dependencies: PermissionsDependencies,
   udid: string,
   bundleId: string,
   mode: "grant" | "critical" | "revoke" | "reset",
 ): void {
-  const path = bulletinPlistPath(udid);
+  const path = bulletinPlistPath(dependencies, udid);
   if (!existsSync(path)) {
     // The plist appears shortly after SpringBoard starts. `reset` on a store
     // that doesn't exist yet is a no-op (nothing to clear); grant/revoke wait
     // briefly for it before giving up.
     if (mode === "reset") return;
-    const deadline = Date.now() + 5000;
-    while (!existsSync(path) && Date.now() < deadline) {
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+    const deadline = dependencies.now() + 5000;
+    while (!existsSync(path) && dependencies.now() < deadline) {
+      dependencies.sleep(250);
     }
     if (!existsSync(path)) {
       throw new Error(
@@ -428,59 +467,67 @@ function setNotifications(
   // VersionedSectionInfo.plist is held immutable so SpringBoard doesn't clobber
   // it; clear the flag to edit, restore it afterwards.
   try {
-    execFileSync("chflags", ["nouchg", path]);
+    runCommand(dependencies.host, {
+      executable: "chflags",
+      args: ["nouchg", path],
+      stdio: "capture",
+    });
   } catch {}
 
   const tmp = makeTmpDir();
   try {
     // Drop any existing entry so grant/revoke/reset are all idempotent.
-    plistBuddy(path, [`Delete :sectionInfo:${bundleId}`, "Save"], {
+    plistBuddy(dependencies, path, [`Delete :sectionInfo:${bundleId}`, "Save"], {
       ignoreErrors: true,
     });
     if (mode !== "reset") {
       const blob = buildSectionInfoBlob(
+        dependencies,
         tmp,
         bundleId,
         mode !== "revoke",
         mode === "critical",
       );
-      plistBuddy(path, [`Import :sectionInfo:${bundleId} ${blob}`, "Save"]);
+      plistBuddy(dependencies, path, [`Import :sectionInfo:${bundleId} ${blob}`, "Save"]);
     }
     // PlistBuddy saves XML; keep the file binary like SpringBoard writes it.
-    plutil(["-convert", "binary1", path]);
+    plutil(dependencies, ["-convert", "binary1", path]);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
     try {
       chmodSync(path, 0o644);
-      execFileSync("chflags", ["uchg", path]);
+      runCommand(dependencies.host, {
+        executable: "chflags",
+        args: ["uchg", path],
+        stdio: "capture",
+      });
     } catch {}
   }
 }
 
 function readNotifications(
+  dependencies: PermissionsDependencies,
   udid: string,
   bundleId: string | undefined,
 ): { allowsNotifications: boolean; critical: boolean } | null {
   if (!bundleId) return null;
-  const path = bulletinPlistPath(udid);
+  const path = bulletinPlistPath(dependencies, udid);
   if (!existsSync(path)) return null;
   let sectionInfo: string;
   try {
-    sectionInfo = plutil(["-extract", "sectionInfo", "xml1", "-o", "-", path]);
+    sectionInfo = plutil(dependencies, ["-extract", "sectionInfo", "xml1", "-o", "-", path]);
   } catch {
     return null;
   }
   const m = sectionInfo.match(
-    new RegExp(
-      `<key>${bundleId.replace(/[.-]/g, "\\$&")}</key>\\s*<data>([\\s\\S]*?)</data>`,
-    ),
+    new RegExp(`<key>${bundleId.replace(/[.-]/g, "\\$&")}</key>\\s*<data>([\\s\\S]*?)</data>`),
   );
   if (!m?.[1]) return null;
   const tmp = makeTmpDir();
   try {
     const blob = join(tmp, "section-info.plist");
     writeFileSync(blob, Buffer.from(m[1].replace(/\s/g, ""), "base64"));
-    const inner = plutil(["-convert", "xml1", "-o", "-", blob]);
+    const inner = plutil(dependencies, ["-convert", "xml1", "-o", "-", blob]);
     return {
       allowsNotifications: /<key>allowsNotifications<\/key>\s*<true\/>/.test(inner),
       critical: /<key>criticalAlertSetting<\/key>\s*<integer>2<\/integer>/.test(inner),
@@ -495,6 +542,7 @@ function readNotifications(
 // ─── Dispatch ───
 
 function applyOne(
+  dependencies: PermissionsDependencies,
   udid: string,
   verb: Exclude<Verb, "list">,
   permission: string,
@@ -504,14 +552,8 @@ function applyOne(
   const spec = resolvePermission(permission)!;
   if (spec.kind === "tcc") {
     const authValue: number | "delete" =
-      verb === "reset"
-        ? "delete"
-        : verb === "revoke"
-          ? 0
-          : value === "limited"
-            ? 3
-            : 2;
-    writeTcc(udid, spec.tccService!, spec.tccAuthVersion!, bundleId, authValue);
+      verb === "reset" ? "delete" : verb === "revoke" ? 0 : value === "limited" ? 3 : 2;
+    writeTcc(dependencies, udid, spec.tccService!, spec.tccAuthVersion!, bundleId, authValue);
   } else if (spec.kind === "notifications") {
     const mode =
       verb === "reset"
@@ -521,20 +563,23 @@ function applyOne(
           : value === "critical"
             ? "critical"
             : "grant";
-    setNotifications(udid, bundleId, mode);
+    setNotifications(dependencies, udid, bundleId, mode);
   } else {
-    setLocation(udid, bundleId, verb, value);
+    setLocation(dependencies, udid, bundleId, verb, value);
   }
 }
 
-export async function permissions(args: string[]): Promise<void> {
+export async function permissions(
+  args: string[],
+  dependencies: PermissionsDependencies,
+): Promise<number> {
   const quiet = args.includes("-q") || args.includes("--quiet");
   const rest = args.filter((a) => a !== "-q" && a !== "--quiet");
   const parsed = parsePermissionsArgs(rest);
 
   if ("error" in parsed) {
-    console.error(parsed.error);
-    console.error(
+    dependencies.writeStderr(parsed.error);
+    dependencies.writeStderr(
       "\nUsage:\n" +
         "  headless-serve-sim permissions grant  <permission> <bundle-id> [--value <v>] [-d <udid|name>]\n" +
         "  headless-serve-sim permissions revoke <permission> <bundle-id> [-d <udid|name>]\n" +
@@ -542,43 +587,45 @@ export async function permissions(args: string[]): Promise<void> {
         "  headless-serve-sim permissions list   [bundle-id] [-d <udid|name>]\n" +
         `\nPermissions: ${allPermissionNames().join(", ")}`,
     );
-    process.exit(1);
+    return 1;
   }
 
-  const udid = parsed.device ? resolveDevice(parsed.device) : findBootedDevice();
+  const udid = parsed.device
+    ? dependencies.resolveDevice(parsed.device)
+    : dependencies.findBootedDevice();
   if (!udid) {
-    console.error("No booted simulator. Boot one or pass -d <udid|name>.");
-    process.exit(1);
+    dependencies.writeStderr("No booted simulator. Boot one or pass -d <udid|name>.");
+    return 1;
   }
 
   if (parsed.verb === "list") {
     const result = {
       udid,
       bundleId: parsed.bundleId ?? null,
-      tcc: readTcc(udid, parsed.bundleId),
-      location: readLocation(udid, parsed.bundleId),
-      notifications: readNotifications(udid, parsed.bundleId),
+      tcc: readTcc(dependencies, udid, parsed.bundleId),
+      location: readLocation(dependencies, udid, parsed.bundleId),
+      notifications: readNotifications(dependencies, udid, parsed.bundleId),
     };
-    console.log(JSON.stringify(result, null, quiet ? 0 : 2));
-    process.exit(0);
+    dependencies.writeStdout(JSON.stringify(result, null, quiet ? 0 : 2));
+    return 0;
   }
 
   const bundleId = parsed.bundleId!;
   try {
     if (parsed.permission === "all") {
       for (const name of allPermissionNames()) {
-        applyOne(udid, "reset", name, undefined, bundleId);
+        applyOne(dependencies, udid, "reset", name, undefined, bundleId);
       }
     } else {
-      applyOne(udid, parsed.verb, parsed.permission!, parsed.value, bundleId);
+      applyOne(dependencies, udid, parsed.verb, parsed.permission!, parsed.value, bundleId);
     }
-  } catch (e: any) {
-    console.error(e?.message ?? String(e));
-    process.exit(1);
+  } catch (error: unknown) {
+    dependencies.writeStderr(errorText(error));
+    return 1;
   }
 
   if (quiet) {
-    console.log(
+    dependencies.writeStdout(
       JSON.stringify({
         udid,
         verb: parsed.verb,
@@ -589,9 +636,9 @@ export async function permissions(args: string[]): Promise<void> {
     );
   } else {
     const valueStr = parsed.value ? ` (${parsed.value})` : "";
-    console.log(
+    dependencies.writeStdout(
       `🔐 ${parsed.verb} ${parsed.permission}${valueStr} for ${bundleId} on ${udid}`,
     );
   }
-  process.exit(0);
+  return 0;
 }

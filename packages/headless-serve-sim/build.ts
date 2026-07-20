@@ -37,7 +37,10 @@ const preactPlugin = {
   setup(build: any) {
     const preactCompat = resolve(root, "node_modules/preact/compat/dist/compat.module.js");
     const preactCompatClient = resolve(root, "node_modules/preact/compat/client.mjs");
-    const preactJsxRuntime = resolve(root, "node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js");
+    const preactJsxRuntime = resolve(
+      root,
+      "node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js",
+    );
     build.onResolve({ filter: /^react-dom\/client$/ }, () => ({ path: preactCompatClient }));
     build.onResolve({ filter: /^react(-dom)?$/ }, () => ({ path: preactCompat }));
     build.onResolve({ filter: /^react\/jsx(-dev)?-runtime$/ }, () => ({ path: preactJsxRuntime }));
@@ -122,7 +125,24 @@ const mwResult = await Bun.build({
   format: "esm",
   minify: true,
   outdir: distDir,
-  external: ["fs", "path", "os", "child_process", "url", "net", "tls", "crypto", "stream", "events", "http", "https", "zlib", "buffer", "module", "ws"],
+  external: [
+    "fs",
+    "path",
+    "os",
+    "child_process",
+    "url",
+    "net",
+    "tls",
+    "crypto",
+    "stream",
+    "events",
+    "http",
+    "https",
+    "zlib",
+    "buffer",
+    "module",
+    "ws",
+  ],
   define: PREVIEW_DEFINE,
 });
 if (!mwResult.success) {
@@ -148,7 +168,24 @@ const binJsResult = await Bun.build({
   minify: true,
   outdir: distDir,
   naming: "headless-serve-sim.js",
-  external: ["fs", "path", "os", "child_process", "url", "net", "tls", "crypto", "stream", "events", "http", "https", "zlib", "buffer", "module", "ws"],
+  external: [
+    "fs",
+    "path",
+    "os",
+    "child_process",
+    "url",
+    "net",
+    "tls",
+    "crypto",
+    "stream",
+    "events",
+    "http",
+    "https",
+    "zlib",
+    "buffer",
+    "module",
+    "ws",
+  ],
   define: PREVIEW_DEFINE,
 });
 if (!binJsResult.success) {
@@ -171,12 +208,15 @@ const compile = spawnSync(
     "--compile",
     "--minify",
     resolve(root, "src/index.ts"),
-    "--outfile", resolve(distDir, "headless-serve-sim"),
-    "--define", `__PREVIEW_HTML_B64__=${JSON.stringify(htmlB64)}`,
+    "--outfile",
+    resolve(distDir, "headless-serve-sim"),
+    "--define",
+    `__PREVIEW_HTML_B64__=${JSON.stringify(htmlB64)}`,
     // `ws` must stay a runtime-resolved specifier so Bun substitutes its
     // native implementation — bundling the Node implementation breaks
     // upgrades (raw handshake writes never flush under Bun's node:http).
-    "--external", "ws",
+    "--external",
+    "ws",
   ],
   { stdio: "inherit" },
 );
@@ -189,10 +229,7 @@ console.log("dist/headless-serve-sim      (compiled binary)");
 
 const camBuild = spawnSync(
   "bash",
-  [
-    resolve(root, "Sources/SimCameraInjector/build.sh"),
-    resolve(distDir, "simcam"),
-  ],
+  [resolve(root, "Sources/SimCameraInjector/build.sh"), resolve(distDir, "simcam")],
   { stdio: "inherit" },
 );
 if (camBuild.status !== 0) {
@@ -203,10 +240,7 @@ console.log("dist/simcam/libSimCameraInjector.dylib");
 
 const helperBuild = spawnSync(
   "bash",
-  [
-    resolve(root, "Sources/SimCameraHelper/build.sh"),
-    resolve(distDir, "simcam"),
-  ],
+  [resolve(root, "Sources/SimCameraHelper/build.sh"), resolve(distDir, "simcam")],
   { stdio: "inherit" },
 );
 if (helperBuild.status !== 0) {
@@ -221,10 +255,7 @@ console.log("dist/simcam/headless-serve-sim-camera-helper");
 
 const axSettingsBuild = spawnSync(
   "bash",
-  [
-    resolve(root, "Sources/SimAXSettings/build.sh"),
-    resolve(distDir, "simax"),
-  ],
+  [resolve(root, "Sources/SimAXSettings/build.sh"), resolve(distDir, "simax")],
   { stdio: "inherit" },
 );
 if (axSettingsBuild.status !== 0) {

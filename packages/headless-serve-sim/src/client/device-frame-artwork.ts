@@ -57,16 +57,18 @@ export function deviceFrameControlRect(
     };
   }
 
-  const x = control.align === "leading"
-    ? chrome.x + offset.x
-    : control.align === "trailing"
-      ? chrome.x + chrome.width + offset.x - image.width
-      : chrome.x + chrome.width / 2 + offset.x - image.width / 2;
+  const x =
+    control.align === "leading"
+      ? chrome.x + offset.x
+      : control.align === "trailing"
+        ? chrome.x + chrome.width + offset.x - image.width
+        : chrome.x + chrome.width / 2 + offset.x - image.width / 2;
   return {
     x,
-    y: control.anchor === "top"
-      ? chrome.y + offset.y - image.height
-      : chrome.y + chrome.height + offset.y,
+    y:
+      control.anchor === "top"
+        ? chrome.y + offset.y - image.height
+        : chrome.y + chrome.height + offset.y,
     width: image.width,
     height: image.height,
   };
@@ -78,13 +80,7 @@ function drawAsset(
   asset: DeviceFrameArtworkAsset,
   rect: DeviceFrameArtworkRect,
 ): void {
-  context.drawImage(
-    images.get(asset.pngDataUrl)!,
-    rect.x,
-    rect.y,
-    rect.width,
-    rect.height,
-  );
+  context.drawImage(images.get(asset.pngDataUrl)!, rect.x, rect.y, rect.width, rect.height);
 }
 
 export function paintDeviceFrameArtwork(
@@ -189,12 +185,9 @@ const MAX_PREPARED_ARTWORK_CACHE_ENTRIES = 2;
 
 function preparationKey(frame: DeviceFrameSpec): string {
   const artwork = frame.artwork!;
-  return [
-    frame.deviceTypeIdentifier,
-    frame.chromeIdentifier,
-    artwork.width,
-    artwork.height,
-  ].join(":");
+  return [frame.deviceTypeIdentifier, frame.chromeIdentifier, artwork.width, artwork.height].join(
+    ":",
+  );
 }
 
 async function prepare(
@@ -209,10 +202,9 @@ async function prepare(
       ...artwork.controls.map((control) => control.image),
     ];
     const urls = [...new Set(assets.map((asset) => asset.pngDataUrl))];
-    const loaded = await Promise.all(urls.map(async (url) => [
-      url,
-      await platform.loadImage(url),
-    ] as const));
+    const loaded = await Promise.all(
+      urls.map(async (url) => [url, await platform.loadImage(url)] as const),
+    );
     const canvas = platform.createCanvas(artwork.width, artwork.height);
     const context = canvas.getContext("2d", { alpha: true });
     if (!context) return null;

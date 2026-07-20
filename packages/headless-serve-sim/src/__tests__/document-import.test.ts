@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { parseDocumentArgs } from "../document-import";
+import {
+  createDocumentImporter,
+  parseDocumentArgs,
+  type DocumentFileSystem,
+} from "../document-import";
+import { createScriptedHostCommands } from "../test-support/scripted-host-commands";
 
 describe("parseDocumentArgs", () => {
   test("import with a single file", () => {
@@ -14,21 +19,23 @@ describe("parseDocumentArgs", () => {
   });
 
   test("import with multiple files", () => {
-    expect(
-      parseDocumentArgs(["import", "a.pdf", "b.epub", "c.txt"]),
-    ).toMatchObject({ verb: "import", files: ["a.pdf", "b.epub", "c.txt"] });
+    expect(parseDocumentArgs(["import", "a.pdf", "b.epub", "c.txt"])).toMatchObject({
+      verb: "import",
+      files: ["a.pdf", "b.epub", "c.txt"],
+    });
   });
 
   test("-d device flag is captured", () => {
-    expect(
-      parseDocumentArgs(["import", "a.pdf", "-d", "iPad Pro"]),
-    ).toMatchObject({ device: "iPad Pro", files: ["a.pdf"] });
+    expect(parseDocumentArgs(["import", "a.pdf", "-d", "iPad Pro"])).toMatchObject({
+      device: "iPad Pro",
+      files: ["a.pdf"],
+    });
   });
 
   test("--device long form is captured", () => {
-    expect(
-      parseDocumentArgs(["import", "a.pdf", "--device", "UDID-1"]),
-    ).toMatchObject({ device: "UDID-1" });
+    expect(parseDocumentArgs(["import", "a.pdf", "--device", "UDID-1"])).toMatchObject({
+      device: "UDID-1",
+    });
   });
 
   test("--into subfolder is captured and normalized", () => {
@@ -70,27 +77,27 @@ describe("parseDocumentArgs", () => {
   });
 
   test("--name with multiple files is rejected", () => {
-    expect(
-      parseDocumentArgs(["import", "a.pdf", "b.pdf", "--name", "x.pdf"]),
-    ).toEqual({ error: expect.stringContaining("single file") });
+    expect(parseDocumentArgs(["import", "a.pdf", "b.pdf", "--name", "x.pdf"])).toEqual({
+      error: expect.stringContaining("single file"),
+    });
   });
 
   test("--name with a path separator is rejected", () => {
-    expect(
-      parseDocumentArgs(["import", "a.pdf", "--name", "sub/x.pdf"]),
-    ).toEqual({ error: expect.stringContaining("Invalid --name") });
+    expect(parseDocumentArgs(["import", "a.pdf", "--name", "sub/x.pdf"])).toEqual({
+      error: expect.stringContaining("Invalid --name"),
+    });
   });
 
   test("--into with a parent-dir segment is rejected (path traversal)", () => {
-    expect(
-      parseDocumentArgs(["import", "a.pdf", "--into", "../escape"]),
-    ).toEqual({ error: expect.stringContaining("Invalid --into") });
+    expect(parseDocumentArgs(["import", "a.pdf", "--into", "../escape"])).toEqual({
+      error: expect.stringContaining("Invalid --into"),
+    });
   });
 
   test("--into with an absolute path is rejected", () => {
-    expect(
-      parseDocumentArgs(["import", "a.pdf", "--into", "/etc"]),
-    ).toEqual({ error: expect.stringContaining("Invalid --into") });
+    expect(parseDocumentArgs(["import", "a.pdf", "--into", "/etc"])).toEqual({
+      error: expect.stringContaining("Invalid --into"),
+    });
   });
 
   test("missing value for -d is an error", () => {
@@ -102,6 +109,106 @@ describe("parseDocumentArgs", () => {
   test("unknown flag is rejected", () => {
     expect(parseDocumentArgs(["import", "a.pdf", "--bogus"])).toEqual({
       error: expect.stringContaining("Unknown flag"),
+    });
+  });
+});
+
+describe("document importer module", () => {
+  test("resolves Files storage and copies a renamed document through injected adapters", () => {
+    const host = createScriptedHostCommands([
+      {
+        result: {
+          stdout: "group.com.apple.FileProvider.LocalStorage\t/containers/local\n",
+        },
+      },
+    ]);
+    const made: string[] = [];
+    const copied: Array<[string, string]> = [];
+    const files: DocumentFileSystem = {
+      exists: (path) => path === "/input/report.pdf",
+      list: () => [],
+      makeDirectory: (path) => {
+        made.push(path);
+      },
+      copy: (source, destination) => {
+        copied.push([source, destination]);
+      },
+      homeDirectory: () => "/home/test",
+      resolvePath: (path) => path,
+    };
+
+    const imported = createDocumentImporter(host, files).importFiles("DEVICE", {
+      verb: "import",
+      files: ["/input/report.pdf"],
+      into: "Books",
+      name: "renamed.pdf",
+      quiet: false,
+    });
+
+    expect(imported).toEqual([
+      { name: "renamed.pdf", path: "/containers/local/File Provider Storage/Books/renamed.pdf" },
+    ]);
+    expect(made).toEqual(["/containers/local/File Provider Storage/Books"]);
+    expect(copied).toEqual([
+      ["/input/report.pdf", "/containers/local/File Provider Storage/Books/renamed.pdf"],
+    ]);
+    expect(host.calls).toEqual([
+      {
+        kind: "run-sync",
+        request: {
+          executable: "xcrun",
+          args: ["simctl", "get_app_container", "DEVICE", "com.apple.DocumentsApp", "groups"],
+          stdio: "capture",
+        },
+      },
+    ]);
+  });
+
+  test("rejects missing source files before storage discovery", () => {
+    const host = createScriptedHostCommands();
+    const files: DocumentFileSystem = {
+      exists: () => false,
+      list: () => [],
+      makeDirectory: () => {},
+      copy: () => {},
+      homeDirectory: () => "/home/test",
+      resolvePath: (path) => path,
+    };
+
+    expect(() =>
+      createDocumentImporter(host, files).importFiles("DEVICE", {
+        verb: "import",
+        files: ["/missing.pdf"],
+        quiet: false,
+      }),
+    ).toThrow("File(s) not found");
+    expect(host.calls).toEqual([]);
+  });
+
+  test("falls back to app-group metadata when simulator container lookup fails", () => {
+    const host = createScriptedHostCommands([
+      { result: { exitCode: 1 } },
+      { result: { stdout: "<string>group.com.apple.FileProvider.LocalStorage</string>" } },
+    ]);
+    const groups =
+      "/home/test/Library/Developer/CoreSimulator/Devices/DEVICE/data/Containers/Shared/AppGroup";
+    const metadata = `${groups}/GROUP-ID/.com.apple.mobile_container_manager.metadata.plist`;
+    const files: DocumentFileSystem = {
+      exists: (path) => path === groups || path === metadata,
+      list: () => ["GROUP-ID"],
+      makeDirectory: () => {},
+      copy: () => {},
+      homeDirectory: () => "/home/test",
+      resolvePath: (path) => path,
+    };
+
+    expect(createDocumentImporter(host, files).localStorageDir("DEVICE")).toBe(
+      `${groups}/GROUP-ID/File Provider Storage`,
+    );
+    expect(host.calls[1]?.request).toEqual({
+      executable: "plutil",
+      args: ["-convert", "xml1", "-o", "-", metadata],
+      stdio: "capture",
     });
   });
 });

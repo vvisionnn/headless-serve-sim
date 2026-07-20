@@ -49,13 +49,7 @@ describe("Select (custom dropdown)", () => {
 
   test("disabled trigger is marked disabled and not expanded", () => {
     const html = renderToStaticMarkup(
-      <Select
-        label="Appearance"
-        value="light"
-        options={APPEARANCE}
-        disabled
-        onChange={() => {}}
-      />,
+      <Select label="Appearance" value="light" options={APPEARANCE} disabled onChange={() => {}} />,
     );
     expect(html).toContain("disabled");
     expect(html).toContain('aria-expanded="false"');

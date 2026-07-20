@@ -74,7 +74,8 @@ export function avccFrameToAnnexB(frame: Uint8Array, nalLengthBytes: number): Ui
       length = length * 256 + frame[offset + index]!;
     }
     offset += nalLengthBytes;
-    if (length < 1 || offset + length > frame.byteLength) throw new Error("Truncated AVCC NAL unit");
+    if (length < 1 || offset + length > frame.byteLength)
+      throw new Error("Truncated AVCC NAL unit");
     parts.push(annexBStartCode, frame.subarray(offset, offset + length));
     offset += length;
   }
@@ -153,10 +154,7 @@ export function analyzeRgbFrames(
       let nearestDistance = Number.POSITIVE_INFINITY;
       for (let colorIndex = 0; colorIndex < palette.length; colorIndex++) {
         const color = palette[colorIndex]!;
-        const distance =
-          (red - color[0]) ** 2 +
-          (green - color[1]) ** 2 +
-          (blue - color[2]) ** 2;
+        const distance = (red - color[0]) ** 2 + (green - color[1]) ** 2 + (blue - color[2]) ** 2;
         if (distance < nearestDistance) {
           nearest = colorIndex;
           nearestDistance = distance;
@@ -173,11 +171,12 @@ export function analyzeRgbFrames(
       .sort((a, b) => b.count - a.count);
     const dominant = ranked[0];
     const runnerUp = ranked[1];
-    const status = confidentRows < Math.ceil(height * 0.8)
-      ? "invalid"
-      : runnerUp && runnerUp.count >= minimumGenerationRows
-        ? "torn"
-        : "coherent";
+    const status =
+      confidentRows < Math.ceil(height * 0.8)
+        ? "invalid"
+        : runnerUp && runnerUp.count >= minimumGenerationRows
+          ? "torn"
+          : "coherent";
 
     frames.push({
       status,
@@ -273,8 +272,8 @@ function parseArguments(args: string[]): BenchmarkOptions {
   if (!streamUrl || !udid) {
     throw new Error(
       "Usage: bun run scripts/stream-quality-benchmark.ts --url http://127.0.0.1:PORT --udid UDID " +
-      "[--format avcc|mjpeg] [--duration 6] [--min-fps 55] [--min-window-fps 50] " +
-      "[--max-mbps 8] [--output DIR]",
+        "[--format avcc|mjpeg] [--duration 6] [--min-fps 55] [--min-window-fps 50] " +
+        "[--max-mbps 8] [--output DIR]",
     );
   }
   const positiveNumber = (name: string, fallback: number) => {
@@ -327,11 +326,10 @@ async function captureAvcc(url: string, durationSeconds: number): Promise<Captur
 
       let offset = 0;
       while (pending.byteLength - offset >= 4) {
-        const length = new DataView(
-          pending.buffer,
-          pending.byteOffset + offset,
-          4,
-        ).getUint32(0, false);
+        const length = new DataView(pending.buffer, pending.byteOffset + offset, 4).getUint32(
+          0,
+          false,
+        );
         if (length < 1) throw new Error("Invalid zero-length AVCC envelope");
         if (pending.byteLength - offset - 4 < length) break;
         const tag = pending[offset + 4]!;
@@ -485,42 +483,61 @@ async function runBenchmark(options: BenchmarkOptions): Promise<boolean> {
     if (!patternRequested) throw new Error("Simulator did not load the benchmark pattern");
     await Bun.sleep(1_500);
 
-    const capture = options.format === "avcc"
-      ? await captureAvcc(options.streamUrl, options.durationSeconds)
-      : await captureMjpeg(options.streamUrl, options.durationSeconds);
+    const capture =
+      options.format === "avcc"
+        ? await captureAvcc(options.streamUrl, options.durationSeconds)
+        : await captureMjpeg(options.streamUrl, options.durationSeconds);
     const streamPath = join(outputDirectory, `stream-quality.${capture.inputFormat}`);
     const mp4Path = join(outputDirectory, "stream-quality.mp4");
     await Bun.write(streamPath, capture.data);
     if (capture.inputFormat === "h264") {
       runFfmpeg([
-        "-fflags", "+genpts",
-        "-r", "60",
-        "-i", streamPath,
-        "-c:v", "copy",
-        "-movflags", "+faststart",
+        "-fflags",
+        "+genpts",
+        "-r",
+        "60",
+        "-i",
+        streamPath,
+        "-c:v",
+        "copy",
+        "-movflags",
+        "+faststart",
         mp4Path,
       ]);
     } else {
       runFfmpeg([
-        "-f", "mjpeg",
-        "-r", "60",
-        "-i", streamPath,
-        "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "18",
-        "-movflags", "+faststart",
+        "-f",
+        "mjpeg",
+        "-r",
+        "60",
+        "-i",
+        streamPath,
+        "-vf",
+        "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-crf",
+        "18",
+        "-movflags",
+        "+faststart",
         mp4Path,
       ]);
     }
     const rgb = runFfmpeg([
-      "-f", capture.inputFormat,
-      "-i", streamPath,
+      "-f",
+      capture.inputFormat,
+      "-i",
+      streamPath,
       "-vf",
       "crop=trunc(iw*0.5/2)*2:trunc(ih*0.5/2)*2:trunc(iw*0.25/2)*2:trunc(ih*0.25/2)*2,scale=16:64:flags=area",
-      "-fps_mode", "passthrough",
-      "-pix_fmt", "rgb24",
-      "-f", "rawvideo",
+      "-fps_mode",
+      "passthrough",
+      "-pix_fmt",
+      "rgb24",
+      "-f",
+      "rawvideo",
       "pipe:1",
     ]);
     const frameReport = analyzeRgbFrames(rgb, {
@@ -529,19 +546,21 @@ async function runBenchmark(options: BenchmarkOptions): Promise<boolean> {
       palette: benchmarkPalette,
     });
     const elapsedMs = (capture.frameTimesMs.at(-1) ?? 0) - capture.frameTimesMs[0]!;
-    const averageFps = (capture.frameTimesMs.length - 1) * 1000 / elapsedMs;
+    const averageFps = ((capture.frameTimesMs.length - 1) * 1000) / elapsedMs;
     const windowCounts = oneSecondFrameCounts(capture.frameTimesMs);
     const minimumWindowFps = windowCounts.length > 0 ? Math.min(...windowCounts) : 0;
-    const megabitsPerSecond = capture.wireBytes * 8 / elapsedMs / 1000;
+    const megabitsPerSecond = (capture.wireBytes * 8) / elapsedMs / 1000;
     const failures: string[] = [];
     if (frameReport.tornFrames !== 0) failures.push(`${frameReport.tornFrames} torn frame(s)`);
-    if (frameReport.invalidFrames !== 0) failures.push(`${frameReport.invalidFrames} unclassifiable frame(s)`);
+    if (frameReport.invalidFrames !== 0)
+      failures.push(`${frameReport.invalidFrames} unclassifiable frame(s)`);
     if (frameReport.totalFrames !== capture.frameTimesMs.length) {
       failures.push(
         `captured ${capture.frameTimesMs.length} frame(s), decoded ${frameReport.totalFrames}`,
       );
     }
-    if (averageFps < options.minFps) failures.push(`average FPS ${averageFps.toFixed(2)} < ${options.minFps}`);
+    if (averageFps < options.minFps)
+      failures.push(`average FPS ${averageFps.toFixed(2)} < ${options.minFps}`);
     if (minimumWindowFps < options.minWindowFps) {
       failures.push(`minimum 1s FPS ${minimumWindowFps} < ${options.minWindowFps}`);
     }

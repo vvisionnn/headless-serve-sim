@@ -7,15 +7,7 @@
 // (extruded ribbon + ground plane shadow) but flat-shaded so we don't pull
 // in WebGL or a 3D library.
 
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   DEFAULT_TRAILS,
   defaultSpeed,
@@ -65,7 +57,11 @@ const HOVER_CSS = `
 .lem-speed:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); }
 `;
 
-interface ExecResult { stdout: string; stderr: string; exitCode: number }
+interface ExecResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
 type ExecFn = (cmd: string) => Promise<ExecResult>;
 
 const SPEED_MULTIPLIERS = [1, 2, 5, 20] as const;
@@ -86,13 +82,7 @@ const INITIAL_PLAYBACK: PlaybackState = { status: "idle", arc: 0, elapsedMs: 0 }
 
 // ─── Tool component ────────────────────────────────────────────────────────
 
-export function LocationEmulationTool({
-  udid,
-  exec,
-}: {
-  udid: string;
-  exec: ExecFn;
-}) {
+export function LocationEmulationTool({ udid, exec }: { udid: string; exec: ExecFn }) {
   const [open, setOpen] = useState(false);
   const [trailId, setTrailId] = useState<string>(DEFAULT_TRAILS[0]!.id);
   const [mode, setMode] = useState<TrailMode>(DEFAULT_TRAILS[0]!.mode);
@@ -119,7 +109,9 @@ export function LocationEmulationTool({
   // where they were before the simulation started.
   const sessionOriginRef = useRef<{ lat: number; lng: number } | null>(null);
 
-  useEffect(() => { speedRef.current = defaultSpeed(mode) * multiplier; }, [mode, multiplier]);
+  useEffect(() => {
+    speedRef.current = defaultSpeed(mode) * multiplier;
+  }, [mode, multiplier]);
   // Morph state — when the trail changes we keep the previous prepared trail
   // around briefly so the renderer can interpolate between the two shapes.
   // The state precomputes nearest-neighbour-aligned point samples so each
@@ -237,16 +229,21 @@ export function LocationEmulationTool({
       lastPushed = now;
       const pt = pointAtDistance(trailRef.current, arcRef.current);
       const cmd = `xcrun simctl location ${udid} set ${pt.lat.toFixed(7)},${pt.lng.toFixed(7)}`;
-      inflight = exec(cmd).then((res) => {
-        if (cancelled) return;
-        if (res.exitCode !== 0) {
-          setError(parseSimctlError(res.stderr) || "simctl location set failed");
-        } else {
-          setError(null);
-        }
-      }).catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      }).finally(() => { inflight = null; });
+      inflight = exec(cmd)
+        .then((res) => {
+          if (cancelled) return;
+          if (res.exitCode !== 0) {
+            setError(parseSimctlError(res.stderr) || "simctl location set failed");
+          } else {
+            setError(null);
+          }
+        })
+        .catch((e) => {
+          if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        })
+        .finally(() => {
+          inflight = null;
+        });
     };
 
     void push();
@@ -307,14 +304,17 @@ export function LocationEmulationTool({
   // Stop simulating when the panel unmounts so we don't leave the simulator
   // parked on the last waypoint. If we captured a session origin, restore it
   // first so the device lands back where the user started.
-  useEffect(() => () => {
-    if (statusRef.current === "idle") return;
-    const origin = sessionOriginRef.current;
-    const cmd = origin
-      ? `xcrun simctl location ${udid} set ${origin.lat.toFixed(7)},${origin.lng.toFixed(7)}`
-      : `xcrun simctl location ${udid} clear`;
-    void exec(cmd).catch(() => {});
-  }, [exec, udid]);
+  useEffect(
+    () => () => {
+      if (statusRef.current === "idle") return;
+      const origin = sessionOriginRef.current;
+      const cmd = origin
+        ? `xcrun simctl location ${udid} set ${origin.lat.toFixed(7)},${origin.lng.toFixed(7)}`
+        : `xcrun simctl location ${udid} clear`;
+      void exec(cmd).catch(() => {});
+    },
+    [exec, udid],
+  );
 
   // ── Render ───────────────────────────────────────────────────────────────
   const playing = playback.status === "playing";
@@ -335,13 +335,19 @@ export function LocationEmulationTool({
         className="lem-toggle flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full cursor-pointer select-none bg-transparent border-none text-fg text-left [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">Location</span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
+          Location
+        </span>
         <span className="flex items-center gap-2.5 ml-auto">
           <span className="text-[11px] text-fg-3 font-mono inline-flex items-center gap-1.5 leading-none">
             <span
               className="size-1.5 rounded-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)]"
               style={{
-                background: playing ? "var(--color-success)" : prepared.totalDistance > 0 ? "var(--color-fg-3)" : "transparent",
+                background: playing
+                  ? "var(--color-success)"
+                  : prepared.totalDistance > 0
+                    ? "var(--color-fg-3)"
+                    : "transparent",
               }}
             />
             {headerStatus}
@@ -361,7 +367,10 @@ export function LocationEmulationTool({
                 onChange={onTrailChange}
                 className="lem-select bg-surface-3 rounded-card border border-divider text-fg text-[13px] py-2 pr-[28px] pl-2.5 w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
               />
-              <span className="absolute right-[10px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center" aria-hidden="true">
+              <span
+                className="absolute right-[10px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center"
+                aria-hidden="true"
+              >
                 <Chevron open={false} />
               </span>
             </div>
@@ -428,7 +437,9 @@ export function LocationEmulationTool({
               title={`Speed ${multiplier}× — tap to cycle`}
             >
               <FastForwardGlyph />
-              {multiplier > 1 && <span className="font-mono [font-variant-numeric:tabular-nums]">{multiplier}×</span>}
+              {multiplier > 1 && (
+                <span className="font-mono [font-variant-numeric:tabular-nums]">{multiplier}×</span>
+              )}
             </button>
           </div>
 
@@ -449,7 +460,9 @@ const Stat = memo(function Stat({ label, value }: { label: string; value: string
   return (
     <div className="flex flex-col gap-0.5 bg-surface-2 rounded-sm border border-divider py-1.5 px-2 min-w-0">
       <div className="text-[10px] text-fg-3">{label}</div>
-      <div className="text-[13px] font-mono text-fg overflow-hidden text-ellipsis whitespace-nowrap">{value}</div>
+      <div className="text-[13px] font-mono text-fg overflow-hidden text-ellipsis whitespace-nowrap">
+        {value}
+      </div>
     </div>
   );
 });
@@ -505,7 +518,6 @@ function ElevationBadges({ prepared }: { prepared: PreparedTrail }) {
   );
 }
 
-
 // ─── Trail morphing ────────────────────────────────────────────────────────
 // We don't morph in raw geographic coords — two trails can be hundreds of
 // km apart, which makes a per-arc-fraction lerp draw long straight lines
@@ -516,7 +528,11 @@ function ElevationBadges({ prepared }: { prepared: PreparedTrail }) {
 
 const MORPH_SAMPLES = 140;
 
-interface Vec3 { x: number; y: number; z: number }
+interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
 
 interface MorphState {
   from: PreparedTrail;
@@ -552,14 +568,14 @@ function buildMorphState(
   const fromCz = (from.bounds.z[0] + from.bounds.z[1]) / 2;
   const fromY0 = from.bounds.y[0];
   const fromPlanar = Math.max(
-    1, from.bounds.x[1] - from.bounds.x[0], from.bounds.z[1] - from.bounds.z[0],
+    1,
+    from.bounds.x[1] - from.bounds.x[0],
+    from.bounds.z[1] - from.bounds.z[0],
   );
   const toCx = (to.bounds.x[0] + to.bounds.x[1]) / 2;
   const toCz = (to.bounds.z[0] + to.bounds.z[1]) / 2;
   const toY0 = to.bounds.y[0];
-  const toPlanar = Math.max(
-    1, to.bounds.x[1] - to.bounds.x[0], to.bounds.z[1] - to.bounds.z[0],
-  );
+  const toPlanar = Math.max(1, to.bounds.x[1] - to.bounds.x[0], to.bounds.z[1] - to.bounds.z[0]);
   const scale = toPlanar / fromPlanar;
 
   const fromRaw = sampleEvenly(from, MORPH_SAMPLES);
@@ -604,7 +620,9 @@ function nearestNeighbourAlign(from: Vec3[], to: Vec3[], loop: boolean): Vec3[] 
       for (let i = 0; i < N; i++) {
         const a = from[i]!;
         const b = target[(i + k) % N]!;
-        const dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+        const dx = a.x - b.x,
+          dy = a.y - b.y,
+          dz = a.z - b.z;
         cost += dx * dx + dy * dy + dz * dz;
         if (cost >= bestCost) break;
       }
@@ -627,9 +645,12 @@ function morphFrame(state: MorphState, t: number): PreparedTrail {
   const points: RoutePoint[] = new Array(N);
   let arc = 0;
   let prev: RoutePoint | null = null;
-  let xMin = Infinity, xMax = -Infinity;
-  let yMin = Infinity, yMax = -Infinity;
-  let zMin = Infinity, zMax = -Infinity;
+  let xMin = Infinity,
+    xMax = -Infinity;
+  let yMin = Infinity,
+    yMax = -Infinity;
+  let zMin = Infinity,
+    zMax = -Infinity;
   for (let i = 0; i < N; i++) {
     const a = state.fromPts[i]!;
     const b = state.toPts[i]!;
@@ -637,15 +658,20 @@ function morphFrame(state: MorphState, t: number): PreparedTrail {
     const y = a.y + (b.y - a.y) * t;
     const z = a.z + (b.z - a.z) * t;
     if (prev) {
-      const dx = x - prev.x, dy = y - prev.y, dz = z - prev.z;
+      const dx = x - prev.x,
+        dy = y - prev.y,
+        dz = z - prev.z;
       arc += Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
     const pt: RoutePoint = { x, y, z, arc, lat: 0, lng: 0 };
     points[i] = pt;
     prev = pt;
-    if (x < xMin) xMin = x; if (x > xMax) xMax = x;
-    if (y < yMin) yMin = y; if (y > yMax) yMax = y;
-    if (z < zMin) zMin = z; if (z > zMax) zMax = z;
+    if (x < xMin) xMin = x;
+    if (x > xMax) xMax = x;
+    if (y < yMin) yMin = y;
+    if (y > yMax) yMax = y;
+    if (z < zMin) zMin = z;
+    if (z > zMax) zMax = z;
   }
   return {
     trail: state.to.trail,
@@ -693,8 +719,12 @@ function renderScene(
 
   // Background — radial vignette for that "scene viewport" feel.
   const bg = ctx.createRadialGradient(
-    cssW * 0.5, cssH * 0.55, Math.min(cssW, cssH) * 0.2,
-    cssW * 0.5, cssH * 0.55, Math.max(cssW, cssH) * 0.85,
+    cssW * 0.5,
+    cssH * 0.55,
+    Math.min(cssW, cssH) * 0.2,
+    cssW * 0.5,
+    cssH * 0.55,
+    Math.max(cssW, cssH) * 0.85,
   );
   bg.addColorStop(0, "#1a1a1d");
   bg.addColorStop(1, "#0a0a0c");
@@ -729,21 +759,16 @@ function renderScene(
   const fitH = Math.max(zExtent * cosT + yExtent * sinT, xExtent * 0.4) * 1.15;
   const padX = cssW * 0.08;
   const padY = cssH * 0.18; // extra room at top for elevation badges
-  const scale = Math.min(
-    (cssW - padX * 2) / fitW,
-    (cssH - padY * 2) / fitH,
-  ) * 1.45;
+  const scale = Math.min((cssW - padX * 2) / fitW, (cssH - padY * 2) / fitH) * 1.45;
 
   // Vertical exaggeration — real ridges look pancake-flat in plain ortho,
   // so we push hills harder. Cap at 24× and scale down on big xy extents so
   // flat trails stay flat.
-  const elevationGain = yExtent < 1
-    ? 1
-    : Math.min(24, 140 / Math.max(20, yExtent));
+  const elevationGain = yExtent < 1 ? 1 : Math.min(24, 140 / Math.max(20, yExtent));
 
   const project = (x: number, y: number, z: number) => {
-    const px = (x - cx);
-    const pz = (z - cz);
+    const px = x - cx;
+    const pz = z - cz;
     // Rotate around y axis.
     const rx = px * cosA + pz * sinA;
     const rz = -px * sinA + pz * cosA;
@@ -823,8 +848,10 @@ function renderScene(
   for (let i = 0; i < projected.length; i++) {
     const { p, top } = projected[i]!;
     if (p.arc > cutoff) break;
-    if (!started) { ctx.moveTo(top.sx, top.sy); started = true; }
-    else ctx.lineTo(top.sx, top.sy);
+    if (!started) {
+      ctx.moveTo(top.sx, top.sy);
+      started = true;
+    } else ctx.lineTo(top.sx, top.sy);
   }
   if (started) ctx.stroke();
 
@@ -906,4 +933,3 @@ function parseSimctlError(stderr: string): string {
   if (m) return m[1]!;
   return trimmed.split("\n").slice(-1)[0] ?? trimmed;
 }
-

@@ -28,11 +28,13 @@ export function StreamModeToggle({
               disabled={disabled}
               onClick={() => onModeChange(option)}
               className={`min-h-7 flex-1 cursor-pointer rounded-pill border-none px-2 text-[11px] font-semibold focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] disabled:cursor-not-allowed disabled:text-fg-3 ${active ? "bg-panel shadow-sm" : "bg-transparent text-fg-3 hover:bg-hover"}`}
-              style={active ? {
-                color: option === "quality"
-                  ? "var(--color-accent)"
-                  : "var(--color-success)",
-              } : undefined}
+              style={
+                active
+                  ? {
+                      color: option === "quality" ? "var(--color-accent)" : "var(--color-success)",
+                    }
+                  : undefined
+              }
             >
               {option === "perf" ? "Perf" : "Quality"}
             </button>

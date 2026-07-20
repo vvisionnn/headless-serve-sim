@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  reconcileStreamMode,
-  sendStreamMode,
-} from "../client/utils/stream-mode-control";
+import { reconcileStreamMode, sendStreamMode } from "../client/utils/stream-mode-control";
 
 describe("stream mode control", () => {
   test("retains a Quality request while disconnected and sends it after reconnect", () => {

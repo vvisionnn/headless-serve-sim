@@ -5,7 +5,17 @@ import { execOnHost, shellEscape } from "../utils/exec";
 
 // Mirrors the simctl status_bar enum sets (see `xcrun simctl help status_bar`).
 const DATA_NETWORK = [
-  "hide", "wifi", "3g", "4g", "lte", "lte-a", "lte+", "5g", "5g+", "5g-uwb", "5g-uc",
+  "hide",
+  "wifi",
+  "3g",
+  "4g",
+  "lte",
+  "lte-a",
+  "lte+",
+  "5g",
+  "5g+",
+  "5g-uwb",
+  "5g-uc",
 ] as const;
 const WIFI_MODE = ["searching", "failed", "active"] as const;
 const CELLULAR_MODE = ["notSupported", "searching", "failed", "active"] as const;
@@ -147,7 +157,9 @@ export function StatusBarTool({ udid }: { udid: string }) {
         className="lem-toggle flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full bg-transparent border-none text-left cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">Status Bar</span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
+          Status Bar
+        </span>
         <Chevron open={open} />
       </button>
 
@@ -171,24 +183,51 @@ export function StatusBarTool({ udid }: { udid: string }) {
             </Field>
 
             <Field label="Data network">
-              <Select value={fields.dataNetwork} onChange={(v) => set("dataNetwork", v)} options={DATA_NETWORK} ariaLabel="Data network" />
+              <Select
+                value={fields.dataNetwork}
+                onChange={(v) => set("dataNetwork", v)}
+                options={DATA_NETWORK}
+                ariaLabel="Data network"
+              />
             </Field>
 
             <div className="grid grid-cols-2 gap-2">
               <Field label="Cellular bars">
-                <NumberInput value={fields.cellularBars} onChange={(v) => set("cellularBars", v)} min={0} max={4} ariaLabel="Cellular bars" />
+                <NumberInput
+                  value={fields.cellularBars}
+                  onChange={(v) => set("cellularBars", v)}
+                  min={0}
+                  max={4}
+                  ariaLabel="Cellular bars"
+                />
               </Field>
               <Field label="Cellular mode">
-                <Select value={fields.cellularMode} onChange={(v) => set("cellularMode", v)} options={CELLULAR_MODE} ariaLabel="Cellular mode" />
+                <Select
+                  value={fields.cellularMode}
+                  onChange={(v) => set("cellularMode", v)}
+                  options={CELLULAR_MODE}
+                  ariaLabel="Cellular mode"
+                />
               </Field>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               <Field label="WiFi bars">
-                <NumberInput value={fields.wifiBars} onChange={(v) => set("wifiBars", v)} min={0} max={3} ariaLabel="WiFi bars" />
+                <NumberInput
+                  value={fields.wifiBars}
+                  onChange={(v) => set("wifiBars", v)}
+                  min={0}
+                  max={3}
+                  ariaLabel="WiFi bars"
+                />
               </Field>
               <Field label="WiFi mode">
-                <Select value={fields.wifiMode} onChange={(v) => set("wifiMode", v)} options={WIFI_MODE} ariaLabel="WiFi mode" />
+                <Select
+                  value={fields.wifiMode}
+                  onChange={(v) => set("wifiMode", v)}
+                  options={WIFI_MODE}
+                  ariaLabel="WiFi mode"
+                />
               </Field>
             </div>
 
@@ -206,10 +245,21 @@ export function StatusBarTool({ udid }: { udid: string }) {
 
             <div className="grid grid-cols-2 gap-2">
               <Field label="Battery state">
-                <Select value={fields.batteryState} onChange={(v) => set("batteryState", v)} options={BATTERY_STATE} ariaLabel="Battery state" />
+                <Select
+                  value={fields.batteryState}
+                  onChange={(v) => set("batteryState", v)}
+                  options={BATTERY_STATE}
+                  ariaLabel="Battery state"
+                />
               </Field>
               <Field label="Battery level">
-                <NumberInput value={fields.batteryLevel} onChange={(v) => set("batteryLevel", v)} min={0} max={100} ariaLabel="Battery level" />
+                <NumberInput
+                  value={fields.batteryLevel}
+                  onChange={(v) => set("batteryLevel", v)}
+                  min={0}
+                  max={100}
+                  ariaLabel="Battery level"
+                />
               </Field>
             </div>
           </div>
@@ -287,7 +337,10 @@ function Select({
         onChange={onChange}
         className="lem-select bg-surface-3 rounded-card border border-divider text-fg text-[13px] py-2 pr-[28px] pl-2.5 w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
       />
-      <span className="absolute right-[10px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center" aria-hidden="true">
+      <span
+        className="absolute right-[10px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center"
+        aria-hidden="true"
+      >
         <Chevron open={false} />
       </span>
     </div>

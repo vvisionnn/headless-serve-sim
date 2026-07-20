@@ -1,7 +1,8 @@
-import { execFile } from "child_process";
 import { existsSync } from "fs";
 import { join, resolve } from "path";
 import { findBootedDevice, resolveDevice } from "./device";
+import type { HostCommands } from "./runtime/host-commands";
+import { createNodeHostCommands } from "./runtime/node-host-commands";
 import { dirnameOf } from "./runtime";
 
 // Bun's bundler inlines a bare `__dirname` as the build machine's source
@@ -62,7 +63,7 @@ interface UiOptionSpec {
   toggle?: boolean;
 }
 
-export const UI_OPTIONS: Record<string, UiOptionSpec> = {
+export const UI_OPTIONS = {
   appearance: { via: "appearance", values: ["light", "dark"] },
   "liquid-glass": { via: "ax", values: ["clear", "tinted"] },
   "color-filter": { via: "ax", values: COLOR_FILTERS, aliases: COLOR_FILTER_ALIASES },
@@ -76,14 +77,24 @@ export const UI_OPTIONS: Record<string, UiOptionSpec> = {
   "show-borders": { via: "ax", values: TOGGLE_VALUES, toggle: true },
   "reduce-transparency": { via: "ax", values: TOGGLE_VALUES, toggle: true },
   voiceover: { via: "ax", values: TOGGLE_VALUES, toggle: true },
-};
+} satisfies Record<string, UiOptionSpec>;
+
+export type UiOption = keyof typeof UI_OPTIONS;
+
+function uiOptionSpec(option: string): UiOptionSpec | undefined {
+  return (UI_OPTIONS as Record<string, UiOptionSpec>)[option];
+}
+
+function isUiOption(option: string): option is UiOption {
+  return uiOptionSpec(option) !== undefined;
+}
 
 /**
  * Map a user-supplied value onto its canonical form for the option, or null
  * when the value isn't valid. Toggles accept the usual on/off synonyms.
  */
 export function normalizeUiValue(option: string, value: string): string | null {
-  const spec = UI_OPTIONS[option];
+  const spec = uiOptionSpec(option);
   if (!spec) return null;
   const v = value.toLowerCase();
   if (spec.toggle) {
@@ -126,7 +137,7 @@ export function parseUiArgs(args: string[]): UiArgs {
   }
 
   const option = rest[0]!.toLowerCase();
-  if (!UI_OPTIONS[option]) {
+  if (!isUiOption(option)) {
     return { command: "get", json, error: `unknown option: ${option}` };
   }
   if (rest.length === 1) {
@@ -134,7 +145,7 @@ export function parseUiArgs(args: string[]): UiArgs {
   }
   const value = normalizeUiValue(option, rest[1]!);
   if (value === null) {
-    const spec = UI_OPTIONS[option]!;
+    const spec = uiOptionSpec(option)!;
     const accepted = [...spec.values, ...(spec.extraValues ?? [])].join("|");
     return {
       command: "set",
@@ -157,58 +168,6 @@ export function locateAxSettingsTool(): string | null {
   return null;
 }
 
-// One-time build is memoized as a promise so concurrent in-server callers
-// share a single clang invocation instead of racing.
-let axToolPromise: Promise<string> | null = null;
-
-function axSettingsTool(): Promise<string> {
-  axToolPromise ??= (async () => {
-    const located = locateAxSettingsTool();
-    if (located) return located;
-    const buildScript = join(__dirname, "..", "Sources", "SimAXSettings", "build.sh");
-    if (!existsSync(buildScript)) {
-      throw new Error(
-        "sim-ax-settings binary not found — this build of headless-serve-sim does " +
-          "not include the simulator settings helper. Reinstall from a recent release.",
-      );
-    }
-    console.error("[headless-serve-sim] building sim-ax-settings (one-time)…");
-    await run("bash", [buildScript]);
-    const out = locateAxSettingsTool();
-    if (!out) throw new Error("Build succeeded but sim-ax-settings not found.");
-    return out;
-  })();
-  axToolPromise.catch(() => {
-    axToolPromise = null;
-  });
-  return axToolPromise;
-}
-
-// ─── Backends ───
-// Async throughout: these also run inside the preview server's event loop
-// (the sidebar drives them through the control socket), where a blocking
-// execFileSync would stall every stream the server is carrying.
-
-function run(file: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(file, args, { encoding: "utf-8", maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) reject(new Error(String(stderr).trim() || err.message));
-      else resolve(String(stdout).trim());
-    });
-  });
-}
-
-function simctlUi(udid: string, subcommand: string, value?: string): Promise<string> {
-  const args = ["simctl", "ui", udid, subcommand];
-  if (value !== undefined) args.push(value);
-  return run("xcrun", args);
-}
-
-async function axRun(udid: string, ...args: string[]): Promise<string> {
-  const tool = await axSettingsTool();
-  return run("xcrun", ["simctl", "spawn", udid, tool, ...args]);
-}
-
 function toToggle(simctlValue: string): string {
   return simctlValue === "enabled" ? "on" : "off";
 }
@@ -217,42 +176,144 @@ function fromToggle(value: string): string {
   return value === "on" ? "enabled" : "disabled";
 }
 
+interface UiSettingsModuleOptions {
+  locateAxSettingsTool?: () => string | null;
+  buildScript?: string;
+  onBuild?: () => void;
+}
+
+export interface UiSettingsModule {
+  get(udid: string, option: UiOption): Promise<string>;
+  set(udid: string, option: UiOption, value: string): Promise<void>;
+  status(udid: string): Promise<Record<string, string>>;
+}
+
+function commandOutput(result: Awaited<ReturnType<HostCommands["run"]>>): string {
+  if (result.exitCode !== 0 || result.timedOut) {
+    const detail = result.stderr.toString().trim();
+    throw new Error(detail || `Host command failed with exit code ${result.exitCode ?? "unknown"}`);
+  }
+  return result.stdout.toString().trim();
+}
+
+/**
+ * Typed domain Module for simulator-wide UI settings. The injected HostCommands
+ * Adapter is the only Seam that can reach host tooling; callers and tests deal
+ * exclusively in devices, options, and canonical values.
+ */
+export function createUiSettings(
+  host: HostCommands,
+  options: UiSettingsModuleOptions = {},
+): UiSettingsModule {
+  const locateTool = options.locateAxSettingsTool ?? locateAxSettingsTool;
+  const buildScript =
+    options.buildScript ?? join(__dirname, "..", "Sources", "SimAXSettings", "build.sh");
+  let toolPromise: Promise<string> | null = null;
+
+  const run = async (executable: string, args: readonly string[]): Promise<string> => {
+    const result = await host.run({
+      executable,
+      args,
+      stdio: "capture",
+      maxOutputBytes: 4 * 1024 * 1024,
+    });
+    return commandOutput(result);
+  };
+
+  const axTool = (): Promise<string> => {
+    toolPromise ??= (async () => {
+      const located = locateTool();
+      if (located) return located;
+      if (!existsSync(buildScript)) {
+        throw new Error(
+          "sim-ax-settings binary not found — this build of headless-serve-sim does " +
+            "not include the simulator settings helper. Reinstall from a recent release.",
+        );
+      }
+      options.onBuild?.();
+      await run("bash", [buildScript]);
+      const built = locateTool();
+      if (!built) throw new Error("Build succeeded but sim-ax-settings not found.");
+      return built;
+    })();
+    toolPromise.catch(() => {
+      toolPromise = null;
+    });
+    return toolPromise;
+  };
+
+  const simctlUi = (udid: string, subcommand: string, value?: string): Promise<string> => {
+    const args = ["simctl", "ui", udid, subcommand];
+    if (value !== undefined) args.push(value);
+    return run("xcrun", args);
+  };
+
+  const axRun = async (udid: string, ...args: string[]): Promise<string> => {
+    const tool = await axTool();
+    return run("xcrun", ["simctl", "spawn", udid, tool, ...args]);
+  };
+
+  const get = async (udid: string, option: UiOption): Promise<string> => {
+    const spec = uiOptionSpec(option);
+    if (!spec) throw new Error(`unknown option: ${option}`);
+    if (spec.via === "ax") return axRun(udid, "get", option);
+    const raw = (await simctlUi(udid, spec.via)).toLowerCase();
+    return spec.toggle ? toToggle(raw) : raw;
+  };
+
+  const set = async (udid: string, option: UiOption, value: string): Promise<void> => {
+    const spec = uiOptionSpec(option);
+    if (!spec) throw new Error(`unknown option: ${option}`);
+    if (spec.via === "ax") {
+      await axRun(udid, "set", option, value);
+      return;
+    }
+    await simctlUi(udid, spec.via, spec.toggle ? fromToggle(value) : value);
+  };
+
+  const status = async (udid: string): Promise<Record<string, string>> => {
+    const optionEntries = Object.entries(UI_OPTIONS) as Array<[UiOption, UiOptionSpec]>;
+    const simctlOptions = optionEntries.filter(([, spec]) => spec.via !== "ax");
+    const [axStatus, ...simctlValues] = await Promise.all([
+      axRun(udid, "status").then((out) => JSON.parse(out) as Record<string, string>),
+      ...simctlOptions.map(([option]) => get(udid, option)),
+    ]);
+    const result: Record<string, string> = {};
+    for (const [option, spec] of optionEntries) {
+      if (spec.via === "ax") result[option] = axStatus[option] ?? "unknown";
+    }
+    simctlOptions.forEach(([option], index) => {
+      result[option] = simctlValues[index]!;
+    });
+    return result;
+  };
+
+  return { get, set, status };
+}
+
+let productionSettings: UiSettingsModule | null = null;
+
+function productionUiSettings(): UiSettingsModule {
+  productionSettings ??= createUiSettings(createNodeHostCommands(), {
+    onBuild: () => {
+      console.error("[headless-serve-sim] building sim-ax-settings (one-time)…");
+    },
+  });
+  return productionSettings;
+}
+
 export async function getUiOption(udid: string, option: string): Promise<string> {
-  const spec = UI_OPTIONS[option];
-  if (!spec) throw new Error(`unknown option: ${option}`);
-  if (spec.via === "ax") return axRun(udid, "get", option);
-  // simctl's casing is inconsistent (`content_size` prints "Small" but
-  // "large") — values are canonically lowercase everywhere here.
-  const raw = (await simctlUi(udid, spec.via)).toLowerCase();
-  return spec.toggle ? toToggle(raw) : raw;
+  if (!isUiOption(option)) throw new Error(`unknown option: ${option}`);
+  return productionUiSettings().get(udid, option);
 }
 
 export async function setUiOption(udid: string, option: string, value: string): Promise<void> {
-  const spec = UI_OPTIONS[option];
-  if (!spec) throw new Error(`unknown option: ${option}`);
-  if (spec.via === "ax") {
-    await axRun(udid, "set", option, value);
-    return;
-  }
-  await simctlUi(udid, spec.via, spec.toggle ? fromToggle(value) : value);
+  if (!isUiOption(option)) throw new Error(`unknown option: ${option}`);
+  return productionUiSettings().set(udid, option, value);
 }
 
 export async function getUiStatus(udid: string): Promise<Record<string, string>> {
-  // One ax-tool spawn covers all its settings; the simctl-backed reads fan
-  // out in parallel alongside it.
-  const simctlOptions = Object.entries(UI_OPTIONS).filter(([, spec]) => spec.via !== "ax");
-  const [axStatus, ...simctlValues] = await Promise.all([
-    axRun(udid, "status").then((out) => JSON.parse(out) as Record<string, string>),
-    ...simctlOptions.map(([option]) => getUiOption(udid, option)),
-  ]);
-  const status: Record<string, string> = {};
-  for (const [option, spec] of Object.entries(UI_OPTIONS)) {
-    if (spec.via === "ax") status[option] = axStatus[option] ?? "unknown";
-  }
-  simctlOptions.forEach(([option], i) => {
-    status[option] = simctlValues[i]!;
-  });
-  return status;
+  return productionUiSettings().status(udid);
 }
 
 // ─── CLI entry (`headless-serve-sim ui …`) ───

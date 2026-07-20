@@ -1,12 +1,26 @@
 import { describe, test, expect } from "bun:test";
-import { execSync } from "child_process";
 import { resolve } from "path";
-import { existsSync, statSync } from "fs";
+import { existsSync, readFileSync, statSync } from "fs";
 
 const BIN_PATH = resolve(__dirname, "../../bin/headless-serve-sim-bin");
 
 const isDarwin = process.platform === "darwin";
 const describeIfDarwin = isDarwin ? describe : describe.skip;
+
+const FAT_MAGIC = 0xcafebabe;
+const CPU_TYPE_X86_64 = 0x01000007;
+const CPU_TYPE_ARM64 = 0x0100000c;
+
+function fatArchitectures(path: string): number[] {
+  const bytes = readFileSync(path);
+  expect(bytes.readUInt32BE(0)).toBe(FAT_MAGIC);
+  const count = bytes.readUInt32BE(4);
+  const architectures: number[] = [];
+  for (let index = 0; index < count; index++) {
+    architectures.push(bytes.readUInt32BE(8 + index * 20));
+  }
+  return architectures;
+}
 
 describeIfDarwin("headless-serve-sim-bin binary", () => {
   test("exists on disk", () => {
@@ -14,17 +28,8 @@ describeIfDarwin("headless-serve-sim-bin binary", () => {
   });
 
   test("is a universal Mach-O binary (arm64 + x86_64)", () => {
-    const output = execSync(`file "${BIN_PATH}"`, { encoding: "utf8", timeout: 15_000 });
-    // Matches both the fat header line and the individual slices
-    expect(output).toContain("Mach-O universal binary with 2 architectures");
-    expect(output).toContain("arm64");
-    expect(output).toContain("x86_64");
-  }, 15_000);
-
-  test("lipo reports both architectures", () => {
-    const output = execSync(`lipo -info "${BIN_PATH}"`, { encoding: "utf8" });
-    expect(output).toMatch(/Architectures in the fat file:.*x86_64.*arm64|arm64.*x86_64/);
-  }, 15_000);
+    expect(fatArchitectures(BIN_PATH).sort()).toEqual([CPU_TYPE_X86_64, CPU_TYPE_ARM64].sort());
+  });
 
   test("is executable (has user execute bit)", () => {
     const stats = statSync(BIN_PATH);

@@ -1,20 +1,11 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type MutableRefObject,
-} from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import type {
   DeviceType,
   DeviceFrameSpec,
   SimulatorRecordingSource,
 } from "headless-serve-sim-client/simulator";
 import { Chevron } from "../icons";
-import {
-  StreamModeToggle,
-  type StreamMode,
-} from "./stream-mode-toggle";
+import { StreamModeToggle, type StreamMode } from "./stream-mode-toggle";
 import {
   CanvasScreenRecorder,
   supportedRecordingMimeTypes,
@@ -136,12 +127,11 @@ export function ScreenRecordingTool({
   const mountedRef = useRef(true);
   const deviceKeyRef = useRef(deviceKey);
   const support = browserRecordingSupport();
-  const exactDeviceFrame = isExactDeviceFrame(deviceFrameSpec)
-    ? deviceFrameSpec
-    : null;
+  const exactDeviceFrame = isExactDeviceFrame(deviceFrameSpec) ? deviceFrameSpec : null;
   const artworkKey = frameArtworkKey(deviceKey, deviceFrameSpec);
   const artworkLoading = Boolean(
-    includeFrame && exactDeviceFrame?.artwork &&
+    includeFrame &&
+    exactDeviceFrame?.artwork &&
     (frameArtwork.key !== artworkKey || frameArtwork.loading),
   );
 
@@ -171,12 +161,14 @@ export function ScreenRecordingTool({
 
   useEffect(() => {
     const previousDeviceKey = deviceKeyRef.current;
-    setIncludeFrame((selected) => frameSelectionAfterDeviceChange(
-      selected,
-      previousDeviceKey,
-      deviceKey,
-      deviceFrameSpec != null,
-    ));
+    setIncludeFrame((selected) =>
+      frameSelectionAfterDeviceChange(
+        selected,
+        previousDeviceKey,
+        deviceKey,
+        deviceFrameSpec != null,
+      ),
+    );
     if (previousDeviceKey === deviceKey) return;
     deviceKeyRef.current = deviceKey;
     cancelCurrent("Recording cleared because the simulator changed.");
@@ -200,7 +192,9 @@ export function ScreenRecordingTool({
         });
       }
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [artworkKey, exactDeviceFrame, includeFrame]);
 
   useEffect(() => {
@@ -231,10 +225,11 @@ export function ScreenRecordingTool({
       source,
       format,
       includeTouches,
-      deviceFrame: includeFrame ? deviceFrameSpec ?? null : null,
-      deviceFrameArtwork: includeFrame && exactDeviceFrame && frameArtwork.key === artworkKey
-        ? frameArtwork.prepared
-        : null,
+      deviceFrame: includeFrame ? (deviceFrameSpec ?? null) : null,
+      deviceFrameArtwork:
+        includeFrame && exactDeviceFrame && frameArtwork.key === artworkKey
+          ? frameArtwork.prepared
+          : null,
       onError: (nextError) => {
         if (!mountedRef.current || recorderRef.current !== recorder) return;
         recorderRef.current = null;
@@ -303,7 +298,11 @@ export function ScreenRecordingTool({
 
       {open && (
         <div className="flex flex-col gap-3 border-t border-divider px-3.5 py-3">
-          <div className="flex items-center gap-2.5" role="radiogroup" aria-label="Recording format">
+          <div
+            className="flex items-center gap-2.5"
+            role="radiogroup"
+            aria-label="Recording format"
+          >
             <span className="w-[48px] shrink-0 text-[12px] text-fg-3">Format</span>
             <div className="flex flex-1 gap-0.5 rounded-pill border border-divider bg-surface-2 p-0.5">
               {(["auto", "mp4", "webm"] as const).map((option) => (
@@ -348,10 +347,9 @@ export function ScreenRecordingTool({
                 {recordingFrameDescription(
                   deviceFrameSpec,
                   artworkLoading,
-                  includeFrame && (
-                    (exactDeviceFrame != null && !exactDeviceFrame.artwork) ||
-                    (frameArtwork.key === artworkKey && frameArtwork.failed)
-                  ),
+                  includeFrame &&
+                    ((exactDeviceFrame != null && !exactDeviceFrame.artwork) ||
+                      (frameArtwork.key === artworkKey && frameArtwork.failed)),
                 )}
               </span>
             </span>
@@ -366,7 +364,10 @@ export function ScreenRecordingTool({
 
           {busy ? (
             <div className="flex items-center gap-2">
-              <div className="flex h-8 flex-1 items-center justify-center gap-2 rounded-pill border border-divider bg-surface-2 text-[12px] font-medium text-fg" role="status">
+              <div
+                className="flex h-8 flex-1 items-center justify-center gap-2 rounded-pill border border-divider bg-surface-2 text-[12px] font-medium text-fg"
+                role="status"
+              >
                 <span className="size-2 rounded-full bg-danger" aria-hidden="true" />
                 {phase === "stopping" ? "Finishing…" : `Recording ${durationLabel(elapsedSeconds)}`}
               </div>
@@ -392,17 +393,26 @@ export function ScreenRecordingTool({
           )}
 
           {!support.auto && (
-            <div className="rounded-card border border-divider bg-surface-2 px-3 py-2 text-[12px] text-fg-2" role="status">
+            <div
+              className="rounded-card border border-divider bg-surface-2 px-3 py-2 text-[12px] text-fg-2"
+              role="status"
+            >
               Screen recording is not supported in this browser.
             </div>
           )}
           {support.auto && !streaming && (
-            <div className="rounded-card border border-divider bg-surface-2 px-3 py-2 text-[12px] text-fg-2" role="status">
+            <div
+              className="rounded-card border border-divider bg-surface-2 px-3 py-2 text-[12px] text-fg-2"
+              role="status"
+            >
               Waiting for the simulator stream.
             </div>
           )}
           {error && (
-            <div className="rounded-card border border-divider bg-surface-2 px-3 py-2 text-[12px] text-danger" role="alert">
+            <div
+              className="rounded-card border border-divider bg-surface-2 px-3 py-2 text-[12px] text-danger"
+              role="alert"
+            >
               {error}
             </div>
           )}
@@ -417,7 +427,8 @@ export function ScreenRecordingTool({
                 aria-label="Recorded simulator video"
               />
               <div className="text-center text-[11px] text-fg-3 [font-variant-numeric:tabular-nums]">
-                {artifact.width}×{artifact.height} · {durationLabel(artifact.durationSeconds)} · {bytesLabel(artifact.bytes)}
+                {artifact.width}×{artifact.height} · {durationLabel(artifact.durationSeconds)} ·{" "}
+                {bytesLabel(artifact.bytes)}
               </div>
               <a
                 href={artifact.url}

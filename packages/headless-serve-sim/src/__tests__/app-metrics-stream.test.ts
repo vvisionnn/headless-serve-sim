@@ -63,10 +63,12 @@ describe("nextAppMetricsStream", () => {
     const metrics = sample();
     expect(nextAppMetricsStream(empty, metrics)).toEqual({
       latest: metrics,
-      samples: [{
-        cpuPercent: metrics.cpuPercent,
-        memoryFootprintBytes: metrics.memoryFootprintBytes!,
-      }],
+      samples: [
+        {
+          cpuPercent: metrics.cpuPercent,
+          memoryFootprintBytes: metrics.memoryFootprintBytes!,
+        },
+      ],
       error: null,
     });
   });
@@ -76,20 +78,24 @@ describe("nextAppMetricsStream", () => {
     const replacement = sample({ bundleId: "com.example.relaunched", pid: 5252 });
     const next = nextAppMetricsStream(first, replacement);
     expect(next.latest).toEqual(replacement);
-    expect(next.samples).toEqual([{
-      cpuPercent: replacement.cpuPercent,
-      memoryFootprintBytes: replacement.memoryFootprintBytes!,
-    }]);
+    expect(next.samples).toEqual([
+      {
+        cpuPercent: replacement.cpuPercent,
+        memoryFootprintBytes: replacement.memoryFootprintBytes!,
+      },
+    ]);
   });
 
   test("resets history when a PID is reused by a new process instance", () => {
     const first = nextAppMetricsStream(empty, sample());
     const replacement = sample({ processStartId: "987654999" });
     const next = nextAppMetricsStream(first, replacement);
-    expect(next.samples).toEqual([{
-      cpuPercent: replacement.cpuPercent,
-      memoryFootprintBytes: replacement.memoryFootprintBytes!,
-    }]);
+    expect(next.samples).toEqual([
+      {
+        cpuPercent: replacement.cpuPercent,
+        memoryFootprintBytes: replacement.memoryFootprintBytes!,
+      },
+    ]);
   });
 
   test("clears history when no foreground app is alive", () => {
@@ -123,10 +129,13 @@ describe("nextAppMetricsStream", () => {
   test("keeps only the configured history window", () => {
     let stream = empty;
     for (let index = 0; index < MAX_SAMPLES + 3; index++) {
-      stream = nextAppMetricsStream(stream, sample({
-        sampledAtMs: 1_750_000_000_000 + index,
-        cpuPercent: index,
-      }));
+      stream = nextAppMetricsStream(
+        stream,
+        sample({
+          sampledAtMs: 1_750_000_000_000 + index,
+          cpuPercent: index,
+        }),
+      );
     }
     expect(stream.samples).toHaveLength(MAX_SAMPLES);
     expect(stream.samples[0]?.cpuPercent).toBe(3);

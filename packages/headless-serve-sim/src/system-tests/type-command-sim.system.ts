@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { execFileSync, execSync, spawnSync } from "child_process";
+import { execFileSync, spawnSync } from "child_process";
 import { readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -13,35 +13,23 @@ import { join } from "path";
  * accepted key event, which is what we assert against — proving the event
  * round-tripped all the way to the sim, not just to the helper's WS reader.
  *
- * Uses HEADLESS_SERVE_SIM_E2E_UDID when set; otherwise it auto-detects the
- * first booted iOS simulator and skips when none is available.
+ * Requires an explicitly leased simulator from the system-test harness.
  */
 
 const CLI_PATH = join(import.meta.dir, "../../src/index.ts");
 const STATE_DIR = join(tmpdir(), "headless-serve-sim");
 
-function firstBootedIosSim(): string | null {
-  try {
-    const out = execSync("xcrun simctl list devices booted -j", { encoding: "utf-8" });
-    const data = JSON.parse(out) as {
-      devices: Record<string, Array<{ udid: string; state: string }>>;
-    };
-    for (const [runtime, devs] of Object.entries(data.devices)) {
-      if (!runtime.includes("iOS")) continue;
-      for (const d of devs) if (d.state === "Booted") return d.udid;
-    }
-  } catch {}
-  return null;
-}
-
-const bootedUdid = process.env.HEADLESS_SERVE_SIM_E2E_UDID ?? firstBootedIosSim();
-const describeWithSim = bootedUdid ? describe : describe.skip;
+const bootedUdid = process.env.HEADLESS_SERVE_SIM_SYSTEM_TEST_UDID;
+const describeWithSim =
+  process.env.HEADLESS_SERVE_SIM_SYSTEM_TESTS === "1" && bootedUdid ? describe : describe.skip;
 
 describeWithSim(`headless-serve-sim type e2e (booted sim ${bootedUdid ?? "<skipped>"})`, () => {
   let logFile: string;
 
   beforeAll(() => {
-    try { execFileSync("bun", ["run", CLI_PATH, "--kill", bootedUdid!], { stdio: "pipe" }); } catch {}
+    try {
+      execFileSync("bun", ["run", CLI_PATH, "--kill", bootedUdid!], { stdio: "pipe" });
+    } catch {}
 
     const detach = spawnSync("bun", ["run", CLI_PATH, "--detach", bootedUdid!], {
       encoding: "utf-8",
@@ -57,7 +45,9 @@ describeWithSim(`headless-serve-sim type e2e (booted sim ${bootedUdid ?? "<skipp
   }, 120_000);
 
   afterAll(() => {
-    try { execFileSync("bun", ["run", CLI_PATH, "--kill", bootedUdid!], { stdio: "pipe" }); } catch {}
+    try {
+      execFileSync("bun", ["run", CLI_PATH, "--kill", bootedUdid!], { stdio: "pipe" });
+    } catch {}
   });
 
   test("`headless-serve-sim type` injects HID key events into the booted simulator", async () => {

@@ -1,0 +1,8 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 100,
+  "proseWrap": "preserve",
+  "sortImports": false,
+  "sortPackageJson": false,
+  "ignorePatterns": ["packages/headless-serve-sim/dist/**", "packages/headless-serve-sim/build/**"]
+}

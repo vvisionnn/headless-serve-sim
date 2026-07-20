@@ -52,33 +52,38 @@ describe("previewConfigKey", () => {
 
   test("late exact device metadata changes the key without a helper restart", () => {
     const baseKey = previewConfigKey(cfg({ execToken: "t" }));
-    const deviceTypeIdentifier =
-      "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro";
-    const withIdentifier = previewConfigKey(cfg({
-      execToken: "t",
-      deviceTypeIdentifier,
-    }));
-    expect(withIdentifier).not.toBe(baseKey);
-    expect(previewConfigKey(cfg({
-      execToken: "t",
-      deviceTypeIdentifier,
-      deviceFrameSpec: {
+    const deviceTypeIdentifier = "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro";
+    const withIdentifier = previewConfigKey(
+      cfg({
+        execToken: "t",
         deviceTypeIdentifier,
-        modelName: "iPhone 17 Pro",
-        family: "iphone",
-        nativeScreen: { width: 1206, height: 2622 },
-        insetsPx: { top: 54, right: 54, bottom: 54, left: 54 },
-        screenRadiiPx: {
-          topLeft: 186,
-          topRight: 186,
-          bottomRight: 186,
-          bottomLeft: 186,
-        },
-        outerRadiiPx: { x: 240, y: 240 },
-        cutout: "dynamic-island",
-        chromeIdentifier: "com.apple.dt.devicekit.chrome.phone11",
-      },
-    }))).not.toBe(withIdentifier);
+      }),
+    );
+    expect(withIdentifier).not.toBe(baseKey);
+    expect(
+      previewConfigKey(
+        cfg({
+          execToken: "t",
+          deviceTypeIdentifier,
+          deviceFrameSpec: {
+            deviceTypeIdentifier,
+            modelName: "iPhone 17 Pro",
+            family: "iphone",
+            nativeScreen: { width: 1206, height: 2622 },
+            insetsPx: { top: 54, right: 54, bottom: 54, left: 54 },
+            screenRadiiPx: {
+              topLeft: 186,
+              topRight: 186,
+              bottomRight: 186,
+              bottomLeft: 186,
+            },
+            outerRadiiPx: { x: 240, y: 240 },
+            cutout: "dynamic-island",
+            chromeIdentifier: "com.apple.dt.devicekit.chrome.phone11",
+          },
+        }),
+      ),
+    ).not.toBe(withIdentifier);
   });
 });
 

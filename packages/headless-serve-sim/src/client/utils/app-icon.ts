@@ -31,14 +31,16 @@ export async function fetchAppDetails(
   const plist = await exec(`plutil -convert json -o - ${shellEscape(appPath + "/Info.plist")}`);
   let info: any = {};
   if (plist.exitCode === 0) {
-    try { info = JSON.parse(plist.stdout); } catch {}
+    try {
+      info = JSON.parse(plist.stdout);
+    } catch {}
   }
 
   // Try to find app icon. CFBundleIcons → primary → CFBundleIconFiles last entry,
   // fall back to CFBundleIconFiles / CFBundleIconFile.
   let iconName: string | undefined;
-  const primary = info?.CFBundleIcons?.CFBundlePrimaryIcon
-    ?? info?.["CFBundleIcons~ipad"]?.CFBundlePrimaryIcon;
+  const primary =
+    info?.CFBundleIcons?.CFBundlePrimaryIcon ?? info?.["CFBundleIcons~ipad"]?.CFBundlePrimaryIcon;
   const iconFiles: string[] | undefined = primary?.CFBundleIconFiles ?? info?.CFBundleIconFiles;
   if (iconFiles && iconFiles.length > 0) iconName = iconFiles[iconFiles.length - 1];
   else if (typeof info?.CFBundleIconFile === "string") iconName = info.CFBundleIconFile;
@@ -56,7 +58,12 @@ export async function fetchAppDetails(
     ];
     const find = await exec(
       `bash -c ${shellEscape(
-        candidates.map((c) => `[ -f ${shellEscape(appPath + "/" + c)} ] && echo ${shellEscape(appPath + "/" + c)} && exit 0`).join("; ") + "; exit 1",
+        candidates
+          .map(
+            (c) =>
+              `[ -f ${shellEscape(appPath + "/" + c)} ] && echo ${shellEscape(appPath + "/" + c)} && exit 0`,
+          )
+          .join("; ") + "; exit 1",
       )}`,
     );
     const iconPath = find.stdout.trim();
@@ -94,14 +101,16 @@ export function fetchAppIcon(
   if (existing !== undefined) {
     return Promise.resolve(existing as string | null | Promise<string | null>);
   }
-  const pending = fetchAppDetails(exec, udid, bundleId).then((d) => {
-    const url = d.iconDataUrl ?? null;
-    appIconCache.set(key, url);
-    return url;
-  }).catch(() => {
-    appIconCache.set(key, null);
-    return null;
-  });
+  const pending = fetchAppDetails(exec, udid, bundleId)
+    .then((d) => {
+      const url = d.iconDataUrl ?? null;
+      appIconCache.set(key, url);
+      return url;
+    })
+    .catch(() => {
+      appIconCache.set(key, null);
+      return null;
+    });
   appIconCache.set(key, pending);
   return pending;
 }

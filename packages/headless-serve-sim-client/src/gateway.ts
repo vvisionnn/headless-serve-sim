@@ -1,19 +1,10 @@
 import { Bash } from "just-bash";
-import { GatewayTransport } from "./transport";
-import type { GatewayTransportOptions } from "./transport";
+import { GatewayTransport, type GatewayTransportOptions } from "./transport";
 
 export type { GatewayTransportOptions };
 
 /** Commands that are always bridged to the gateway server. */
-const DEFAULT_BRIDGED = [
-  "xcrun",
-  "curl",
-  "unzip",
-  "echo",
-  "ls",
-  "cat",
-  "which",
-];
+const DEFAULT_BRIDGED = ["xcrun", "curl", "unzip", "echo", "ls", "cat", "which"];
 
 export interface ConnectOptions {
   /** WebSocket URL (default: ws://localhost:7070/ws) */
@@ -82,13 +73,13 @@ export class ShellPromise implements PromiseLike<ShellResult> {
 
   then<R1 = ShellResult, R2 = never>(
     onFulfilled?: ((value: ShellResult) => R1 | PromiseLike<R1>) | null,
-    onRejected?: ((reason: unknown) => R2 | PromiseLike<R2>) | null
+    onRejected?: ((reason: unknown) => R2 | PromiseLike<R2>) | null,
   ): Promise<R1 | R2> {
     return this.inner.then(onFulfilled, onRejected);
   }
 
   catch<R = never>(
-    onRejected?: ((reason: unknown) => R | PromiseLike<R>) | null
+    onRejected?: ((reason: unknown) => R | PromiseLike<R>) | null,
   ): Promise<ShellResult | R> {
     return this.inner.catch(onRejected);
   }
@@ -179,17 +170,10 @@ export interface GatewayShell {
  * $.close();
  * ```
  */
-async function connect(
-  options: ConnectOptions | string = {}
-): Promise<GatewayShell> {
-  const opts: ConnectOptions =
-    typeof options === "string" ? { token: options } : options;
+async function connect(options: ConnectOptions | string = {}): Promise<GatewayShell> {
+  const opts: ConnectOptions = typeof options === "string" ? { token: options } : options;
 
-  const {
-    url = "ws://localhost:7070/ws",
-    token,
-    bridgedCommands = DEFAULT_BRIDGED,
-  } = opts;
+  const { url = "ws://localhost:7070/ws", token, bridgedCommands = DEFAULT_BRIDGED } = opts;
 
   const transport = new GatewayTransport({ url, token });
   await transport.waitForOpen();
@@ -198,18 +182,13 @@ async function connect(
     customCommands: bridgedCommands.map((cmd) => transport.bridge(cmd)),
   });
 
-  function $(
-    strings: TemplateStringsArray,
-    ...values: unknown[]
-  ): ShellPromise {
+  function $(strings: TemplateStringsArray, ...values: unknown[]): ShellPromise {
     let cmd = strings[0] ?? "";
     for (let i = 0; i < values.length; i++) {
       cmd += shellEscape(String(values[i])) + (strings[i + 1] ?? "");
     }
 
-    const promise = bash.exec(cmd).then(
-      (r) => new ShellResult(r.stdout, r.stderr, r.exitCode)
-    );
+    const promise = bash.exec(cmd).then((r) => new ShellResult(r.stdout, r.stderr, r.exitCode));
 
     return new ShellPromise(promise);
   }
@@ -227,9 +206,7 @@ async function connect(
         .then((r) => new ShellResult(r.stdout, r.stderr, r.exitCode));
       return new ShellPromise(promise);
     }
-    const promise = bash.exec(command).then(
-      (r) => new ShellResult(r.stdout, r.stderr, r.exitCode)
-    );
+    const promise = bash.exec(command).then((r) => new ShellResult(r.stdout, r.stderr, r.exitCode));
     return new ShellPromise(promise);
   };
   $.writeFile = (remotePath: string, data: Uint8Array) => transport.writeFile(remotePath, data);

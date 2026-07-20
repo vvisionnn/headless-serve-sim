@@ -1,6 +1,12 @@
 // Contrast "half-moon" glyph: a circle with one half filled. Reads as a
 // light/dark toggle affordance without claiming the current appearance.
-export function AppearanceIcon({ size = 18, strokeWidth = 2 }: { size?: number; strokeWidth?: number }) {
+export function AppearanceIcon({
+  size = 18,
+  strokeWidth = 2,
+}: {
+  size?: number;
+  strokeWidth?: number;
+}) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"

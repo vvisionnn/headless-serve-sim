@@ -57,8 +57,12 @@ describe("previewConfigForState — screenConfig injection", () => {
   });
 
   test("omits screenConfig when absent (backward compatible)", () => {
-    expect(previewConfigForState(state, "", "/bin/headless-serve-sim", "tok").screenConfig).toBeUndefined();
-    expect(previewConfigForState(state, "", "/bin/headless-serve-sim", "tok", null).screenConfig).toBeUndefined();
+    expect(
+      previewConfigForState(state, "", "/bin/headless-serve-sim", "tok").screenConfig,
+    ).toBeUndefined();
+    expect(
+      previewConfigForState(state, "", "/bin/headless-serve-sim", "tok", null).screenConfig,
+    ).toBeUndefined();
   });
 
   test("includes deviceName when supplied, omits it otherwise", () => {
@@ -78,10 +82,16 @@ describe("previewConfigForState — screenConfig injection", () => {
       },
     });
     expect(withName.deviceName).toBe("My renamed simulator");
-    expect(withName.deviceTypeIdentifier).toBe("com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro");
+    expect(withName.deviceTypeIdentifier).toBe(
+      "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+    );
     expect(withName.deviceFrameSpec?.modelName).toBe("iPhone 17 Pro");
-    expect(previewConfigForState(state, "", "/bin/headless-serve-sim", "tok").deviceName).toBeUndefined();
-    expect(previewConfigForState(state, "", "/bin/headless-serve-sim", "tok", null, null).deviceName).toBeUndefined();
+    expect(
+      previewConfigForState(state, "", "/bin/headless-serve-sim", "tok").deviceName,
+    ).toBeUndefined();
+    expect(
+      previewConfigForState(state, "", "/bin/headless-serve-sim", "tok", null, null).deviceName,
+    ).toBeUndefined();
   });
 });
 
@@ -129,14 +139,20 @@ describe("htmlSafeJson — inline-<script> XSS escaping", () => {
   test("is value-preserving — the client's JSON.parse reads the identical object", () => {
     // Includes spaces + parens + unicode to guard against over-escaping (a
     // real device name like "iPad Pro 13-inch (M5)" must survive untouched).
-    const value = { deviceName: "iPad Pro 13-inch (M5) — café </script> <b>&", n: 42, nested: { a: [1, "<x>"] } };
+    const value = {
+      deviceName: "iPad Pro 13-inch (M5) — café </script> <b>&",
+      n: 42,
+      nested: { a: [1, "<x>"] },
+    };
     expect(JSON.parse(htmlSafeJson(value))).toEqual(value);
   });
 
   test("a </script> device name cannot break out of the inline script tag", () => {
     const evil = 'Evil</script><script>fetch("/exec")</script>';
     const config = htmlSafeJson(
-      previewConfigForState(state, "", "/bin/headless-serve-sim", "tok", null, { deviceName: evil }),
+      previewConfigForState(state, "", "/bin/headless-serve-sim", "tok", null, {
+        deviceName: evil,
+      }),
     );
     // The serialized payload carries no sequence that closes the <script>.
     expect(config.toLowerCase()).not.toContain("</script>");

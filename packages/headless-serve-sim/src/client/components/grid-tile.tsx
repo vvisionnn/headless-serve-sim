@@ -24,17 +24,19 @@ export function GridTile({
   const status = helper
     ? "● live"
     : starting
-    ? (isBooted ? "starting helper…" : "booting & starting…")
-    : shuttingDown
-    ? "shutting down…"
-    : isBooted ? "booted (no stream)" : device.state.toLowerCase();
+      ? isBooted
+        ? "starting helper…"
+        : "booting & starting…"
+      : shuttingDown
+        ? "shutting down…"
+        : isBooted
+          ? "booted (no stream)"
+          : device.state.toLowerCase();
   const statusColor = helper ? "var(--color-success)" : "var(--color-fg-3)";
   const ringColor = active ? "var(--color-accent)" : "transparent";
 
   const Wrapper: any = helper ? "a" : "div";
-  const wrapperProps = helper
-    ? { href: gridPreviewHref(previewEndpoint, device.device) }
-    : {};
+  const wrapperProps = helper ? { href: gridPreviewHref(previewEndpoint, device.device) } : {};
 
   return (
     <Wrapper
@@ -78,19 +80,33 @@ export function GridTile({
           ) : (
             <div className="text-[28px] text-fg-3">{isBooted ? "▣" : "▢"}</div>
           )}
-          {error ? <div className="max-w-full break-words text-danger text-[11px] font-mono">{error}</div> : null}
+          {error ? (
+            <div className="max-w-full break-words text-danger text-[11px] font-mono">{error}</div>
+          ) : null}
           <button
             type="button"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onStart(); }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onStart();
+            }}
             disabled={starting}
             className={`px-3 py-1.5 rounded-pill border border-divider text-[12px] font-mono [transition:background-color_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] ${starting ? "bg-surface-2 text-fg-2 cursor-default" : "bg-panel text-success cursor-pointer hover:bg-hover"}`}
           >
-            {starting ? (isBooted ? "Starting…" : "Booting…") : (isBooted ? "Start stream" : "Boot & start")}
+            {starting
+              ? isBooted
+                ? "Starting…"
+                : "Booting…"
+              : isBooted
+                ? "Start stream"
+                : "Boot & start"}
           </button>
         </div>
       )}
       <div className="px-3 py-2 border-t border-divider text-[12px] font-mono text-fg-2 flex justify-between gap-2">
-        <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{device.name}</span>
+        <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+          {device.name}
+        </span>
         <span className="shrink-0 whitespace-nowrap" style={{ color: statusColor }}>
           {status}
           {helper ? <span className="text-fg-3"> :{helper.port}</span> : null}

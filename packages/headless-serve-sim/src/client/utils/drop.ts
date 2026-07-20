@@ -42,7 +42,10 @@ export function fileExtension(file: File): string {
 // single quote could otherwise break out and run arbitrary host commands. Strip
 // the extension to a safe charset before it ever reaches the shell.
 export function safeTmpExt(ext: string): string {
-  const cleaned = ext.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 16);
+  const cleaned = ext
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .slice(0, 16);
   return cleaned || "bin";
 }
 
@@ -129,9 +132,10 @@ export async function uploadDroppedFile(
 
     // install/addmedia gives no progress signal — flip to indeterminate.
     onProgress(null);
-    const cmd = kind === "ipa"
-      ? `xcrun simctl install ${udid} ${tmpPath}`
-      : `xcrun simctl addmedia ${udid} ${tmpPath}`;
+    const cmd =
+      kind === "ipa"
+        ? `xcrun simctl install ${udid} ${tmpPath}`
+        : `xcrun simctl addmedia ${udid} ${tmpPath}`;
     const result = await exec(cmd);
     if (result.exitCode !== 0) {
       const label = kind === "ipa" ? "install" : "addmedia";

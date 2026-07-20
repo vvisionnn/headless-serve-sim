@@ -63,12 +63,12 @@ export {
 } from "../avcc-codec.js";
 export type { AvccChunk, AvccChunkType } from "../avcc-codec.js";
 export { useSimStream } from "./useSimStream.js";
-export type {
-  SimStreamInfo,
-  UseSimStreamOptions,
-  UseSimStreamResult,
-} from "./useSimStream.js";
-export { ConnectionStatsAccumulator, summarize, parseServerStreamStats } from "../connection-stats.js";
+export type { SimStreamInfo, UseSimStreamOptions, UseSimStreamResult } from "./useSimStream.js";
+export {
+  ConnectionStatsAccumulator,
+  summarize,
+  parseServerStreamStats,
+} from "../connection-stats.js";
 export type {
   FrameSample,
   ConnectionStatsSnapshot,

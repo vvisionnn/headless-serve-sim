@@ -9,10 +9,7 @@ export function useResizableWidth(
   min: number,
   max: number,
 ) {
-  const clamp = useCallback(
-    (w: number) => Math.max(min, Math.min(max, w)),
-    [min, max],
-  );
+  const clamp = useCallback((w: number) => Math.max(min, Math.min(max, w)), [min, max]);
   const [width, setWidth] = useState<number>(() => {
     if (typeof window === "undefined") return defaultWidth;
     const raw = window.localStorage.getItem(storageKey);
@@ -20,9 +17,7 @@ export function useResizableWidth(
     return Number.isFinite(parsed) ? clamp(parsed) : defaultWidth;
   });
   // Re-clamp if the viewport shrinks below the saved width.
-  const effectiveMax = typeof window !== "undefined"
-    ? Math.min(max, window.innerWidth - 32)
-    : max;
+  const effectiveMax = typeof window !== "undefined" ? Math.min(max, window.innerWidth - 32) : max;
   const effectiveWidth = Math.max(min, Math.min(effectiveMax, width));
 
   const onPointerDown = useCallback(
@@ -42,7 +37,10 @@ export function useResizableWidth(
         target.removeEventListener("pointerup", up);
         target.removeEventListener("pointercancel", up);
         try {
-          window.localStorage.setItem(storageKey, String(clamp(startWidth + (startX - ev.clientX))));
+          window.localStorage.setItem(
+            storageKey,
+            String(clamp(startWidth + (startX - ev.clientX))),
+          );
         } catch {}
       };
       target.addEventListener("pointermove", move);

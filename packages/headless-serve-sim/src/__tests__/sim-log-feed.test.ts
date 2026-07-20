@@ -65,13 +65,18 @@ describe("createSimLogFeed", () => {
       processId: null,
       baseUrl: "http://localhost/",
       eventSourceFactory: () => source,
-      scheduleFrame: (next) => { callback = next; return 42; },
+      scheduleFrame: (next) => {
+        callback = next;
+        return 42;
+      },
       cancelFrame: (id) => cancelled.push(id),
       onStatus: () => {},
       onBatch: (entries) => batches.push(entries.length),
     });
 
-    source.onmessage?.({ data: JSON.stringify({ eventMessage: "queued" }) } as MessageEvent<string>);
+    source.onmessage?.({
+      data: JSON.stringify({ eventMessage: "queued" }),
+    } as MessageEvent<string>);
     feed.stop();
     const cancelledCallback = callback as FrameRequestCallback | null;
     cancelledCallback?.(0);
@@ -93,14 +98,19 @@ describe("createSimLogFeed", () => {
       maxPendingEntries: 2,
       maxPendingBytes: 1_000,
       eventSourceFactory: () => source,
-      scheduleFrame: (next) => { callback = next; return 1; },
+      scheduleFrame: (next) => {
+        callback = next;
+        return 1;
+      },
       cancelFrame: () => {},
       onStatus: () => {},
       onBatch: (entries) => batches.push(entries.map((entry) => entry.id)),
     });
 
     for (const message of ["one", "two", "three"]) {
-      source.onmessage?.({ data: JSON.stringify({ eventMessage: message }) } as MessageEvent<string>);
+      source.onmessage?.({
+        data: JSON.stringify({ eventMessage: message }),
+      } as MessageEvent<string>);
     }
     const suspendedFrame = callback as FrameRequestCallback | null;
     suspendedFrame?.(0);
@@ -112,17 +122,20 @@ describe("createSimLogFeed", () => {
 describe("forwardSimLogToConsole", () => {
   test("passes the message as data instead of a console format string", () => {
     const calls: unknown[][] = [];
-    forwardSimLogToConsole({
-      id: "1",
-      timestamp: "",
-      process: "App",
-      processId: 1,
-      subsystem: "com.example",
-      category: "test",
-      level: "error",
-      message: "%c hostile <script>",
-      byteSize: 1,
-    }, { log: (...args: unknown[]) => calls.push(args) });
+    forwardSimLogToConsole(
+      {
+        id: "1",
+        timestamp: "",
+        process: "App",
+        processId: 1,
+        subsystem: "com.example",
+        category: "test",
+        level: "error",
+        message: "%c hostile <script>",
+        byteSize: 1,
+      },
+      { log: (...args: unknown[]) => calls.push(args) },
+    );
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.at(-1)).toBe("%c hostile <script>");

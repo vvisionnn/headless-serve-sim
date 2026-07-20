@@ -32,10 +32,5 @@ export function resolveActiveScreenConfig(sources: {
   injected?: ScreenConfigLike | null;
   fallback: { width: number; height: number };
 }): ScreenConfigLike {
-  return (
-    usable(sources.live) ??
-    usable(sources.ws) ??
-    usable(sources.injected) ??
-    sources.fallback
-  );
+  return usable(sources.live) ?? usable(sources.ws) ?? usable(sources.injected) ?? sources.fallback;
 }

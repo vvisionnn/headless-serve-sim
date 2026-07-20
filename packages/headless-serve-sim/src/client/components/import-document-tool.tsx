@@ -34,14 +34,9 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
     return shellEscape(bin);
   }, []);
 
-  const setStatus = useCallback(
-    (id: string, status: DocStatus, errMsg?: string) => {
-      setEntries((es) =>
-        es.map((e) => (e.id === id ? { ...e, status, error: errMsg } : e)),
-      );
-    },
-    [],
-  );
+  const setStatus = useCallback((id: string, status: DocStatus, errMsg?: string) => {
+    setEntries((es) => es.map((e) => (e.id === id ? { ...e, status, error: errMsg } : e)));
+  }, []);
 
   const importFiles = useCallback(
     async (files: File[]) => {
@@ -176,8 +171,9 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
           className="border-t border-divider px-3.5 py-3 flex flex-col gap-2"
         >
           <p className="m-0 text-[12px] leading-[1.5] text-fg-3">
-            Imports files straight into the Files app under <span className="text-fg">On My iPad</span> —
-            open the document picker's local tab and they're already there, no in-app prompt.
+            Imports files straight into the Files app under{" "}
+            <span className="text-fg">On My iPad</span> — open the document picker's local tab and
+            they're already there, no in-app prompt.
           </p>
 
           <label className="flex items-center gap-2 bg-surface-3 border border-divider rounded-card px-3 h-9 focus-within:border-transparent focus-within:[box-shadow:0_0_0_2px_var(--color-accent-solid)] [transition:border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]">
@@ -220,9 +216,7 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
               "relative min-h-[80px] flex flex-col items-center justify-center gap-1.5 px-3 py-4 cursor-pointer text-center rounded-card [transition:border-color_0.3s_cubic-bezier(0.4,0,0.6,1),background_0.3s_cubic-bezier(0.4,0,0.6,1)]",
               "bg-surface-3 border border-dashed border-divider hover:border-fg-3",
               "focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]",
-              isDragOver
-                ? "!bg-accent-tint !border-accent !border-solid"
-                : "",
+              isDragOver ? "!bg-accent-tint !border-accent !border-solid" : "",
             ].join(" ")}
           >
             <svg
@@ -244,9 +238,7 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
             <span className="text-[13px] text-fg font-medium tracking-[-0.01em]">
               {isDragOver ? "Drop to import" : "Select or drop documents"}
             </span>
-            <span className="text-[11px] text-fg-3">
-              {destLabel}
-            </span>
+            <span className="text-[11px] text-fg-3">{destLabel}</span>
           </button>
 
           {entries.length > 0 && (
@@ -270,7 +262,10 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
           )}
 
           {error && (
-            <div className="bg-surface-3 border border-divider rounded-card text-danger-soft text-[11px] px-3 py-2 break-words" role="alert">
+            <div
+              className="bg-surface-3 border border-divider rounded-card text-danger-soft text-[11px] px-3 py-2 break-words"
+              role="alert"
+            >
               {error}
             </div>
           )}
@@ -301,9 +296,7 @@ function DocStatusPill({
   }
   if (errors > 0) {
     return (
-      <span className="text-[11px] text-danger-soft font-mono leading-none">
-        {errors} failed
-      </span>
+      <span className="text-[11px] text-danger-soft font-mono leading-none">{errors} failed</span>
     );
   }
   if (done > 0) {
@@ -314,9 +307,7 @@ function DocStatusPill({
     );
   }
   return (
-    <span className="text-[11px] text-fg-3 leading-none truncate max-w-[160px]">
-      {destLabel}
-    </span>
+    <span className="text-[11px] text-fg-3 leading-none truncate max-w-[160px]">{destLabel}</span>
   );
 }
 
@@ -328,9 +319,7 @@ function DocRow({ entry }: { entry: DocEntry }) {
         <span className="shrink-0 text-[9px] tracking-[0.08em] uppercase text-fg-2 bg-surface-2 rounded-pill border border-divider px-2 py-[2px] font-mono">
           {entry.ext || "file"}
         </span>
-        <span className="flex-1 min-w-0 truncate text-[13px] text-fg font-mono">
-          {entry.name}
-        </span>
+        <span className="flex-1 min-w-0 truncate text-[13px] text-fg font-mono">{entry.name}</span>
         <DocRowStatusIcon status={entry.status} />
       </div>
       {uploading && (

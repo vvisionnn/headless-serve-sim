@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { parseStatusBarArgs } from "../status-bar";
+import { createStatusBar, parseStatusBarArgs } from "../status-bar";
+import { createScriptedHostCommands } from "../test-support/scripted-host-commands";
 
 describe("parseStatusBarArgs", () => {
   test("override with --time 9:41", () => {
@@ -15,11 +16,16 @@ describe("parseStatusBarArgs", () => {
     expect(
       parseStatusBarArgs([
         "override",
-        "--time", "9:41",
-        "--battery-level", "100",
-        "--battery-state", "charged",
-        "--data-network", "5g",
-        "--cellular-bars", "4",
+        "--time",
+        "9:41",
+        "--battery-level",
+        "100",
+        "--battery-state",
+        "charged",
+        "--data-network",
+        "5g",
+        "--cellular-bars",
+        "4",
       ]),
     ).toMatchObject({
       verb: "override",
@@ -43,13 +49,21 @@ describe("parseStatusBarArgs", () => {
   });
 
   test("override --cellular-bars boundaries 0 and 4 are accepted", () => {
-    expect(parseStatusBarArgs(["override", "--cellular-bars", "0"])).toMatchObject({ cellularBars: 0 });
-    expect(parseStatusBarArgs(["override", "--cellular-bars", "4"])).toMatchObject({ cellularBars: 4 });
+    expect(parseStatusBarArgs(["override", "--cellular-bars", "0"])).toMatchObject({
+      cellularBars: 0,
+    });
+    expect(parseStatusBarArgs(["override", "--cellular-bars", "4"])).toMatchObject({
+      cellularBars: 4,
+    });
   });
 
   test("override --battery-level boundaries 0 and 100 are accepted", () => {
-    expect(parseStatusBarArgs(["override", "--battery-level", "0"])).toMatchObject({ batteryLevel: 0 });
-    expect(parseStatusBarArgs(["override", "--battery-level", "100"])).toMatchObject({ batteryLevel: 100 });
+    expect(parseStatusBarArgs(["override", "--battery-level", "0"])).toMatchObject({
+      batteryLevel: 0,
+    });
+    expect(parseStatusBarArgs(["override", "--battery-level", "100"])).toMatchObject({
+      batteryLevel: 100,
+    });
   });
 
   test("override --operator-name keeps a value with a space", () => {
@@ -158,12 +172,73 @@ describe("parseStatusBarArgs", () => {
   });
 
   test("-d/--device is captured; -q/--quiet is captured and stripped from fields", () => {
-    expect(
-      parseStatusBarArgs(["override", "--time", "9:41", "-d", "iPhone 15"]),
-    ).toMatchObject({ device: "iPhone 15", time: "9:41" });
+    expect(parseStatusBarArgs(["override", "--time", "9:41", "-d", "iPhone 15"])).toMatchObject({
+      device: "iPhone 15",
+      time: "9:41",
+    });
     expect(parseStatusBarArgs(["override", "--time", "9:41", "-q"])).toMatchObject({
       quiet: true,
       time: "9:41",
+    });
+  });
+});
+
+describe("status bar module", () => {
+  test("preserves stable simctl flag ordering for a full override", async () => {
+    const host = createScriptedHostCommands([{}]);
+    const statusBar = createStatusBar(host);
+
+    await statusBar.apply("DEVICE", {
+      verb: "override",
+      quiet: false,
+      time: "9:41",
+      dataNetwork: "5g",
+      wifiMode: "active",
+      wifiBars: 3,
+      cellularMode: "active",
+      cellularBars: 4,
+      operatorName: "Test Net",
+      batteryState: "charged",
+      batteryLevel: 100,
+    });
+
+    expect(host.calls[0]?.request).toEqual({
+      executable: "xcrun",
+      args: [
+        "simctl",
+        "status_bar",
+        "DEVICE",
+        "override",
+        "--time",
+        "9:41",
+        "--dataNetwork",
+        "5g",
+        "--wifiMode",
+        "active",
+        "--wifiBars",
+        "3",
+        "--cellularMode",
+        "active",
+        "--cellularBars",
+        "4",
+        "--operatorName",
+        "Test Net",
+        "--batteryState",
+        "charged",
+        "--batteryLevel",
+        "100",
+      ],
+      stdio: "capture",
+    });
+  });
+
+  test("clears overrides with the clear command", async () => {
+    const host = createScriptedHostCommands([{}]);
+    await createStatusBar(host).apply("DEVICE", { verb: "clear", quiet: false });
+    expect(host.calls[0]?.request).toEqual({
+      executable: "xcrun",
+      args: ["simctl", "status_bar", "DEVICE", "clear"],
+      stdio: "capture",
     });
   });
 });

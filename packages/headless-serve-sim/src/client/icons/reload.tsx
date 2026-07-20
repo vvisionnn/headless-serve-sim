@@ -1,4 +1,10 @@
-export function ReloadIcon({ size = 18, strokeWidth = 2 }: { size?: number; strokeWidth?: number }) {
+export function ReloadIcon({
+  size = 18,
+  strokeWidth = 2,
+}: {
+  size?: number;
+  strokeWidth?: number;
+}) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"

@@ -72,7 +72,7 @@ describe("memoryRange", () => {
   test("flat values: span floored to MEM_MIN_SPAN * 1.15, centered on the value", () => {
     const v = 500 * 1024 * 1024;
     const { yMin, yMax } = memoryRange([v, v, v], 0);
-    const span = (yMax - yMin);
+    const span = yMax - yMin;
     expect(span).toBeCloseTo(MEM_MIN_SPAN * 1.15, 0);
     // Centered on v (no clamp, since v sits well above the half-span).
     expect((yMin + yMax) / 2).toBeCloseTo(v, 0);

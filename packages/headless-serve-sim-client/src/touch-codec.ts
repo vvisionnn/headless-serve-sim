@@ -76,7 +76,7 @@ export interface DecodedMultiTouch {
 
 /** Decode a binary touch message. Returns null if prefix is unknown. */
 export function decodeTouchMessage(
-  buf: ArrayBuffer | Uint8Array
+  buf: ArrayBuffer | Uint8Array,
 ): DecodedSingleTouch | DecodedMultiTouch | null {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   if (bytes.length < 12) return null;

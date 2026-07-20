@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { parseScreenshotArgs } from "../screenshot";
+import { createScreenshotCapture, parseScreenshotArgs } from "../screenshot";
+import { createScriptedHostCommands } from "../test-support/scripted-host-commands";
 
 describe("parseScreenshotArgs", () => {
   test("no args defaults to png with no path and no timestamp", () => {
@@ -113,5 +114,53 @@ describe("parseScreenshotArgs", () => {
       mask: "alpha",
       device: "UDID-1",
     });
+  });
+});
+
+describe("screenshot capture module", () => {
+  test("captures with exact display and mask argv", async () => {
+    const host = createScriptedHostCommands([{}]);
+    const capture = createScreenshotCapture(host);
+
+    await capture.capture("DEVICE", {
+      path: "/tmp/shot.png",
+      type: "png",
+      display: "internal",
+      mask: "alpha",
+      quiet: false,
+    });
+
+    expect(host.calls[0]?.request).toEqual({
+      executable: "xcrun",
+      args: [
+        "simctl",
+        "io",
+        "DEVICE",
+        "screenshot",
+        "--type",
+        "png",
+        "--display",
+        "internal",
+        "--mask",
+        "alpha",
+        "/tmp/shot.png",
+      ],
+      stdio: "capture",
+    });
+  });
+
+  test("generates a deterministic default jpeg filename through injected time and cwd", async () => {
+    const host = createScriptedHostCommands([{}]);
+    const capture = createScreenshotCapture(host, {
+      now: () => 1234,
+      cwd: () => "/workspace",
+    });
+
+    await expect(
+      capture.capture("DEVICE", {
+        type: "jpeg",
+        quiet: false,
+      }),
+    ).resolves.toBe("/workspace/screenshot-1234.jpg");
   });
 });

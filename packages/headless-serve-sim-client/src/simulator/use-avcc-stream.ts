@@ -1,9 +1,5 @@
 import { useEffect } from "react";
-import {
-  AvccDemuxer,
-  avcCodecString,
-  isAvccSupported,
-} from "../avcc-codec.js";
+import { AvccDemuxer, avcCodecString, isAvccSupported } from "../avcc-codec.js";
 
 const MAX_DECODE_QUEUE_SIZE = 4;
 
@@ -104,8 +100,7 @@ export function useAvccStream({
     const demuxer = new AvccDemuxer();
 
     const VideoDecoderCtor = (globalThis as any).VideoDecoder as typeof VideoDecoder;
-    const EncodedVideoChunkCtor = (globalThis as any)
-      .EncodedVideoChunk as typeof EncodedVideoChunk;
+    const EncodedVideoChunkCtor = (globalThis as any).EncodedVideoChunk as typeof EncodedVideoChunk;
 
     const requestKeyframe = () => {
       const now = performance.now();
@@ -179,7 +174,9 @@ export function useAvccStream({
 
     const closeDecoder = () => {
       if (decoder && decoder.state !== "closed") {
-        try { decoder.close(); } catch {}
+        try {
+          decoder.close();
+        } catch {}
       }
       decoder = null;
       pendingDecodes.length = 0;

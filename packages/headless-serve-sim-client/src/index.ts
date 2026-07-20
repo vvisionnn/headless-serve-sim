@@ -24,9 +24,4 @@ export type {
 } from "./connection-stats";
 
 // Protocol types
-export type {
-  ClientMessage,
-  ServerMessage,
-  SimulatorOrientation,
-  StreamConfig,
-} from "./types";
+export type { ClientMessage, ServerMessage, SimulatorOrientation, StreamConfig } from "./types";

@@ -11,13 +11,12 @@ import { useCallback, useEffect, useRef } from "react";
 export function useMjpegStream(streamUrl: string | null) {
   const subscribersRef = useRef<Set<(blobUrl: string, bytes?: number) => void>>(new Set());
 
-  const subscribeFrame = useCallback(
-    (cb: (blobUrl: string, bytes?: number) => void) => {
-      subscribersRef.current.add(cb);
-      return () => { subscribersRef.current.delete(cb); };
-    },
-    [],
-  );
+  const subscribeFrame = useCallback((cb: (blobUrl: string, bytes?: number) => void) => {
+    subscribersRef.current.add(cb);
+    return () => {
+      subscribersRef.current.delete(cb);
+    };
+  }, []);
 
   useEffect(() => {
     if (!streamUrl) return;

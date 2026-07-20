@@ -1,7 +1,8 @@
-import { execFileSync } from "child_process";
 import { existsSync } from "fs";
 import { resolve } from "path";
 import { findBootedDevice, resolveDevice } from "./device";
+import type { HostCommands } from "./runtime/host-commands";
+import { createNodeHostCommands } from "./runtime/node-host-commands";
 
 // ─── Argument parsing ───
 //
@@ -37,9 +38,7 @@ const BUNDLE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
 // rejects scheme-less input like "not a url".
 const URL_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:.+$/;
 
-export function parseAppActionsArgs(
-  args: string[],
-): ParsedAppActions | { error: string } {
+export function parseAppActionsArgs(args: string[]): ParsedAppActions | { error: string } {
   let device: string | undefined;
   let payload: string | undefined;
   let file: string | undefined;
@@ -87,14 +86,18 @@ export function parseAppActionsArgs(
       };
     }
     if (positional.length > 2) {
-      return { error: `Unexpected argument: ${positional[2]} (did you forget -d before a device name, or quotes around the URL?)` };
+      return {
+        error: `Unexpected argument: ${positional[2]} (did you forget -d before a device name, or quotes around the URL?)`,
+      };
     }
     return { verb, url, device, quiet };
   }
 
   if (verb === "keychain-reset") {
     if (positional.length > 1) {
-      return { error: `Unexpected argument: ${positional[1]} (keychain-reset takes no positional arguments)` };
+      return {
+        error: `Unexpected argument: ${positional[1]} (keychain-reset takes no positional arguments)`,
+      };
     }
     return { verb, device, quiet };
   }
@@ -104,7 +107,9 @@ export function parseAppActionsArgs(
   if (bundleId === undefined) return { error: "Missing bundle id for push" };
   if (!BUNDLE_ID_RE.test(bundleId)) return { error: `Invalid bundle id: ${bundleId}` };
   if (positional.length > 2) {
-    return { error: `Unexpected argument: ${positional[2]} (did you forget -d before a device name?)` };
+    return {
+      error: `Unexpected argument: ${positional[2]} (did you forget -d before a device name?)`,
+    };
   }
 
   if (payload !== undefined && file !== undefined) {
@@ -121,7 +126,11 @@ export function parseAppActionsArgs(
     } catch {
       return { error: "Invalid JSON payload (could not parse --payload)." };
     }
-    if (parsedPayload === null || typeof parsedPayload !== "object" || Array.isArray(parsedPayload)) {
+    if (
+      parsedPayload === null ||
+      typeof parsedPayload !== "object" ||
+      Array.isArray(parsedPayload)
+    ) {
       return { error: "Invalid push payload: expected a JSON object." };
     }
     if (!("aps" in parsedPayload)) {
@@ -143,6 +152,65 @@ const USAGE =
   "\nopen-url accepts http(s)/universal links and custom app schemes. push needs an\n" +
   "installed target app and a payload containing an 'aps' dict.";
 
+interface AppActionsOptions {
+  fileExists?: (path: string) => boolean;
+  resolvePath?: (path: string) => string;
+}
+
+export interface AppActionsModule {
+  execute(udid: string, action: ParsedAppActions): Promise<void>;
+}
+
+export function createAppActions(
+  host: HostCommands,
+  options: AppActionsOptions = {},
+): AppActionsModule {
+  const fileExists = options.fileExists ?? existsSync;
+  const resolvePath = options.resolvePath ?? resolve;
+
+  const run = async (args: readonly string[], input?: string): Promise<void> => {
+    const result = await host.run({
+      executable: "xcrun",
+      args,
+      ...(input === undefined ? {} : { input }),
+      stdio: "capture",
+    });
+    if (result.exitCode !== 0 || result.timedOut) {
+      throw new Error(
+        result.stderr.toString().trim() ||
+          `Host command failed with exit code ${result.exitCode ?? "unknown"}`,
+      );
+    }
+  };
+
+  return {
+    async execute(udid, action) {
+      if (action.verb === "open-url") {
+        await run(["simctl", "openurl", udid, action.url!]);
+        return;
+      }
+      if (action.verb === "keychain-reset") {
+        await run(["simctl", "keychain", udid, "reset"]);
+        return;
+      }
+      if (action.payload !== undefined) {
+        await run(["simctl", "push", udid, action.bundleId!, "-"], action.payload);
+        return;
+      }
+      const path = resolvePath(action.file!);
+      if (!fileExists(path)) throw new Error(`Payload file not found: ${path}`);
+      await run(["simctl", "push", udid, action.bundleId!, path]);
+    },
+  };
+}
+
+let productionActions: AppActionsModule | null = null;
+
+function productionAppActions(): AppActionsModule {
+  productionActions ??= createAppActions(createNodeHostCommands());
+  return productionActions;
+}
+
 export async function appActions(args: string[]): Promise<void> {
   const quiet = args.includes("-q") || args.includes("--quiet");
   const rest = args.filter((a) => a !== "-q" && a !== "--quiet");
@@ -160,41 +228,10 @@ export async function appActions(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // url is URL_RE-validated, bundleId is BUNDLE_ID_RE-validated, and every value
-  // is a discrete argv element (never shell-interpolated), so direct use here
-  // cannot inject.
   try {
-    if (parsed.verb === "open-url") {
-      execFileSync("xcrun", ["simctl", "openurl", udid, parsed.url!], {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    } else if (parsed.verb === "keychain-reset") {
-      execFileSync("xcrun", ["simctl", "keychain", udid, "reset"], {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    } else if (parsed.payload !== undefined) {
-      // Pipe the inline payload to `simctl push … -` via stdin — no temp file.
-      // stdin MUST be "pipe" (not "ignore") so `input` reaches simctl.
-      execFileSync("xcrun", ["simctl", "push", udid, parsed.bundleId!, "-"], {
-        input: parsed.payload,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-    } else {
-      const path = resolve(parsed.file!);
-      if (!existsSync(path)) {
-        console.error(`Payload file not found: ${path}`);
-        process.exit(1);
-      }
-      execFileSync("xcrun", ["simctl", "push", udid, parsed.bundleId!, path], {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    }
-  } catch (e: any) {
-    console.error(String(e?.stderr ?? e?.message ?? e).trim());
+    await productionAppActions().execute(udid, parsed);
+  } catch (error: unknown) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
 

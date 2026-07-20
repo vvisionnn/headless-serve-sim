@@ -1,220 +1,286 @@
-import { beforeAll, describe, expect, test } from "bun:test";
-import { execFileSync, execSync } from "child_process";
-import { existsSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { permissions, type PermissionsDependencies } from "../permissions";
+import {
+  createScriptedHostCommands,
+  type ScriptedCommand,
+} from "../test-support/scripted-host-commands";
 
-// Drives the built CLI against HEADLESS_SERVE_SIM_E2E_UDID when set, or the
-// first booted simulator otherwise. Each assertion reads the underlying state
-// store the simulator actually consults — TCC.db,
-// the BulletinBoard plist, locationd's clients.plist — rather than trusting
-// `xcrun simctl privacy`, which is the whole reason this command exists.
+const UDID = "TEST-UDID";
+const BUNDLE_ID = "com.example.app";
+const roots: string[] = [];
 
-const FAKE_BUNDLE = "com.headless-serve-sim.permissions-e2e";
-// Location goes through `simctl privacy`, which no-ops on a bundle id that
-// isn't installed — so location assertions need a real stock app.
-const REAL_APP = "com.apple.mobilecal";
-const PKG_DIR = join(import.meta.dir, "../..");
-const CLI = join(PKG_DIR, "dist/headless-serve-sim.js");
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
 
-function bootedUdid(): string | null {
-  try {
-    const out = execSync("xcrun simctl list devices booted -j", { encoding: "utf-8" });
-    const data = JSON.parse(out) as {
-      devices: Record<string, Array<{ udid: string; state: string }>>;
-    };
-    // Prefer an iOS device — a dev machine may also have a booted watchOS or
-    // tvOS sim, which don't share the same permission state layout.
-    for (const [runtime, devices] of Object.entries(data.devices)) {
-      if (!/iOS/i.test(runtime)) continue;
-      for (const d of devices) if (d.state === "Booted") return d.udid;
-    }
-    for (const devices of Object.values(data.devices)) {
-      for (const d of devices) if (d.state === "Booted") return d.udid;
-    }
-  } catch {}
-  return null;
+function createHarness(results: readonly ScriptedCommand[] = []) {
+  const root = mkdtempSync(join(tmpdir(), "permissions-test-"));
+  roots.push(root);
+  const libraryDir = join(root, "Library");
+  mkdirSync(join(libraryDir, "TCC"), { recursive: true });
+  writeFileSync(join(libraryDir, "TCC", "TCC.db"), "fixture");
+
+  const host = createScriptedHostCommands(results);
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  let now = 0;
+  const dependencies: PermissionsDependencies = {
+    host,
+    findBootedDevice: () => UDID,
+    resolveDevice: () => UDID,
+    simulatorLibraryDir: () => libraryDir,
+    writeStdout: (message) => stdout.push(message),
+    writeStderr: (message) => stderr.push(message),
+    now: () => now,
+    sleep: (milliseconds) => {
+      now += milliseconds;
+    },
+  };
+  return { dependencies, host, libraryDir, stdout, stderr };
 }
 
-const udid = process.env.HEADLESS_SERVE_SIM_E2E_UDID ?? bootedUdid();
-// Needs both a booted iOS sim and the built CLI. CI builds headless-serve-sim before
-// running this directory; locally, run `bun run build.ts` first or it skips.
-const describeIfSim = udid && existsSync(CLI) ? describe : describe.skip;
-
-function cli(...args: string[]): string {
-  return execFileSync("node", [CLI, "permissions", ...args, "-d", udid!], { encoding: "utf-8" });
+function createBulletinStore(libraryDir: string): string {
+  const directory = join(libraryDir, "BulletinBoard");
+  mkdirSync(directory, { recursive: true });
+  const path = join(directory, "VersionedSectionInfo.plist");
+  writeFileSync(path, "fixture");
+  return path;
 }
 
-function libDir(): string {
-  return join(
-    homedir(),
-    "Library/Developer/CoreSimulator/Devices",
-    udid!,
-    "data/Library",
-  );
-}
+describe("permissions behavior", () => {
+  test("grant camera replaces the TCC row with auth value 2", async () => {
+    const harness = createHarness([{}, {}]);
 
-function tccAuthValue(service: string): string {
-  const db = join(libDir(), "TCC/TCC.db");
-  return execSync(
-    `sqlite3 "${db}" "SELECT auth_value FROM access WHERE service='${service}' AND client='${FAKE_BUNDLE}';"`,
-    { encoding: "utf-8" },
-  ).trim();
-}
+    const exitCode = await permissions(
+      ["grant", "camera", BUNDLE_ID, "-d", UDID],
+      harness.dependencies,
+    );
 
-function bulletinXml(): string {
-  const plist = join(libDir(), "BulletinBoard/VersionedSectionInfo.plist");
-  return execSync(`plutil -convert xml1 -o - "${plist}"`, { encoding: "utf-8" });
-}
-
-// Decode the per-app section-info keyed archive nested as a <data> blob under
-// `sectionInfo.<bundleId>`. `plutil -extract` can't address the dotted bundle
-// id, so pull the whole sectionInfo dict and find the entry by hand.
-function sectionInfoInnerXml(): string {
-  const plist = join(libDir(), "BulletinBoard/VersionedSectionInfo.plist");
-  const xml = execSync(`plutil -extract sectionInfo xml1 -o - "${plist}"`, {
-    encoding: "utf-8",
+    expect(exitCode).toBe(0);
+    expect(harness.host.calls.map((call) => call.request)).toEqual([
+      {
+        executable: "sqlite3",
+        args: [
+          join(harness.dependencies.simulatorLibraryDir(UDID), "TCC/TCC.db"),
+          `DELETE FROM access WHERE service='kTCCServiceCamera' AND client='${BUNDLE_ID}' AND client_type=0;`,
+        ],
+        stdio: "capture",
+      },
+      {
+        executable: "sqlite3",
+        args: [
+          join(harness.dependencies.simulatorLibraryDir(UDID), "TCC/TCC.db"),
+          `INSERT INTO access (service, client, client_type, auth_value, auth_reason, auth_version, flags) VALUES ('kTCCServiceCamera', '${BUNDLE_ID}', 0, 2, 2, 1, 0);`,
+        ],
+        stdio: "capture",
+      },
+    ]);
+    expect(harness.stdout).toEqual([`🔐 grant camera for ${BUNDLE_ID} on ${UDID}`]);
+    expect(harness.stderr).toEqual([]);
+    expect(harness.host.remaining).toBe(0);
   });
-  const m = xml.match(
-    new RegExp(
-      `<key>${FAKE_BUNDLE.replace(/[.-]/g, "\\$&")}</key>\\s*<data>([\\s\\S]*?)</data>`,
-    ),
-  );
-  if (!m?.[1]) throw new Error(`no sectionInfo entry for ${FAKE_BUNDLE}`);
-  const blob = Buffer.from(m[1].replace(/\s/g, ""), "base64");
-  const tmp = join(libDir(), "..", `.headless-serve-sim-e2e-${Date.now()}-${Math.random().toString(36).slice(2)}.plist`);
-  require("fs").writeFileSync(tmp, blob);
-  try {
-    return execSync(`plutil -convert xml1 -o - "${tmp}"`, { encoding: "utf-8" });
-  } finally {
-    require("fs").rmSync(tmp, { force: true });
-  }
-}
 
-// locationd keys entries as `i<bundleId>:`; pull the Authorization integer out
-// of that entry's dict.
-function locationAuth(bundleId: string): number | null {
-  const plist = join(libDir(), "Caches/locationd/clients.plist");
-  if (!existsSync(plist)) return null;
-  const xml = execSync(`plutil -convert xml1 -o - "${plist}"`, {
-    encoding: "utf-8",
+  test.each([
+    ["revoke", "camera", undefined, 0, 1],
+    ["grant", "photos", "limited", 3, 2],
+  ] as const)(
+    "%s %s writes the expected TCC authorization",
+    async (verb, permission, value, authValue, authVersion) => {
+      const harness = createHarness([{}, {}]);
+      const args = [verb, permission, BUNDLE_ID, "-d", UDID];
+      if (value) args.push("--value", value);
+
+      expect(await permissions(args, harness.dependencies)).toBe(0);
+
+      const insert = harness.host.calls[1]?.request;
+      expect(insert && "args" in insert ? insert.args?.[1] : undefined).toBe(
+        `INSERT INTO access (service, client, client_type, auth_value, auth_reason, auth_version, flags) ` +
+          `VALUES ('${permission === "photos" ? "kTCCServicePhotos" : "kTCCServiceCamera"}', '${BUNDLE_ID}', 0, ${authValue}, 2, ${authVersion}, 0);`,
+      );
+      expect(harness.host.remaining).toBe(0);
+    },
+  );
+
+  test("reset camera removes the existing TCC row without inserting one", async () => {
+    const harness = createHarness([{}]);
+
+    expect(
+      await permissions(["reset", "camera", BUNDLE_ID, "-d", UDID], harness.dependencies),
+    ).toBe(0);
+
+    expect(harness.host.calls).toHaveLength(1);
+    const request = harness.host.calls[0]?.request;
+    expect(request && "args" in request ? request.args?.[1] : undefined).toBe(
+      `DELETE FROM access WHERE service='kTCCServiceCamera' AND client='${BUNDLE_ID}' AND client_type=0;`,
+    );
+    expect(harness.host.remaining).toBe(0);
   });
-  const m = xml.match(
-    new RegExp(
-      `<key>i${bundleId.replace(/[.-]/g, "\\$&")}:</key>\\s*<dict>[\\s\\S]*?` +
-        `<key>Authorization</key>\\s*<integer>(\\d+)</integer>`,
-    ),
+
+  test.each([
+    ["grant", "always", "grant", "location-always"],
+    ["revoke", undefined, "revoke", "location"],
+    ["reset", undefined, "reset", "location"],
+  ] as const)(
+    "%s location delegates the canonical privacy action",
+    async (verb, value, action, service) => {
+      const harness = createHarness([{}]);
+      const args = [verb, "location", BUNDLE_ID, "-d", UDID];
+      if (value) args.push("--value", value);
+
+      expect(await permissions(args, harness.dependencies)).toBe(0);
+      expect(harness.host.calls).toEqual([
+        {
+          kind: "run-sync",
+          request: {
+            executable: "xcrun",
+            args: ["simctl", "privacy", UDID, action, service, BUNDLE_ID],
+            stdio: "capture",
+          },
+        },
+      ]);
+      expect(harness.host.remaining).toBe(0);
+    },
   );
-  return m ? Number(m[1]) : null;
-}
 
-async function waitForLocationAuth(
-  bundleId: string,
-  expected: number,
-  timeoutMs = 15_000,
-): Promise<number | null> {
-  const deadline = Date.now() + timeoutMs;
-  let value = locationAuth(bundleId);
-  while (value !== expected && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    value = locationAuth(bundleId);
-  }
-  return value;
-}
+  test("a failed privacy command returns an error without falling through to the host", async () => {
+    const harness = createHarness([{ result: { exitCode: 1, stderr: "privacy denied" } }]);
 
-// Each case shells the built CLI a few times, and a cold `simctl privacy`
-// call (location) can take several seconds on a fresh CI sim — comfortably
-// past bun's 5s default. The beforeAll reset-all also cascades through every
-// permission while the sim is fully cold, and that first touch has been seen
-// to run past 90s on a GitHub macOS runner, so keep the budget well above it.
-const T = 150_000;
+    expect(
+      await permissions(["grant", "location", BUNDLE_ID, "-d", UDID], harness.dependencies),
+    ).toBe(1);
+    expect(harness.stderr).toEqual(["simctl privacy grant location failed: privacy denied"]);
+    expect(harness.host.calls).toHaveLength(1);
+    expect(harness.host.remaining).toBe(0);
+  });
 
-describeIfSim("headless-serve-sim permissions (real simulator)", () => {
-  beforeAll(() => {
-    // Start from a known-clean slate for the fake bundle.
-    cli("reset", "all", FAKE_BUNDLE);
-  }, T);
+  test.each([
+    ["grant", undefined, "true", "0"],
+    ["grant", "critical", "true", "2"],
+    ["revoke", undefined, "false", "0"],
+  ] as const)(
+    "%s notifications writes the expected archived settings",
+    async (verb, value, enabled, critical) => {
+      const harness = createHarness(Array.from({ length: 7 }, () => ({})));
+      const bulletinPath = createBulletinStore(harness.libraryDir);
+      const args = [verb, "notifications", BUNDLE_ID, "-d", UDID];
+      if (value) args.push("--value", value);
 
-  test("grant camera writes a TCC row with auth_value=2", () => {
-    cli("grant", "camera", FAKE_BUNDLE);
-    expect(tccAuthValue("kTCCServiceCamera")).toBe("2");
-  }, T);
+      expect(await permissions(args, harness.dependencies)).toBe(0);
 
-  test("revoke camera flips auth_value to 0", () => {
-    cli("revoke", "camera", FAKE_BUNDLE);
-    expect(tccAuthValue("kTCCServiceCamera")).toBe("0");
-  }, T);
+      const commands = harness.host.calls.map((call) => call.request);
+      expect(commands[0]).toEqual({
+        executable: "chflags",
+        args: ["nouchg", bulletinPath],
+        stdio: "capture",
+      });
+      const plistBuddyCommands = commands
+        .filter(
+          (request) => "executable" in request && request.executable === "/usr/libexec/PlistBuddy",
+        )
+        .flatMap((request) => request.args ?? []);
+      expect(plistBuddyCommands).toContain(`Delete :sectionInfo:${BUNDLE_ID}`);
+      expect(plistBuddyCommands).toContain(`Set :$objects:3:allowsNotifications ${enabled}`);
+      expect(plistBuddyCommands).toContain(
+        `Add :$objects:3:criticalAlertSetting integer ${critical}`,
+      );
+      expect(
+        plistBuddyCommands.some((arg) => arg.startsWith(`Import :sectionInfo:${BUNDLE_ID} `)),
+      ).toBe(true);
+      expect(commands.at(-1)).toEqual({
+        executable: "chflags",
+        args: ["uchg", bulletinPath],
+        stdio: "capture",
+      });
+      expect(harness.host.remaining).toBe(0);
+    },
+  );
 
-  test("reset camera removes the TCC row", () => {
-    cli("grant", "camera", FAKE_BUNDLE);
-    cli("reset", "camera", FAKE_BUNDLE);
-    expect(tccAuthValue("kTCCServiceCamera")).toBe("");
-  }, T);
+  test("reset notifications removes the archived settings without rebuilding them", async () => {
+    const harness = createHarness(Array.from({ length: 4 }, () => ({})));
+    createBulletinStore(harness.libraryDir);
 
-  test("grant photos --value limited writes auth_value=3", () => {
-    cli("grant", "photos", FAKE_BUNDLE, "--value", "limited");
-    expect(tccAuthValue("kTCCServicePhotos")).toBe("3");
-  }, T);
+    expect(
+      await permissions(["reset", "notifications", BUNDLE_ID, "-d", UDID], harness.dependencies),
+    ).toBe(0);
 
-  test("grant notifications sets allowsNotifications=true in BulletinBoard", () => {
-    cli("grant", "notifications", FAKE_BUNDLE);
-    expect(bulletinXml()).toContain(FAKE_BUNDLE);
-    expect(sectionInfoInnerXml()).toMatch(
-      /<key>allowsNotifications<\/key>\s*<true\/>/,
+    const commands = harness.host.calls.map((call) => call.request);
+    const plistBuddyCommands = commands
+      .filter(
+        (request) => "executable" in request && request.executable === "/usr/libexec/PlistBuddy",
+      )
+      .flatMap((request) => request.args ?? []);
+    expect(plistBuddyCommands).toContain(`Delete :sectionInfo:${BUNDLE_ID}`);
+    expect(plistBuddyCommands.some((arg) => arg.startsWith("Import "))).toBe(false);
+    expect(harness.host.remaining).toBe(0);
+  });
+
+  test("reset all clears every permission kind through the same command interface", async () => {
+    const harness = createHarness(Array.from({ length: 15 }, () => ({})));
+
+    expect(await permissions(["reset", "all", BUNDLE_ID, "-d", UDID], harness.dependencies)).toBe(
+      0,
     );
-  }, T);
 
-  test("grant notifications --value critical sets criticalAlertSetting=2", () => {
-    cli("grant", "notifications", FAKE_BUNDLE, "--value", "critical");
-    expect(sectionInfoInnerXml()).toMatch(
-      /<key>criticalAlertSetting<\/key>\s*<integer>2<\/integer>/,
-    );
-  }, T);
+    const commands = harness.host.calls.map((call) => call.request);
+    expect(
+      commands.filter((request) => "executable" in request && request.executable === "sqlite3"),
+    ).toHaveLength(14);
+    expect(commands).toContainEqual({
+      executable: "xcrun",
+      args: ["simctl", "privacy", UDID, "reset", "location", BUNDLE_ID],
+      stdio: "capture",
+    });
+    expect(harness.host.remaining).toBe(0);
+  });
 
-  test("revoke notifications sets allowsNotifications=false", () => {
-    cli("revoke", "notifications", FAKE_BUNDLE);
-    expect(sectionInfoInnerXml()).toMatch(
-      /<key>allowsNotifications<\/key>\s*<false\/>/,
-    );
-  }, T);
+  test("list reports TCC, location, and notification state under CLI names", async () => {
+    const locationDirectory = "Caches/locationd";
+    const sectionBlob = Buffer.from("fixture archive").toString("base64");
+    const harness = createHarness([
+      {
+        result: {
+          stdout: "kTCCServiceCamera|2\n" + "kTCCServicePhotos|3\n",
+        },
+      },
+      {
+        result: {
+          stdout:
+            `<key>i${BUNDLE_ID}:</key><dict>` +
+            "<key>Authorization</key><integer>4</integer></dict>",
+        },
+      },
+      {
+        result: {
+          stdout: `<key>${BUNDLE_ID}</key><data>${sectionBlob}</data>`,
+        },
+      },
+      {
+        result: {
+          stdout:
+            "<key>allowsNotifications</key><true/>" +
+            "<key>criticalAlertSetting</key><integer>2</integer>",
+        },
+      },
+    ]);
+    mkdirSync(join(harness.libraryDir, locationDirectory), { recursive: true });
+    writeFileSync(join(harness.libraryDir, locationDirectory, "clients.plist"), "fixture");
+    createBulletinStore(harness.libraryDir);
 
-  test("reset notifications removes the bundle entry", () => {
-    cli("grant", "notifications", FAKE_BUNDLE);
-    cli("reset", "notifications", FAKE_BUNDLE);
-    expect(bulletinXml()).not.toContain(FAKE_BUNDLE);
-  }, T);
+    expect(
+      await permissions(["list", BUNDLE_ID, "-d", UDID, "--quiet"], harness.dependencies),
+    ).toBe(0);
 
-  test("grant location --value always writes Authorization=4", async () => {
-    cli("grant", "location", REAL_APP, "--value", "always");
-    expect(await waitForLocationAuth(REAL_APP, 4)).toBe(4);
-  }, T);
-
-  test("revoke location downgrades Authorization to never (1)", async () => {
-    cli("revoke", "location", REAL_APP);
-    expect(await waitForLocationAuth(REAL_APP, 1)).toBe(1);
-    cli("reset", "location", REAL_APP);
-  }, T);
-
-  test("reset all clears the TCC and notification stores for the bundle", () => {
-    cli("grant", "camera", FAKE_BUNDLE);
-    cli("grant", "notifications", FAKE_BUNDLE);
-    cli("reset", "all", FAKE_BUNDLE);
-    expect(tccAuthValue("kTCCServiceCamera")).toBe("");
-    expect(bulletinXml()).not.toContain(FAKE_BUNDLE);
-  }, T);
-
-  test("list reports state under the CLI's own permission names", async () => {
-    cli("grant", "camera", FAKE_BUNDLE);
-    cli("grant", "notifications", FAKE_BUNDLE);
-    cli("grant", "location", REAL_APP, "--value", "always");
-    expect(await waitForLocationAuth(REAL_APP, 4)).toBe(4);
-    const fake = JSON.parse(cli("list", FAKE_BUNDLE));
-    expect(fake.tcc.camera).toBe(2);
-    expect(fake.notifications.allowsNotifications).toBe(true);
-    const realOut = JSON.parse(cli("list", REAL_APP));
-    expect(realOut.udid).toBe(udid);
-    expect(realOut.location.Authorization).toBe(4);
-    cli("reset", "all", FAKE_BUNDLE);
-    cli("reset", "location", REAL_APP);
-  }, T);
+    expect(JSON.parse(harness.stdout[0]!)).toEqual({
+      udid: UDID,
+      bundleId: BUNDLE_ID,
+      tcc: { camera: 2, photos: 3 },
+      location: { Authorization: 4 },
+      notifications: { allowsNotifications: true, critical: true },
+    });
+    expect(harness.stderr).toEqual([]);
+    expect(harness.host.remaining).toBe(0);
+  });
 });

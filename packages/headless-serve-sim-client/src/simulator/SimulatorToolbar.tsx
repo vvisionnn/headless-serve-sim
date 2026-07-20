@@ -272,8 +272,7 @@ const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(function
       style={{
         ...buttonStyle,
         color: effectiveDisabled ? "var(--color-fg-3)" : "var(--color-fg)",
-        background:
-          hover && !effectiveDisabled ? "var(--color-hover)" : "transparent",
+        background: hover && !effectiveDisabled ? "var(--color-hover)" : "transparent",
         cursor: effectiveDisabled ? "not-allowed" : "pointer",
         ...style,
       }}
@@ -343,7 +342,17 @@ const ScreenshotIcon = (
 );
 
 const RotateIcon = (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    xmlns="http://www.w3.org/2000/svg"
+  >
     <path d="M12 5H6a2 2 0 0 0-2 2v3" />
     <path d="m9 8 3-3-3-3" />
     <path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
@@ -382,30 +391,29 @@ const HomeButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(function Ho
   );
 });
 
-const ScreenshotButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(function ScreenshotButton(
-  { onClick, ...rest },
-  ref,
-) {
-  const ctx = useToolbar("ScreenshotButton");
-  return (
-    <ToolbarButton
-      ref={ref}
-      aria-label="Screenshot"
-      onClick={(e) => {
-        onClick?.(e);
-        if (e.defaultPrevented) return;
-        if (ctx.deviceUdid) {
-          void ctx.exec(
-            `xcrun simctl io ${ctx.deviceUdid} screenshot ~/Desktop/headless-serve-sim-screenshot-$(date +%s).png`,
-          );
-        }
-      }}
-      {...rest}
-    >
-      {ScreenshotIcon}
-    </ToolbarButton>
-  );
-});
+const ScreenshotButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
+  function ScreenshotButton({ onClick, ...rest }, ref) {
+    const ctx = useToolbar("ScreenshotButton");
+    return (
+      <ToolbarButton
+        ref={ref}
+        aria-label="Screenshot"
+        onClick={(e) => {
+          onClick?.(e);
+          if (e.defaultPrevented) return;
+          if (ctx.deviceUdid) {
+            void ctx.exec(
+              `xcrun simctl io ${ctx.deviceUdid} screenshot ~/Desktop/headless-serve-sim-screenshot-$(date +%s).png`,
+            );
+          }
+        }}
+        {...rest}
+      >
+        {ScreenshotIcon}
+      </ToolbarButton>
+    );
+  },
+);
 
 const RotateButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(function RotateButton(
   { onClick, forceDisabled, ...rest },

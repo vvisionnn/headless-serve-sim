@@ -215,7 +215,16 @@ function SettingSelect({
 // Inline 14px glyphs, stroked at full opacity (no dimmed icons).
 const I = {
   appearance: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M12 2v2" />
       <path d="M14.837 16.385a6 6 0 1 1-7.223-7.222c.624-.147.97.66.715 1.248a4 4 0 0 0 5.26 5.259c.589-.255 1.396.09 1.248.715" />
       <path d="M16 12a4 4 0 0 0-4-4" />
@@ -231,7 +240,16 @@ const I = {
     </svg>
   ),
   filter: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M11 17a4 4 0 0 1-8 0V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2Z" />
       <path d="M16.7 13H19a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H7" />
       <path d="M 7 17h.01" />
@@ -244,19 +262,45 @@ const I = {
     </svg>
   ),
   motion: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
       <circle cx="14" cy="12" r="6" />
       <path d="M3 8h4M2 12h4M3 16h4" />
     </svg>
   ),
   contrast: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <circle cx="12" cy="12" r="10" />
       <path d="M12 18a6 6 0 0 0 0-12v12z" />
     </svg>
   ),
   borders: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M5 21a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2" />
       <path d="M9 21h1" />
       <path d="M14 21h1" />
@@ -268,7 +312,16 @@ const I = {
     </svg>
   ),
   voiceover: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="m11 7.601-5.994 8.19a1 1 0 0 0 .1 1.298l.817.818a1 1 0 0 0 1.314.087L15.09 12" />
       <path d="M16.5 21.174C15.5 20.5 14.372 20 13 20c-2.058 0-3.928 2.356-6 2-2.072-.356-2.775-3.369-1.5-4.5" />
       <circle cx="16" cy="7" r="5" />
@@ -288,10 +341,7 @@ export function SimulatorSettingsTool({ udid, execToken }: { udid: string; execT
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const status = await hostUiRequest(
-        { device: udid },
-        { signal: AbortSignal.timeout(15_000) },
-      );
+      const status = await hostUiRequest({ device: udid }, { signal: AbortSignal.timeout(15_000) });
       if (status) setState(status);
       else setError("Unexpected simulator-settings reply");
     } catch (e) {
@@ -393,48 +443,45 @@ export function SimulatorSettingsTool({ udid, execToken }: { udid: string; execT
       )}
 
       <div className="flex flex-col gap-2">
-          <SettingRow icon={I.appearance} label="Appearance">
-            <SettingSelect
-              label="Appearance"
-              value={shown.appearance ?? "light"}
-              options={SELECT_OPTIONS.appearance!}
-              disabled={!ready || pending === "appearance"}
-              onChange={(v) => apply("appearance", v)}
-            />
-          </SettingRow>
+        <SettingRow icon={I.appearance} label="Appearance">
+          <SettingSelect
+            label="Appearance"
+            value={shown.appearance ?? "light"}
+            options={SELECT_OPTIONS.appearance!}
+            disabled={!ready || pending === "appearance"}
+            onChange={(v) => apply("appearance", v)}
+          />
+        </SettingRow>
 
-          <SettingRow icon={I.glass} label="Liquid Glass">
-            <SettingSelect
-              label="Liquid Glass"
-              value={shown["liquid-glass"] ?? "clear"}
-              options={SELECT_OPTIONS["liquid-glass"]!}
-              disabled={!ready || pending === "liquid-glass"}
-              onChange={(v) => apply("liquid-glass", v)}
-            />
-          </SettingRow>
+        <SettingRow icon={I.glass} label="Liquid Glass">
+          <SettingSelect
+            label="Liquid Glass"
+            value={shown["liquid-glass"] ?? "clear"}
+            options={SELECT_OPTIONS["liquid-glass"]!}
+            disabled={!ready || pending === "liquid-glass"}
+            onChange={(v) => apply("liquid-glass", v)}
+          />
+        </SettingRow>
 
-          <SettingRow icon={I.filter} label="Color Filter">
-            <SettingSelect
-              label="Color Filter"
-              value={shown["color-filter"] ?? "none"}
-              options={SELECT_OPTIONS["color-filter"]!}
-              disabled={!ready || pending === "color-filter"}
-              onChange={(v) => apply("color-filter", v)}
-            />
-          </SettingRow>
+        <SettingRow icon={I.filter} label="Color Filter">
+          <SettingSelect
+            label="Color Filter"
+            value={shown["color-filter"] ?? "none"}
+            options={SELECT_OPTIONS["color-filter"]!}
+            disabled={!ready || pending === "color-filter"}
+            onChange={(v) => apply("color-filter", v)}
+          />
+        </SettingRow>
 
-          <SettingRow icon={I.textSize} label="Text Size">
-            <TextSizeSlider
-              value={textSizeIndex}
-              disabled={!ready}
-              onChange={applyTextSize}
-            />
-          </SettingRow>
+        <SettingRow icon={I.textSize} label="Text Size">
+          <TextSizeSlider value={textSizeIndex} disabled={!ready} onChange={applyTextSize} />
+        </SettingRow>
 
-          {TOGGLE_OPTIONS.map(({ key, label }) => (
-            <SettingRow
-              key={key}
-              icon={I[
+        {TOGGLE_OPTIONS.map(({ key, label }) => (
+          <SettingRow
+            key={key}
+            icon={
+              I[
                 key === "reduce-motion"
                   ? "motion"
                   : key === "increase-contrast"
@@ -444,18 +491,19 @@ export function SimulatorSettingsTool({ udid, execToken }: { udid: string; execT
                       : key === "reduce-transparency"
                         ? "transparency"
                         : "voiceover"
-              ]}
+              ]
+            }
+            label={label}
+          >
+            <SettingSwitch
               label={label}
-            >
-              <SettingSwitch
-                label={label}
-                checked={shown[key] === "on"}
-                disabled={!ready || pending === key}
-                onChange={(next) => apply(key, next ? "on" : "off")}
-              />
-            </SettingRow>
-          ))}
-        </div>
+              checked={shown[key] === "on"}
+              disabled={!ready || pending === key}
+              onChange={(next) => apply(key, next ? "on" : "off")}
+            />
+          </SettingRow>
+        ))}
+      </div>
     </CollapsibleSection>
   );
 }

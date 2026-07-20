@@ -46,11 +46,7 @@ import { useAvccStream } from "./hooks/use-avcc-stream";
 import { useResizableWidth } from "./hooks/use-resizable-width";
 import { useUploadToasts } from "./hooks/use-upload-toasts";
 import { useWebKitDevtools } from "./hooks/use-webkit-devtools";
-import {
-  avccFallbackReducer,
-  initialAvccFallback,
-  AVCC_FRAME_TIMEOUT_MS,
-} from "./avcc-fallback";
+import { avccFallbackReducer, initialAvccFallback, AVCC_FRAME_TIMEOUT_MS } from "./avcc-fallback";
 import { parseSimctlList, type SimDevice } from "./utils/devices";
 import { fileExtension } from "./utils/drop";
 import { execOnHost } from "./utils/exec";
@@ -69,10 +65,7 @@ import { resolveActiveScreenConfig } from "./utils/screen-config";
 import { readPersistedFlag, writePersistedFlag } from "./utils/persisted-flag";
 import { resolveEventsDevice } from "./utils/events-device";
 import { previewConfigKey, selectedPreviewConfig } from "./utils/preview-config";
-import {
-  currentAppForDevice,
-  type DetectedAppState,
-} from "./utils/current-app";
+import { currentAppForDevice, type DetectedAppState } from "./utils/current-app";
 import {
   reconcileStreamMode,
   sendStreamMode,
@@ -118,7 +111,6 @@ function usePersistedFlag(
 
 type PreviewConfig = NonNullable<Window["__SIM_PREVIEW__"]>;
 
-
 function App() {
   const [config, setConfig] = useState<PreviewConfig | null>(() =>
     selectedPreviewConfig(window.__SIM_PREVIEW__),
@@ -163,7 +155,9 @@ function App() {
     }
   }, []);
 
-  useEffect(() => { fetchDevices(); }, [fetchDevices]);
+  useEffect(() => {
+    fetchDevices();
+  }, [fetchDevices]);
 
   // Refresh the device list whenever a new simulator is committed, so its name
   // is known (e.g. for the disconnected panel) even if it first appeared
@@ -215,10 +209,7 @@ function App() {
       // name captured when we last had a config.
       const name = devices.find((d) => d.udid === lastDevice.udid)?.name ?? lastDevice.name;
       return (
-        <SimulatorDisconnected
-          deviceName={name}
-          onChooseAnother={() => setShowPicker(true)}
-        />
+        <SimulatorDisconnected deviceName={name} onChooseAnother={() => setShowPicker(true)} />
       );
     }
     return (
@@ -311,14 +302,23 @@ function AppWithConfig({
       : "Simulator Preview";
   }, [selectedDevice?.name]);
 
-  const deviceType: DeviceType = config.deviceFrameSpec?.family ?? getDeviceType(
-    selectedDevice?.deviceTypeIdentifier ?? config.deviceTypeIdentifier ?? resolvedDeviceName,
+  const deviceType: DeviceType =
+    config.deviceFrameSpec?.family ??
+    getDeviceType(
+      selectedDevice?.deviceTypeIdentifier ?? config.deviceTypeIdentifier ?? resolvedDeviceName,
+    );
+  const devtools = useWebKitDevtools(
+    config.devtoolsEndpoint ?? simEndpoint("devtools"),
+    devtoolsOpen,
   );
-  const devtools = useWebKitDevtools(config.devtoolsEndpoint ?? simEndpoint("devtools"), devtoolsOpen);
 
   useEffect(() => {
     if (!devtoolsOpen) return;
-    if (selectedDevtoolsTargetId && devtools.targets.some((target) => target.id === selectedDevtoolsTargetId)) return;
+    if (
+      selectedDevtoolsTargetId &&
+      devtools.targets.some((target) => target.id === selectedDevtoolsTargetId)
+    )
+      return;
     setSelectedDevtoolsTargetId(devtools.targets.length === 1 ? devtools.targets[0]!.id : null);
   }, [devtoolsOpen, devtools.targets, selectedDevtoolsTargetId, setSelectedDevtoolsTargetId]);
 
@@ -339,10 +339,7 @@ function AppWithConfig({
   // `avccFallback` drives a startup timeout: if AVCC paints nothing in time,
   // drop to MJPEG, which every helper serves. See avcc-fallback.ts.
   const avcc = useAvccStream();
-  const [avccFallback, dispatchAvccFallback] = useReducer(
-    avccFallbackReducer,
-    initialAvccFallback,
-  );
+  const [avccFallback, dispatchAvccFallback] = useReducer(avccFallbackReducer, initialAvccFallback);
   const useAvccVideo = avcc.supported && !avccFallback.fellBack;
   const mjpeg = useMjpegStream(useAvccVideo ? null : config.streamUrl);
 
@@ -359,10 +356,7 @@ function AppWithConfig({
   // One-shot startup window; on expiry fall back unless a frame already landed.
   useEffect(() => {
     if (!useAvccVideo) return;
-    const timer = setTimeout(
-      () => dispatchAvccFallback("timeout"),
-      AVCC_FRAME_TIMEOUT_MS,
-    );
+    const timer = setTimeout(() => dispatchAvccFallback("timeout"), AVCC_FRAME_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [useAvccVideo, config.streamUrl]);
   const [liveStreamConfig, setLiveStreamConfig] = useState<StreamConfig | null>(null);
@@ -374,17 +368,22 @@ function AppWithConfig({
     live: liveStreamConfig,
     ws: streamConfig,
     injected: config.screenConfig,
-    fallback: config.deviceFrameSpec?.nativeScreen ?? fallbackScreenSize(deviceType, resolvedDeviceName),
+    fallback:
+      config.deviceFrameSpec?.nativeScreen ?? fallbackScreenSize(deviceType, resolvedDeviceName),
   });
   const recordingDeviceFrameSpec: DeviceFrameSpec | DeviceType | null = config.deviceFrameSpec
-    ? matchDeviceFrameSpec({
-        deviceTypeIdentifier:
-          selectedDevice?.deviceTypeIdentifier ?? config.deviceTypeIdentifier,
-        modelName: config.deviceFrameSpec.modelName,
-        family: deviceType === "vision" ? null : deviceType,
-      }, activeStreamConfig, [config.deviceFrameSpec]).spec ??
-        (deviceType === "vision" ? null : deviceType)
-    : deviceType === "vision" ? null : deviceType;
+    ? (matchDeviceFrameSpec(
+        {
+          deviceTypeIdentifier: selectedDevice?.deviceTypeIdentifier ?? config.deviceTypeIdentifier,
+          modelName: config.deviceFrameSpec.modelName,
+          family: deviceType === "vision" ? null : deviceType,
+        },
+        activeStreamConfig,
+        [config.deviceFrameSpec],
+      ).spec ?? (deviceType === "vision" ? null : deviceType))
+    : deviceType === "vision"
+      ? null
+      : deviceType;
   const frameMaxWidth = simulatorMaxWidth(deviceType, activeStreamConfig);
   const frameDisplayConfig = displayStreamConfig(activeStreamConfig);
   const frameAspectRatioValue = frameDisplayConfig
@@ -440,10 +439,7 @@ function AppWithConfig({
           const s = parseServerStreamStats(bytes.subarray(1));
           if (s) {
             serverStatsRef.current = s;
-            const reconciled = reconcileStreamMode(
-              pendingStreamModeRef.current,
-              s.mode,
-            );
+            const reconciled = reconcileStreamMode(pendingStreamModeRef.current, s.mode);
             pendingStreamModeRef.current = reconciled.pending;
             setStreamMode(reconciled.mode);
           }
@@ -483,14 +479,11 @@ function AppWithConfig({
   const onStreamButton = useCallback((button: string) => sendWs(0x04, { button }), [sendWs]);
   const onStreamDigitalCrown = useCallback((delta: number) => sendWs(0x0a, { delta }), [sendWs]);
   const onStreamRequestKeyframe = useCallback(() => sendWs(0x0b, {}), [sendWs]);
-  const onModeChange = useCallback(
-    (mode: StreamMode) => {
-      pendingStreamModeRef.current = { mode, mismatches: 0 };
-      setStreamMode(mode);
-      sendStreamMode(wsRef.current, mode);
-    },
-    [],
-  );
+  const onModeChange = useCallback((mode: StreamMode) => {
+    pendingStreamModeRef.current = { mode, mismatches: 0 };
+    setStreamMode(mode);
+    sendStreamMode(wsRef.current, mode);
+  }, []);
   const onScreenConfigChange = useCallback((next: StreamConfig) => {
     setLiveStreamConfig((prev) =>
       prev &&
@@ -501,16 +494,21 @@ function AppWithConfig({
         : next,
     );
   }, []);
-  const rotateDevice = useCallback((orientation: SimulatorOrientation) => {
-    sendWs(0x07, { orientation });
-  }, [sendWs]);
+  const rotateDevice = useCallback(
+    (orientation: SimulatorOrientation) => {
+      sendWs(0x07, { orientation });
+    },
+    [sendWs],
+  );
   const currentOrientation =
     (activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ?? "portrait";
   const canRotate = deviceType !== "watch" && deviceType !== "vision";
   const rotateBy = useCallback(
     (direction: "left" | "right") => {
       if (!canRotate) return;
-      const next = (direction === "left" ? ROTATE_LEFT_CYCLE : ROTATE_RIGHT_CYCLE)[currentOrientation];
+      const next = (direction === "left" ? ROTATE_LEFT_CYCLE : ROTATE_RIGHT_CYCLE)[
+        currentOrientation
+      ];
       rotateDevice(next);
     },
     [canRotate, currentOrientation, rotateDevice],
@@ -557,9 +555,12 @@ function AppWithConfig({
     );
   }, [streamConfig, streamConfig?.width, streamConfig?.height, streamConfig?.orientation]);
 
-  const sendKey = useCallback((type: "down" | "up", usage: number) => {
-    sendWs(0x06, { type, usage });
-  }, [sendWs]);
+  const sendKey = useCallback(
+    (type: "down" | "up", usage: number) => {
+      sendWs(0x06, { type, usage });
+    },
+    [sendWs],
+  );
 
   // Subscribe to app-state SSE.
   const [detectedApp, setDetectedApp] = useState<DetectedAppState | null>(null);
@@ -582,12 +583,13 @@ function AppWithConfig({
     360,
     1400,
   );
-  const { width: connectionStatsPanelWidth, onPointerDown: onConnectionStatsResize } = useResizableWidth(
-    "headless-serve-sim:connection-stats-width",
-    CONNECTION_STATS_PANEL_WIDTH,
-    280,
-    560,
-  );
+  const { width: connectionStatsPanelWidth, onPointerDown: onConnectionStatsResize } =
+    useResizableWidth(
+      "headless-serve-sim:connection-stats-width",
+      CONNECTION_STATS_PANEL_WIDTH,
+      280,
+      560,
+    );
   const { width: logsPanelWidth, onPointerDown: onLogsResize } = useResizableWidth(
     "headless-serve-sim:logs-panel-width",
     LOGS_PANEL_WIDTH,
@@ -606,11 +608,11 @@ function AppWithConfig({
     // snapshot SimulatorView emits — in relay mode its own `server` is null.
     statsSinkRef.current?.({ ...snap, server: snap.server ?? serverStatsRef.current });
   }, []);
-  const [viewportWidth, setViewportWidth] = useState(
-    () => (typeof window !== "undefined" ? window.innerWidth : 0),
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth : 0,
   );
-  const [viewportHeight, setViewportHeight] = useState(
-    () => (typeof window !== "undefined" ? window.innerHeight : 0),
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    typeof window !== "undefined" ? window.innerHeight : 0,
   );
   useEffect(() => {
     const onResize = () => {
@@ -626,7 +628,11 @@ function AppWithConfig({
     let timer: ReturnType<typeof setTimeout> | null = null;
     es.onmessage = (e) => {
       try {
-        const next = JSON.parse(e.data) as { bundleId: string; pid?: number; isReactNative: boolean };
+        const next = JSON.parse(e.data) as {
+          bundleId: string;
+          pid?: number;
+          isReactNative: boolean;
+        };
         if (timer) clearTimeout(timer);
         const delay = next?.isReactNative ? 0 : 600;
         timer = setTimeout(() => {
@@ -634,7 +640,10 @@ function AppWithConfig({
         }, delay);
       } catch {}
     };
-    return () => { if (timer) clearTimeout(timer); es.close(); };
+    return () => {
+      if (timer) clearTimeout(timer);
+      es.close();
+    };
   }, [config.appStateEndpoint, config.device]);
 
   // Cmd+R to reload the RN/Expo bundle.
@@ -684,9 +693,7 @@ function AppWithConfig({
         const target = e.target as HTMLElement | null;
         const typing =
           !!target &&
-          (target.tagName === "INPUT" ||
-            target.tagName === "TEXTAREA" ||
-            target.isContentEditable);
+          (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
         if (!typing) {
           e.preventDefault();
           if (type === "down" && !e.repeat) toggleAppearance();
@@ -700,9 +707,7 @@ function AppWithConfig({
         const target = e.target as HTMLElement | null;
         const typing =
           !!target &&
-          (target.tagName === "INPUT" ||
-            target.tagName === "TEXTAREA" ||
-            target.isContentEditable);
+          (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
         if (!typing) {
           e.preventDefault();
           if (type === "down" && !e.repeat) captureAndDownloadScreenshot();
@@ -715,7 +720,13 @@ function AppWithConfig({
         if (type === "down" && !e.repeat) sendWs(0x04, { button: "home" });
         return;
       }
-      if ((e.code === "ArrowLeft" || e.code === "ArrowRight") && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
+      if (
+        (e.code === "ArrowLeft" || e.code === "ArrowRight") &&
+        e.metaKey &&
+        !e.shiftKey &&
+        !e.altKey &&
+        !e.ctrlKey
+      ) {
         e.preventDefault();
         if (type === "down" && !e.repeat) {
           rotateBy(e.code === "ArrowLeft" ? "left" : "right");
@@ -739,22 +750,26 @@ function AppWithConfig({
     };
   }, [sendWs, config.device, rotateBy, toggleAppearance, captureAndDownloadScreenshot]);
 
-  const switchToDevice = useCallback(async (d: SimDevice) => {
-    if (switching || d.udid === config.device) return;
-    setSwitching(true);
-    try {
-      if (d.state !== "Booted") {
-        await execOnHost(`xcrun simctl boot ${d.udid}`);
+  const switchToDevice = useCallback(
+    async (d: SimDevice) => {
+      if (switching || d.udid === config.device) return;
+      setSwitching(true);
+      try {
+        if (d.state !== "Booted") {
+          await execOnHost(`xcrun simctl boot ${d.udid}`);
+        }
+        const detach = await execOnHost(`bunx headless-serve-sim --detach ${d.udid}`);
+        if (detach.exitCode !== 0)
+          throw new Error(detach.stderr || "Failed to start headless-serve-sim");
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.set("device", d.udid);
+        window.location.assign(nextUrl.toString());
+      } catch {
+        setSwitching(false);
       }
-      const detach = await execOnHost(`bunx headless-serve-sim --detach ${d.udid}`);
-      if (detach.exitCode !== 0) throw new Error(detach.stderr || "Failed to start headless-serve-sim");
-      const nextUrl = new URL(window.location.href);
-      nextUrl.searchParams.set("device", d.udid);
-      window.location.assign(nextUrl.toString());
-    } catch {
-      setSwitching(false);
-    }
-  }, [switching, config.device, setSwitching]);
+    },
+    [switching, config.device, setSwitching],
+  );
 
   const uploads = useUploadToasts();
   const mediaDrop = useMediaDrop({
@@ -774,19 +789,22 @@ function AppWithConfig({
     },
   });
 
-  const stopDevice = useCallback(async (udid: string) => {
-    setStoppingUdids((prev) => new Set(prev).add(udid));
-    try {
-      await execOnHost(`xcrun simctl shutdown ${udid}`);
-      await fetchDevices();
-    } finally {
-      setStoppingUdids((prev) => {
-        const next = new Set(prev);
-        next.delete(udid);
-        return next;
-      });
-    }
-  }, [fetchDevices, setStoppingUdids]);
+  const stopDevice = useCallback(
+    async (udid: string) => {
+      setStoppingUdids((prev) => new Set(prev).add(udid));
+      try {
+        await execOnHost(`xcrun simctl shutdown ${udid}`);
+        await fetchDevices();
+      } finally {
+        setStoppingUdids((prev) => {
+          const next = new Set(prev);
+          next.delete(udid);
+          return next;
+        });
+      }
+    },
+    [fetchDevices, setStoppingUdids],
+  );
 
   // ── Layout geometry ──────────────────────────────────────────────────
   // Left column = top bar + device frame, filling the viewport height. The
@@ -796,7 +814,10 @@ function AppWithConfig({
   // the same collapsed/expanded geometry, default collapsed, and persist their
   // state across reloads.
   const [metricsOpen, setMetricsOpen] = usePersistedFlag("headless-serve-sim:metrics-open", false);
-  const [inspectorOpen, setInspectorOpen] = usePersistedFlag("headless-serve-sim:inspector-open", false);
+  const [inspectorOpen, setInspectorOpen] = usePersistedFlag(
+    "headless-serve-sim:inspector-open",
+    false,
+  );
   const TOP_BAR_HEIGHT = 44;
   const RAIL_COLLAPSED_WIDTH = 44;
   const RAIL_EXPANDED_WIDTH = 360;
@@ -833,286 +854,313 @@ function AppWithConfig({
 
   return (
     <AxStateProvider endpoint={axOverlayEnabled ? config?.axEndpoint : undefined}>
-    <div className="flex items-center justify-center h-screen w-screen overflow-hidden bg-page font-system">
-      {/* The whole assembly enclosed by a real hairline border on ALL FOUR edges
+      <div className="flex items-center justify-center h-screen w-screen overflow-hidden bg-page font-system">
+        {/* The whole assembly enclosed by a real hairline border on ALL FOUR edges
           (the geometry reserves its 2px so it's never clipped, at any viewport
           size) — same border as the bars, no shadow. Internal seams come from
           the bars' own keylines. */}
-      <div className="flex border border-divider">
-      {/* Left rail — native foreground-app resource metrics. */}
-      <MetricsBar
-        open={metricsOpen}
-        onToggle={() => setMetricsOpen((o) => !o)}
-        collapsedWidth={RAIL_COLLAPSED_WIDTH}
-        expandedWidth={RAIL_EXPANDED_WIDTH}
-        topBarHeight={TOP_BAR_HEIGHT}
-        frameHeight={frameGeom.height}
-        metricsEndpoint={config.metricsEndpoint ?? simEndpoint("api/metrics")}
-        enabled={streaming}
-      />
-      <div
-        className="flex shrink-0 min-w-0 flex-col"
-        style={{
-          width: frameGeom.width,
-          transition: "width 320ms cubic-bezier(0.4, 0, 0.6, 1)",
-        }}
-      >
-        <SimulatorToolbar
-          exec={execOnHost}
-          onRotate={rotateDevice}
-          orientation={(activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ?? null}
-          deviceUdid={config.device}
-          deviceName={selectedDevice?.name ?? null}
-          deviceRuntime={selectedDevice?.runtime ?? null}
-          streaming={streaming}
-        >
-          <DevicePicker
-            devices={devices}
-            selectedUdid={config.device}
-            loading={devicesLoading}
-            error={devicesError}
-            stoppingUdids={stoppingUdids}
-            onRefresh={fetchDevices}
-            onSelect={switchToDevice}
-            onStop={stopDevice}
-            trigger={<SimulatorToolbar.Title />}
+        <div className="flex border border-divider">
+          {/* Left rail — native foreground-app resource metrics. */}
+          <MetricsBar
+            open={metricsOpen}
+            onToggle={() => setMetricsOpen((o) => !o)}
+            collapsedWidth={RAIL_COLLAPSED_WIDTH}
+            expandedWidth={RAIL_EXPANDED_WIDTH}
+            topBarHeight={TOP_BAR_HEIGHT}
+            frameHeight={frameGeom.height}
+            metricsEndpoint={config.metricsEndpoint ?? simEndpoint("api/metrics")}
+            enabled={streaming}
           />
-          <SimulatorToolbar.Actions>
-            {currentApp?.isReactNative && (
-              <SimulatorToolbar.Button
-                aria-label="Reload React Native bundle"
-                title="Reload (Cmd+R)"
-                onClick={() => void sendReactNativeReload()}
-              >
-                <ReloadIcon />
-              </SimulatorToolbar.Button>
-            )}
-            <SimulatorToolbar.HomeButton
-              onClick={(e) => { e.preventDefault(); onStreamButton("home"); }}
-            />
-            <SimulatorToolbar.Button
-              aria-label="Toggle light / dark appearance"
-              title="Toggle light / dark (⇧⌘A)"
-              onClick={() => toggleAppearance()}
-            >
-              <AppearanceIcon />
-            </SimulatorToolbar.Button>
-            <AxToolbarButton
-              overlayEnabled={axOverlayEnabled}
-              streaming={streaming}
-              onToggleOverlay={() => setAxOverlayEnabled((enabled) => !enabled)}
-            />
-            <SimulatorToolbar.RotateButton title="Rotate device" />
-          </SimulatorToolbar.Actions>
-        </SimulatorToolbar>
-        <div
-          ref={simContainerRef}
-          className="relative shrink-0 overflow-hidden bg-page"
-          style={{ width: frameGeom.width, height: frameGeom.height }}
-          {...mediaDrop.dropZoneProps}
-        >
-          <SimulatorView
-            url={config.url}
+          <div
+            className="flex shrink-0 min-w-0 flex-col"
             style={{
-              width: "100%",
-              height: "100%",
-              border: "none",
+              width: frameGeom.width,
+              transition: "width 320ms cubic-bezier(0.4, 0, 0.6, 1)",
             }}
-            imageStyle={{ borderRadius: 0 } as CSSProperties}
-            hideControls
-            onStreamingChange={setStreaming}
-            onStreamTouch={onStreamTouch}
-            onStreamMultiTouch={onStreamMultiTouch}
-            onStreamButton={onStreamButton}
-            onStreamDigitalCrown={onStreamDigitalCrown}
-            onStreamRequestKeyframe={onStreamRequestKeyframe}
-            codec={useAvccVideo ? "avcc" : "mjpeg"}
-            subscribeFrame={useAvccVideo ? undefined : mjpeg.subscribeFrame}
-            streamFrame={useAvccVideo ? undefined : mjpeg.frame}
-            streamConfig={activeStreamConfig}
-            enableDigitalCrown={deviceType === "watch"}
-            onScreenConfigChange={onScreenConfigChange}
-            statsEnabled={statsOpen}
-            onConnectionStats={handleConnectionStats}
-            recordingSourceRef={recordingSourceRef}
-          />
-          {axOverlayEnabled && <AxDomOverlay />}
-          {mediaDrop.isDragOver && (
-            <div
-              className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-accent bg-accent-tint backdrop-blur-[2px] text-accent pointer-events-none"
+          >
+            <SimulatorToolbar
+              exec={execOnHost}
+              onRotate={rotateDevice}
+              orientation={
+                (activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ?? null
+              }
+              deviceUdid={config.device}
+              deviceName={selectedDevice?.name ?? null}
+              deviceRuntime={selectedDevice?.runtime ?? null}
+              streaming={streaming}
             >
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" y1="3" x2="12" y2="15" />
-              </svg>
-              <span className="text-[13px] font-medium">Drop media or .ipa</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Upload toasts */}
-      {uploads.toasts.length > 0 && (
-        <div className="fixed bottom-4 right-4 flex flex-col gap-1.5 max-w-[320px] z-30">
-          {uploads.toasts.map((t) => {
-            const isError = t.status === "error";
-            const isUploading = t.status === "uploading";
-            // While transferring chunks, show "Uploading … N%". Once chunks
-            // are done, the install/addmedia step has no progress signal, so
-            // swap to a phase-specific verb and an indeterminate bar.
-            const transferring = isUploading && t.progress !== null;
-            const pct = t.progress != null ? Math.round(t.progress * 100) : 0;
-            return (
-              <div
-                key={t.id}
-                className={`flex flex-col gap-1.5 px-3 py-2.5 rounded-card bg-panel border border-divider text-fg text-[12px] font-mono shadow-[0_4px_24px_rgba(0,0,0,0.12)] ${isError ? "select-text cursor-text" : "select-none cursor-default"}`}
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    className="size-1.5 shrink-0 rounded-full [transition:background_0.3s]"
-                    style={{ background: isUploading ? "var(--color-accent)" : t.status === "success" ? "var(--color-success)" : "var(--color-danger)" }}
-                  />
-                  <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                    {isUploading && transferring &&
-                      `Uploading ${t.name}… ${pct}%`}
-                    {isUploading && !transferring &&
-                      (t.kind === "ipa" ? `Installing ${t.name}…` : `Adding ${t.name}…`)}
-                    {t.status === "success" &&
-                      (t.kind === "ipa" ? `Installed ${t.name}` : `Added ${t.name} to Photos`)}
-                    {isError && `${t.name}: ${t.message ?? "Upload failed"}`}
-                  </span>
+              <DevicePicker
+                devices={devices}
+                selectedUdid={config.device}
+                loading={devicesLoading}
+                error={devicesError}
+                stoppingUdids={stoppingUdids}
+                onRefresh={fetchDevices}
+                onSelect={switchToDevice}
+                onStop={stopDevice}
+                trigger={<SimulatorToolbar.Title />}
+              />
+              <SimulatorToolbar.Actions>
+                {currentApp?.isReactNative && (
+                  <SimulatorToolbar.Button
+                    aria-label="Reload React Native bundle"
+                    title="Reload (Cmd+R)"
+                    onClick={() => void sendReactNativeReload()}
+                  >
+                    <ReloadIcon />
+                  </SimulatorToolbar.Button>
+                )}
+                <SimulatorToolbar.HomeButton
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onStreamButton("home");
+                  }}
+                />
+                <SimulatorToolbar.Button
+                  aria-label="Toggle light / dark appearance"
+                  title="Toggle light / dark (⇧⌘A)"
+                  onClick={() => toggleAppearance()}
+                >
+                  <AppearanceIcon />
+                </SimulatorToolbar.Button>
+                <AxToolbarButton
+                  overlayEnabled={axOverlayEnabled}
+                  streaming={streaming}
+                  onToggleOverlay={() => setAxOverlayEnabled((enabled) => !enabled)}
+                />
+                <SimulatorToolbar.RotateButton title="Rotate device" />
+              </SimulatorToolbar.Actions>
+            </SimulatorToolbar>
+            <div
+              ref={simContainerRef}
+              className="relative shrink-0 overflow-hidden bg-page"
+              style={{ width: frameGeom.width, height: frameGeom.height }}
+              {...mediaDrop.dropZoneProps}
+            >
+              <SimulatorView
+                url={config.url}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  border: "none",
+                }}
+                imageStyle={{ borderRadius: 0 } as CSSProperties}
+                hideControls
+                onStreamingChange={setStreaming}
+                onStreamTouch={onStreamTouch}
+                onStreamMultiTouch={onStreamMultiTouch}
+                onStreamButton={onStreamButton}
+                onStreamDigitalCrown={onStreamDigitalCrown}
+                onStreamRequestKeyframe={onStreamRequestKeyframe}
+                codec={useAvccVideo ? "avcc" : "mjpeg"}
+                subscribeFrame={useAvccVideo ? undefined : mjpeg.subscribeFrame}
+                streamFrame={useAvccVideo ? undefined : mjpeg.frame}
+                streamConfig={activeStreamConfig}
+                enableDigitalCrown={deviceType === "watch"}
+                onScreenConfigChange={onScreenConfigChange}
+                statsEnabled={statsOpen}
+                onConnectionStats={handleConnectionStats}
+                recordingSourceRef={recordingSourceRef}
+              />
+              {axOverlayEnabled && <AxDomOverlay />}
+              {mediaDrop.isDragOver && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-accent bg-accent-tint backdrop-blur-[2px] text-accent pointer-events-none">
+                  <svg
+                    width="32"
+                    height="32"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  <span className="text-[13px] font-medium">Drop media or .ipa</span>
                 </div>
-                {isUploading && (
-                  <div className="relative h-[3px] w-full rounded-full bg-hover overflow-hidden">
-                    {transferring ? (
-                      <div
-                        className="h-full rounded-full bg-accent-solid [transition:width_120ms_linear]"
-                        style={{ width: `${pct}%` }}
+              )}
+            </div>
+          </div>
+
+          {/* Upload toasts */}
+          {uploads.toasts.length > 0 && (
+            <div className="fixed bottom-4 right-4 flex flex-col gap-1.5 max-w-[320px] z-30">
+              {uploads.toasts.map((t) => {
+                const isError = t.status === "error";
+                const isUploading = t.status === "uploading";
+                // While transferring chunks, show "Uploading … N%". Once chunks
+                // are done, the install/addmedia step has no progress signal, so
+                // swap to a phase-specific verb and an indeterminate bar.
+                const transferring = isUploading && t.progress !== null;
+                const pct = t.progress != null ? Math.round(t.progress * 100) : 0;
+                return (
+                  <div
+                    key={t.id}
+                    className={`flex flex-col gap-1.5 px-3 py-2.5 rounded-card bg-panel border border-divider text-fg text-[12px] font-mono shadow-[0_4px_24px_rgba(0,0,0,0.12)] ${isError ? "select-text cursor-text" : "select-none cursor-default"}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="size-1.5 shrink-0 rounded-full [transition:background_0.3s]"
+                        style={{
+                          background: isUploading
+                            ? "var(--color-accent)"
+                            : t.status === "success"
+                              ? "var(--color-success)"
+                              : "var(--color-danger)",
+                        }}
                       />
-                    ) : (
-                      <div className="headless-serve-sim-toast-indeterminate absolute top-0 left-0 h-full w-[40%] rounded-full bg-accent-solid" />
+                      <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                        {isUploading && transferring && `Uploading ${t.name}… ${pct}%`}
+                        {isUploading &&
+                          !transferring &&
+                          (t.kind === "ipa" ? `Installing ${t.name}…` : `Adding ${t.name}…`)}
+                        {t.status === "success" &&
+                          (t.kind === "ipa" ? `Installed ${t.name}` : `Added ${t.name} to Photos`)}
+                        {isError && `${t.name}: ${t.message ?? "Upload failed"}`}
+                      </span>
+                    </div>
+                    {isUploading && (
+                      <div className="relative h-[3px] w-full rounded-full bg-hover overflow-hidden">
+                        {transferring ? (
+                          <div
+                            className="h-full rounded-full bg-accent-solid [transition:width_120ms_linear]"
+                            style={{ width: `${pct}%` }}
+                          />
+                        ) : (
+                          <div className="headless-serve-sim-toast-indeterminate absolute top-0 left-0 h-full w-[40%] rounded-full bg-accent-solid" />
+                        )}
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          )}
+
+          {/* Inspector */}
+          <InspectorBar
+            open={inspectorOpen}
+            onToggle={() => setInspectorOpen((o) => !o)}
+            collapsedWidth={RAIL_COLLAPSED_WIDTH}
+            expandedWidth={RAIL_EXPANDED_WIDTH}
+            topBarHeight={TOP_BAR_HEIGHT}
+            frameHeight={frameGeom.height}
+            openOverlay={
+              statsOpen
+                ? "stats"
+                : logsOpen
+                  ? "logs"
+                  : gridOpen
+                    ? "grid"
+                    : devtoolsOpen
+                      ? "devtools"
+                      : null
+            }
+            udid={config.device}
+            deviceFrameSpec={recordingDeviceFrameSpec}
+            streaming={streaming}
+            streamMode={streamMode}
+            streamModeAvailable={useAvccVideo}
+            onStreamModeChange={onModeChange}
+            recordingSourceRef={recordingSourceRef}
+            execToken={config.execToken}
+            currentApp={currentApp}
+            axOverlayEnabled={axOverlayEnabled}
+            onToggleAxOverlay={() => setAxOverlayEnabled((enabled) => !enabled)}
+            onOpenStats={() => {
+              setLogsOpen(false);
+              setGridOpen(false);
+              setDevtoolsOpen(false);
+              setStatsOpen(true);
+            }}
+            onOpenLogs={() => {
+              setStatsOpen(false);
+              setGridOpen(false);
+              setDevtoolsOpen(false);
+              setLogsOpen(true);
+            }}
+            onOpenGrid={() => {
+              setStatsOpen(false);
+              setLogsOpen(false);
+              setDevtoolsOpen(false);
+              setGridOpen(true);
+            }}
+            onOpenDevtools={() => {
+              setStatsOpen(false);
+              setLogsOpen(false);
+              setGridOpen(false);
+              setDevtoolsOpen(true);
+            }}
+          />
         </div>
-      )}
 
-      {/* Inspector */}
-      <InspectorBar
-        open={inspectorOpen}
-        onToggle={() => setInspectorOpen((o) => !o)}
-        collapsedWidth={RAIL_COLLAPSED_WIDTH}
-        expandedWidth={RAIL_EXPANDED_WIDTH}
-        topBarHeight={TOP_BAR_HEIGHT}
-        frameHeight={frameGeom.height}
-        openOverlay={statsOpen ? "stats" : logsOpen ? "logs" : gridOpen ? "grid" : devtoolsOpen ? "devtools" : null}
-        udid={config.device}
-        deviceFrameSpec={recordingDeviceFrameSpec}
-        streaming={streaming}
-        streamMode={streamMode}
-        streamModeAvailable={useAvccVideo}
-        onStreamModeChange={onModeChange}
-        recordingSourceRef={recordingSourceRef}
-        execToken={config.execToken}
-        currentApp={currentApp}
-        axOverlayEnabled={axOverlayEnabled}
-        onToggleAxOverlay={() => setAxOverlayEnabled((enabled) => !enabled)}
-        onOpenStats={() => {
-          setLogsOpen(false);
-          setGridOpen(false);
-          setDevtoolsOpen(false);
-          setStatsOpen(true);
-        }}
-        onOpenLogs={() => {
-          setStatsOpen(false);
-          setGridOpen(false);
-          setDevtoolsOpen(false);
-          setLogsOpen(true);
-        }}
-        onOpenGrid={() => {
-          setStatsOpen(false);
-          setLogsOpen(false);
-          setDevtoolsOpen(false);
-          setGridOpen(true);
-        }}
-        onOpenDevtools={() => {
-          setStatsOpen(false);
-          setLogsOpen(false);
-          setGridOpen(false);
-          setDevtoolsOpen(true);
-        }}
-      />
+        <GridPanel
+          open={gridOpen}
+          onClose={() => setGridOpen(false)}
+          currentUdid={config.device}
+          width={gridPanelWidth}
+        />
+        <ResizeHandle
+          panelWidth={gridPanelWidth}
+          visible={gridOpen}
+          onPointerDown={onGridResize}
+          ariaLabel="Resize simulators panel"
+        />
+
+        <WebKitDevtoolsPanel
+          open={devtoolsOpen}
+          onClose={() => setDevtoolsOpen(false)}
+          udid={config.device}
+          targets={devtools.targets}
+          selectedTargetId={selectedDevtoolsTargetId}
+          onSelectTarget={setSelectedDevtoolsTargetId}
+          loading={devtools.loading}
+          error={devtools.error}
+          onRefresh={() => void devtools.refresh()}
+          width={devtoolsPanelWidth}
+        />
+        <ResizeHandle
+          panelWidth={devtoolsPanelWidth}
+          visible={devtoolsOpen}
+          onPointerDown={onDevtoolsResize}
+          ariaLabel="Resize WebKit DevTools panel"
+        />
+
+        <ConnectionStatsPanel
+          open={statsOpen}
+          onClose={() => setStatsOpen(false)}
+          width={connectionStatsPanelWidth}
+          live={streaming}
+          codecMode={useAvccVideo ? "avcc" : "mjpeg"}
+          streamConfig={activeStreamConfig}
+          sinkRef={statsSinkRef}
+          mode={streamMode}
+          onModeChange={onModeChange}
+        />
+        <ResizeHandle
+          panelWidth={connectionStatsPanelWidth}
+          visible={statsOpen}
+          onPointerDown={onConnectionStatsResize}
+          ariaLabel="Resize connection stats panel"
+        />
+
+        <LogsPanel
+          open={logsOpen}
+          onClose={() => setLogsOpen(false)}
+          endpoint={config.logsEndpoint}
+          appProcessId={currentApp?.pid ?? null}
+          width={logsPanelWidth}
+        />
+        <ResizeHandle
+          panelWidth={logsPanelWidth}
+          visible={logsOpen}
+          onPointerDown={onLogsResize}
+          ariaLabel="Resize logs panel"
+        />
       </div>
-
-      <GridPanel
-        open={gridOpen}
-        onClose={() => setGridOpen(false)}
-        currentUdid={config.device}
-        width={gridPanelWidth}
-      />
-      <ResizeHandle
-        panelWidth={gridPanelWidth}
-        visible={gridOpen}
-        onPointerDown={onGridResize}
-        ariaLabel="Resize simulators panel"
-      />
-
-      <WebKitDevtoolsPanel
-        open={devtoolsOpen}
-        onClose={() => setDevtoolsOpen(false)}
-        udid={config.device}
-        targets={devtools.targets}
-        selectedTargetId={selectedDevtoolsTargetId}
-        onSelectTarget={setSelectedDevtoolsTargetId}
-        loading={devtools.loading}
-        error={devtools.error}
-        onRefresh={() => void devtools.refresh()}
-        width={devtoolsPanelWidth}
-      />
-      <ResizeHandle
-        panelWidth={devtoolsPanelWidth}
-        visible={devtoolsOpen}
-        onPointerDown={onDevtoolsResize}
-        ariaLabel="Resize WebKit DevTools panel"
-      />
-
-      <ConnectionStatsPanel
-        open={statsOpen}
-        onClose={() => setStatsOpen(false)}
-        width={connectionStatsPanelWidth}
-        live={streaming}
-        codecMode={useAvccVideo ? "avcc" : "mjpeg"}
-        streamConfig={activeStreamConfig}
-        sinkRef={statsSinkRef}
-        mode={streamMode}
-        onModeChange={onModeChange}
-      />
-      <ResizeHandle
-        panelWidth={connectionStatsPanelWidth}
-        visible={statsOpen}
-        onPointerDown={onConnectionStatsResize}
-        ariaLabel="Resize connection stats panel"
-      />
-
-      <LogsPanel
-        open={logsOpen}
-        onClose={() => setLogsOpen(false)}
-        endpoint={config.logsEndpoint}
-        appProcessId={currentApp?.pid ?? null}
-        width={logsPanelWidth}
-      />
-      <ResizeHandle
-        panelWidth={logsPanelWidth}
-        visible={logsOpen}
-        onPointerDown={onLogsResize}
-        ariaLabel="Resize logs panel"
-      />
-
-    </div>
     </AxStateProvider>
   );
 }

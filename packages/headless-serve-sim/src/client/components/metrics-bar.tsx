@@ -71,7 +71,10 @@ export function MetricsBar({
           className="flex items-center shrink-0 border-b border-divider bg-panel-overlay [backdrop-filter:saturate(1.8)_blur(20px)]"
           style={{ height: topBarHeight }}
         >
-          <div className="flex shrink-0 items-center justify-center" style={{ width: collapsedWidth }}>
+          <div
+            className="flex shrink-0 items-center justify-center"
+            style={{ width: collapsedWidth }}
+          >
             <button
               type="button"
               onClick={onToggle}
@@ -129,16 +132,14 @@ export function MetricsDashboard({ stream }: { stream: AppMetricsStream }) {
   const metrics = stream.latest;
   const alive = metrics?.alive === true;
   const cpu = alive ? metrics.cpuPercent : null;
-  const footprint = alive ? metrics.memoryFootprintBytes ?? 0 : 0;
+  const footprint = alive ? (metrics.memoryFootprintBytes ?? 0) : 0;
   const cpuValues = stream.samples.flatMap((sample) =>
-    sample.cpuPercent === null ? [] : [sample.cpuPercent]
+    sample.cpuPercent === null ? [] : [sample.cpuPercent],
   );
   const memoryValues = stream.samples.map((sample) => sample.memoryFootprintBytes);
   const cpuMax = Math.max(100, ...cpuValues);
   const { yMin: memoryMin, yMax: memoryMax } = memoryRange(memoryValues, footprint);
-  const [memoryNumber, memoryUnit] = alive
-    ? splitValueUnit(formatGridBytes(footprint))
-    : ["—", ""];
+  const [memoryNumber, memoryUnit] = alive ? splitValueUnit(formatGridBytes(footprint)) : ["—", ""];
 
   return (
     <>
@@ -172,15 +173,15 @@ function AppIdentity({ metrics, error }: { metrics: AppMetrics | null; error: st
   const alive = metrics?.alive === true;
   const unavailable = error !== null || metrics?.state === "unavailable";
   const noForegroundApp = metrics?.state === "no-foreground-app";
-  const label = error ?? (
-    alive
+  const label =
+    error ??
+    (alive
       ? metrics.bundleId!
       : noForegroundApp
         ? "No foreground app"
         : unavailable
           ? "Metrics unavailable"
-          : "Connecting to metrics"
-  );
+          : "Connecting to metrics");
   const status = unavailable
     ? "Unavailable"
     : alive
@@ -201,7 +202,10 @@ function AppIdentity({ metrics, error }: { metrics: AppMetrics | null; error: st
         <span className="min-w-0 truncate text-[12px] font-semibold text-fg" title={label}>
           {label}
         </span>
-        <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-medium" style={{ color: statusColor }}>
+        <span
+          className="flex shrink-0 items-center gap-1.5 text-[11px] font-medium"
+          style={{ color: statusColor }}
+        >
           <span className="size-1.5 rounded-full" style={{ background: statusColor }} aria-hidden />
           {status}
         </span>
@@ -226,7 +230,10 @@ function MetricDetails({ metrics }: { metrics: AppMetrics | null }) {
     >
       <Detail label="User CPU" value={formatPercent(metrics?.cpuUserPercent ?? null)} />
       <Detail label="System CPU" value={formatPercent(metrics?.cpuSystemPercent ?? null)} />
-      <Detail label="Peak Footprint" value={formatBytes(metrics?.peakMemoryFootprintBytes ?? null)} />
+      <Detail
+        label="Peak Footprint"
+        value={formatBytes(metrics?.peakMemoryFootprintBytes ?? null)}
+      />
       <Detail label="Resident Memory" value={formatBytes(metrics?.residentBytes ?? null)} />
       <Detail label="Threads" value={formatInteger(metrics?.threadCount ?? null)} />
       <Detail label="Running" value={formatInteger(metrics?.runningThreadCount ?? null)} />
@@ -316,20 +323,49 @@ function Gauge({
       </div>
       <div ref={chartRef} className="mt-3" style={{ height: CHART_H }}>
         {width > 0 ? (
-          <svg width={width} height={CHART_H} viewBox={`0 0 ${width} ${CHART_H}`} className="block" aria-hidden>
+          <svg
+            width={width}
+            height={CHART_H}
+            viewBox={`0 0 ${width} ${CHART_H}`}
+            className="block"
+            aria-hidden
+          >
             <defs>
               <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={color} stopOpacity={0.26} />
                 <stop offset="100%" stopColor={color} stopOpacity={0.02} />
               </linearGradient>
             </defs>
-            <line x1="0" y1={CHART_H - 4} x2={width} y2={CHART_H - 4} stroke={color} strokeWidth="1" strokeOpacity={0.22} />
+            <line
+              x1="0"
+              y1={CHART_H - 4}
+              x2={width}
+              y2={CHART_H - 4}
+              stroke={color}
+              strokeWidth="1"
+              strokeOpacity={0.22}
+            />
             {paths ? (
               <>
                 <path d={paths.area} fill={`url(#${fillId})`} stroke="none" />
-                <path d={paths.line} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                <path
+                  d={paths.line}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
                 <circle cx={paths.tip[0]} cy={paths.tip[1]} r="2.6" fill={color} />
-                <circle cx={paths.tip[0]} cy={paths.tip[1]} r="2.6" fill="none" stroke={color} strokeOpacity={0.28} strokeWidth="3.5" />
+                <circle
+                  cx={paths.tip[0]}
+                  cy={paths.tip[1]}
+                  r="2.6"
+                  fill="none"
+                  stroke={color}
+                  strokeOpacity={0.28}
+                  strokeWidth="3.5"
+                />
               </>
             ) : null}
           </svg>
@@ -341,7 +377,18 @@ function Gauge({
 
 function GlyphIcon({ kind, color }: { kind: "cpu" | "mem"; color: string }) {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0"
+      aria-hidden
+    >
       {kind === "cpu" ? (
         <>
           <rect x="6" y="6" width="12" height="12" rx="2" />
@@ -361,7 +408,18 @@ function GlyphIcon({ kind, color }: { kind: "cpu" | "mem"; color: string }) {
 
 function ActivityGlyph() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-fg-2)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="var(--color-fg-2)"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0"
+      aria-hidden
+    >
       <polyline points="3 12 7 12 10 5 14 19 17 12 21 12" />
     </svg>
   );

@@ -5,9 +5,16 @@
   "scripts": {
     "build": "bun run --filter '*' build",
     "build:swift": "cd packages/headless-serve-sim && ./build.sh",
+    "check": "bun run format:check && bun run lint && bun run typecheck && bun run check:test-safety && bun run check:host-command-seam && bun run knip && bun run test",
+    "check:host-command-seam": "bun run scripts/check-host-command-seam.ts",
+    "check:test-safety": "bun run scripts/check-test-safety.ts",
+    "format": "oxfmt --write package.json knip.json .oxlintrc.json .oxfmtrc.json '.github/**/*.{yml,yaml}' 'scripts/**/*.{ts,js,json}' 'packages/**/*.{ts,tsx,js,json,css,md}'",
+    "format:check": "oxfmt --check package.json knip.json .oxlintrc.json .oxfmtrc.json '.github/**/*.{yml,yaml}' 'scripts/**/*.{ts,js,json}' 'packages/**/*.{ts,tsx,js,json,css,md}'",
     "knip": "knip",
-    "typecheck": "tsc --noEmit",
-    "lint": "oxlint"
+    "lint": "oxlint --deny-warnings --report-unused-disable-directives",
+    "test": "bun run scripts/run-hermetic-tests.ts",
+    "test:unit": "bun run scripts/run-hermetic-tests.ts",
+    "typecheck": "tsc --noEmit"
   },
   "workspaces": [
     "packages/*"
@@ -15,6 +22,7 @@
   "devDependencies": {
     "@types/node": "^25.6.2",
     "knip": "^6.12.2",
+    "oxfmt": "^0.59.0",
     "oxlint": "^1.63.0",
     "typescript": "^6.0.3"
   }

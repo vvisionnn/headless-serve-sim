@@ -9,10 +9,7 @@ interface StreamModeSocket {
   send(data: ArrayBuffer): void;
 }
 
-export function sendStreamMode(
-  socket: StreamModeSocket | null,
-  mode: StreamMode,
-): boolean {
+export function sendStreamMode(socket: StreamModeSocket | null, mode: StreamMode): boolean {
   if (!socket || socket.readyState !== 1) return false;
   const payload = new TextEncoder().encode(JSON.stringify({ mode }));
   const message = new Uint8Array(new ArrayBuffer(payload.length + 1));

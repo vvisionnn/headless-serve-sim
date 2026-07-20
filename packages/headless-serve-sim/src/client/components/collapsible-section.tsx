@@ -46,7 +46,9 @@ export function CollapsibleSection({
         {summary}
         <Chevron open={open} />
       </summary>
-      <div className={`flex flex-col gap-2 border-t border-divider px-3.5 py-3 ${bodyClassName}`}>{children}</div>
+      <div className={`flex flex-col gap-2 border-t border-divider px-3.5 py-3 ${bodyClassName}`}>
+        {children}
+      </div>
     </details>
   );
 }

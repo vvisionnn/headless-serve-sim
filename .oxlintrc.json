@@ -5,11 +5,10 @@
     "correctness": "error"
   },
   "rules": {
+    "import/no-cycle": "error",
+    "no-debugger": "error",
+    "no-duplicate-imports": "error",
     "react/react-in-jsx-scope": "off"
   },
-  "ignorePatterns": [
-    "**/node_modules/**",
-    "**/dist/**",
-    "**/build/**"
-  ]
+  "ignorePatterns": ["**/node_modules/**", "**/dist/**", "**/build/**"]
 }

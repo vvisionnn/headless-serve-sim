@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { GridDevice } from "../utils/grid";
 
-export function useGridDevices(
-  endpoint: string | undefined,
-  enabled: boolean,
-  fast: boolean,
-) {
+export function useGridDevices(endpoint: string | undefined, enabled: boolean, fast: boolean) {
   const [devices, setDevices] = useState<GridDevice[] | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   useEffect(() => {
@@ -22,7 +18,10 @@ export function useGridDevices(
     };
     tick();
     const id = setInterval(tick, fast ? 750 : 3000);
-    return () => { cancelled = true; clearInterval(id); };
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, [endpoint, enabled, refreshKey, fast]);
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
   return { devices, refresh };

@@ -6,8 +6,9 @@ import {
   isBinaryTouchMessage,
   TOUCH_PREFIX,
   MULTI_TOUCH_PREFIX,
+  type MultiTouchData,
+  type SingleTouchData,
 } from "../touch-codec";
-import type { SingleTouchData, MultiTouchData } from "../touch-codec";
 
 describe("touch-codec edge cases", () => {
   // ─── Single touch round-trip for all subtypes ───
@@ -25,7 +26,7 @@ describe("touch-codec edge cases", () => {
       expect((decoded!.data as SingleTouchData).x).toBeCloseTo(0.5, 5);
       expect((decoded!.data as SingleTouchData).y).toBeCloseTo(0.75, 5);
       expect(decoded!.seq).toBe(42);
-    }
+    },
   );
 
   // ─── Multi touch round-trip for all subtypes ───
@@ -46,7 +47,7 @@ describe("touch-codec edge cases", () => {
       expect(d.x2).toBeCloseTo(0.8, 5);
       expect(d.y2).toBeCloseTo(0.9, 5);
       expect(decoded!.seq).toBe(100);
-    }
+    },
   );
 
   // ─── Boundary float values ───
@@ -160,7 +161,7 @@ describe("touch-codec edge cases", () => {
   test("returns null for unknown prefix", () => {
     const buf = new ArrayBuffer(12);
     const view = new DataView(buf);
-    view.setUint8(0, 0xFF);
+    view.setUint8(0, 0xff);
     expect(decodeTouchMessage(buf)).toBeNull();
   });
 

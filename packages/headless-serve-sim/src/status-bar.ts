@@ -1,5 +1,6 @@
-import { execFileSync } from "child_process";
 import { findBootedDevice, resolveDevice } from "./device";
+import type { HostCommands } from "./runtime/host-commands";
+import { createNodeHostCommands } from "./runtime/node-host-commands";
 
 // ─── Argument parsing ───
 //
@@ -11,8 +12,6 @@ import { findBootedDevice, resolveDevice } from "./device";
 //
 // Maps kebab-case flags onto `xcrun simctl status_bar <udid> override` flags.
 // The override sub-verb takes any non-empty subset of fields; clear takes none.
-
-export type StatusBarVerb = "override" | "clear";
 
 export interface StatusBarOverride {
   time?: string;
@@ -33,7 +32,17 @@ export type ParsedStatusBar =
 // Enum value sets, authoritative as of `xcrun simctl help status_bar` on this
 // Xcode. `hide` is accepted by --dataNetwork alongside the named radio types.
 export const DATA_NETWORK = [
-  "hide", "wifi", "3g", "4g", "lte", "lte-a", "lte+", "5g", "5g+", "5g-uwb", "5g-uc",
+  "hide",
+  "wifi",
+  "3g",
+  "4g",
+  "lte",
+  "lte-a",
+  "lte+",
+  "5g",
+  "5g+",
+  "5g-uwb",
+  "5g-uc",
 ] as const;
 export const WIFI_MODE = ["searching", "failed", "active"] as const;
 export const CELLULAR_MODE = ["notSupported", "searching", "failed", "active"] as const;
@@ -69,15 +78,54 @@ interface StringFieldDef {
 type FieldDef = NumberFieldDef | EnumFieldDef | StringFieldDef;
 
 const FIELDS: Record<string, FieldDef> = {
-  "--time": { kind: "string", field: "time", simctl: "--time", re: TIME_RE, label: '"9:41" or an ISO8601 timestamp' },
-  "--data-network": { kind: "enum", field: "dataNetwork", simctl: "--dataNetwork", values: DATA_NETWORK },
+  "--time": {
+    kind: "string",
+    field: "time",
+    simctl: "--time",
+    re: TIME_RE,
+    label: '"9:41" or an ISO8601 timestamp',
+  },
+  "--data-network": {
+    kind: "enum",
+    field: "dataNetwork",
+    simctl: "--dataNetwork",
+    values: DATA_NETWORK,
+  },
   "--wifi-mode": { kind: "enum", field: "wifiMode", simctl: "--wifiMode", values: WIFI_MODE },
   "--wifi-bars": { kind: "number", field: "wifiBars", simctl: "--wifiBars", min: 0, max: 3 },
-  "--cellular-mode": { kind: "enum", field: "cellularMode", simctl: "--cellularMode", values: CELLULAR_MODE },
-  "--cellular-bars": { kind: "number", field: "cellularBars", simctl: "--cellularBars", min: 0, max: 4 },
-  "--operator-name": { kind: "string", field: "operatorName", simctl: "--operatorName", re: OPERATOR_RE, label: "printable text up to 32 chars" },
-  "--battery-state": { kind: "enum", field: "batteryState", simctl: "--batteryState", values: BATTERY_STATE },
-  "--battery-level": { kind: "number", field: "batteryLevel", simctl: "--batteryLevel", min: 0, max: 100 },
+  "--cellular-mode": {
+    kind: "enum",
+    field: "cellularMode",
+    simctl: "--cellularMode",
+    values: CELLULAR_MODE,
+  },
+  "--cellular-bars": {
+    kind: "number",
+    field: "cellularBars",
+    simctl: "--cellularBars",
+    min: 0,
+    max: 4,
+  },
+  "--operator-name": {
+    kind: "string",
+    field: "operatorName",
+    simctl: "--operatorName",
+    re: OPERATOR_RE,
+    label: "printable text up to 32 chars",
+  },
+  "--battery-state": {
+    kind: "enum",
+    field: "batteryState",
+    simctl: "--batteryState",
+    values: BATTERY_STATE,
+  },
+  "--battery-level": {
+    kind: "number",
+    field: "batteryLevel",
+    simctl: "--batteryLevel",
+    min: 0,
+    max: 100,
+  },
 };
 
 function validateField(def: FieldDef, raw: string): { error: string } | null {
@@ -103,9 +151,7 @@ function validateField(def: FieldDef, raw: string): { error: string } | null {
   return null;
 }
 
-export function parseStatusBarArgs(
-  args: string[],
-): ParsedStatusBar | { error: string } {
+export function parseStatusBarArgs(args: string[]): ParsedStatusBar | { error: string } {
   let device: string | undefined;
   let quiet = false;
   const override: StatusBarOverride = {};
@@ -157,7 +203,9 @@ export function parseStatusBarArgs(
     return { error: `Unknown subcommand: ${verbRaw}` };
   }
   if (positional.length > 1) {
-    return { error: `Unexpected argument: ${positional[1]} (did you forget -d before a device name?)` };
+    return {
+      error: `Unexpected argument: ${positional[1]} (did you forget -d before a device name?)`,
+    };
   }
 
   if (verbRaw === "clear") {
@@ -184,6 +232,46 @@ const OVERRIDE_FIELDS: ReadonlyArray<[keyof StatusBarOverride, string]> = [
   ["batteryState", "--batteryState"],
   ["batteryLevel", "--batteryLevel"],
 ];
+
+export interface StatusBarModule {
+  apply(udid: string, request: ParsedStatusBar): Promise<void>;
+}
+
+export function createStatusBar(host: HostCommands): StatusBarModule {
+  return {
+    async apply(udid, request) {
+      const args =
+        request.verb === "clear"
+          ? ["simctl", "status_bar", udid, "clear"]
+          : (() => {
+              const values = ["simctl", "status_bar", udid, "override"];
+              for (const [field, flag] of OVERRIDE_FIELDS) {
+                const value = request[field];
+                if (value !== undefined) values.push(flag, String(value));
+              }
+              return values;
+            })();
+      const result = await host.run({
+        executable: "xcrun",
+        args,
+        stdio: "capture",
+      });
+      if (result.exitCode !== 0 || result.timedOut) {
+        throw new Error(
+          result.stderr.toString().trim() ||
+            `Host command failed with exit code ${result.exitCode ?? "unknown"}`,
+        );
+      }
+    },
+  };
+}
+
+let productionStatusBar: StatusBarModule | null = null;
+
+function productionStatusBarModule(): StatusBarModule {
+  productionStatusBar ??= createStatusBar(createNodeHostCommands());
+  return productionStatusBar;
+}
 
 export async function statusBar(args: string[]): Promise<void> {
   const quiet = args.includes("-q") || args.includes("--quiet");
@@ -212,24 +300,10 @@ export async function statusBar(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // All values are regex/enum-validated above and land as discrete argv
-  // elements (no shell), so interpolation here cannot inject.
-  const argv =
-    parsed.verb === "clear"
-      ? ["simctl", "status_bar", udid, "clear"]
-      : (() => {
-          const out = ["simctl", "status_bar", udid, "override"];
-          for (const [field, flag] of OVERRIDE_FIELDS) {
-            const v = parsed[field];
-            if (v !== undefined) out.push(flag, String(v));
-          }
-          return out;
-        })();
-
   try {
-    execFileSync("xcrun", argv, { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
-  } catch (e: any) {
-    console.error(String(e?.stderr ?? e?.message ?? e).trim());
+    await productionStatusBarModule().apply(udid, parsed);
+  } catch (error: unknown) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
 

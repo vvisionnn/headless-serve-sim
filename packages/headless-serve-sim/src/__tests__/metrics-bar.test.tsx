@@ -80,15 +80,19 @@ describe("MetricsDashboard", () => {
   });
 
   test("keeps polling timestamps out of the live status announcement", () => {
-    const renderAt = (sampledAtMs: number) => renderToStaticMarkup(
-      <MetricsDashboard stream={{
-        ...liveStream,
-        latest: { ...liveStream.latest!, sampledAtMs },
-      }} />,
-    );
-    const liveRegion = (html: string) => html.match(
-      /<(div|section)[^>]*(?:aria-live="(?:polite|assertive)"|role="(?:status|alert|log)")[^>]*>[\s\S]*?<\/\1>/,
-    )?.[0];
+    const renderAt = (sampledAtMs: number) =>
+      renderToStaticMarkup(
+        <MetricsDashboard
+          stream={{
+            ...liveStream,
+            latest: { ...liveStream.latest!, sampledAtMs },
+          }}
+        />,
+      );
+    const liveRegion = (html: string) =>
+      html.match(
+        /<(div|section)[^>]*(?:aria-live="(?:polite|assertive)"|role="(?:status|alert|log)")[^>]*>[\s\S]*?<\/\1>/,
+      )?.[0];
 
     const first = liveRegion(renderAt(Date.UTC(2026, 6, 10, 15, 30, 0)));
     const second = liveRegion(renderAt(Date.UTC(2026, 6, 10, 15, 30, 1)));
@@ -103,57 +107,61 @@ describe("MetricsDashboard", () => {
 
   test("distinguishes no foreground app from a metrics failure", () => {
     const noForeground = renderToStaticMarkup(
-      <MetricsDashboard stream={{
-        latest: {
-          ...liveStream.latest!,
-          state: "no-foreground-app",
-          bundleId: null,
-          pid: null,
-          processStartId: null,
-          alive: false,
-          cpuPercent: null,
-          cpuUserPercent: null,
-          cpuSystemPercent: null,
-          memoryFootprintBytes: null,
-          residentBytes: null,
-          peakMemoryFootprintBytes: null,
-          diskReadBytesPerSecond: null,
-          diskWriteBytesPerSecond: null,
-          wakeupsPerSecond: null,
-          pageInsPerSecond: null,
-          threadCount: null,
-          runningThreadCount: null,
-        },
-        samples: [],
-        error: null,
-      }} />,
+      <MetricsDashboard
+        stream={{
+          latest: {
+            ...liveStream.latest!,
+            state: "no-foreground-app",
+            bundleId: null,
+            pid: null,
+            processStartId: null,
+            alive: false,
+            cpuPercent: null,
+            cpuUserPercent: null,
+            cpuSystemPercent: null,
+            memoryFootprintBytes: null,
+            residentBytes: null,
+            peakMemoryFootprintBytes: null,
+            diskReadBytesPerSecond: null,
+            diskWriteBytesPerSecond: null,
+            wakeupsPerSecond: null,
+            pageInsPerSecond: null,
+            threadCount: null,
+            runningThreadCount: null,
+          },
+          samples: [],
+          error: null,
+        }}
+      />,
     );
     expect(noForeground).toContain("No foreground app");
     expect(noForeground).toContain("Waiting");
 
     const failed = renderToStaticMarkup(
-      <MetricsDashboard stream={{
-        latest: {
-          ...liveStream.latest!,
-          state: "unavailable",
-          processStartId: null,
-          alive: false,
-          cpuPercent: null,
-          cpuUserPercent: null,
-          cpuSystemPercent: null,
-          memoryFootprintBytes: null,
-          residentBytes: null,
-          peakMemoryFootprintBytes: null,
-          diskReadBytesPerSecond: null,
-          diskWriteBytesPerSecond: null,
-          wakeupsPerSecond: null,
-          pageInsPerSecond: null,
-          threadCount: null,
-          runningThreadCount: null,
-        },
-        samples: [],
-        error: null,
-      }} />,
+      <MetricsDashboard
+        stream={{
+          latest: {
+            ...liveStream.latest!,
+            state: "unavailable",
+            processStartId: null,
+            alive: false,
+            cpuPercent: null,
+            cpuUserPercent: null,
+            cpuSystemPercent: null,
+            memoryFootprintBytes: null,
+            residentBytes: null,
+            peakMemoryFootprintBytes: null,
+            diskReadBytesPerSecond: null,
+            diskWriteBytesPerSecond: null,
+            wakeupsPerSecond: null,
+            pageInsPerSecond: null,
+            threadCount: null,
+            runningThreadCount: null,
+          },
+          samples: [],
+          error: null,
+        }}
+      />,
     );
     expect(failed).toContain("Metrics unavailable");
     expect(failed).toContain("Unavailable");

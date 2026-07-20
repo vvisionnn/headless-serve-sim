@@ -126,5 +126,7 @@ export function avcCodecString(description: Uint8Array): string {
 
 /** True when the runtime can decode the AVCC stream (WebCodecs available). */
 export function isAvccSupported(): boolean {
-  return typeof globalThis !== "undefined" && typeof (globalThis as any).VideoDecoder !== "undefined";
+  return (
+    typeof globalThis !== "undefined" && typeof (globalThis as any).VideoDecoder !== "undefined"
+  );
 }

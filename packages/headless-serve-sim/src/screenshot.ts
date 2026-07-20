@@ -1,6 +1,7 @@
-import { execFileSync } from "child_process";
 import { resolve } from "path";
 import { findBootedDevice, resolveDevice } from "./device";
+import type { HostCommands } from "./runtime/host-commands";
+import { createNodeHostCommands } from "./runtime/node-host-commands";
 
 // ─── Argument parsing ───
 //
@@ -39,9 +40,7 @@ function isMask(v: string): v is ScreenshotMask {
   return (SCREENSHOT_MASKS as readonly string[]).includes(v);
 }
 
-export function parseScreenshotArgs(
-  args: string[],
-): ParsedScreenshot | { error: string } {
+export function parseScreenshotArgs(args: string[]): ParsedScreenshot | { error: string } {
   let device: string | undefined;
   let type: ScreenshotType = "png";
   let display: ScreenshotDisplay | undefined;
@@ -75,7 +74,9 @@ export function parseScreenshotArgs(
         type = value;
       } else if (flag === "--display") {
         if (value === undefined || !isDisplay(value)) {
-          return { error: `Invalid --display "${value}". Allowed: ${SCREENSHOT_DISPLAYS.join(", ")}` };
+          return {
+            error: `Invalid --display "${value}". Allowed: ${SCREENSHOT_DISPLAYS.join(", ")}`,
+          };
         }
         display = value;
       } else if (flag === "--mask") {
@@ -92,7 +93,9 @@ export function parseScreenshotArgs(
   }
 
   if (positional.length > 1) {
-    return { error: `Unexpected argument: ${positional[1]} (did you forget -d before a device name?)` };
+    return {
+      error: `Unexpected argument: ${positional[1]} (did you forget -d before a device name?)`,
+    };
   }
 
   return { path: positional[0], type, display, mask, device, quiet };
@@ -104,6 +107,57 @@ export function parseScreenshotArgs(
 // `file` and downstream tools agree with the bytes simctl writes.
 function extForType(type: ScreenshotType): string {
   return type === "jpeg" ? "jpg" : type;
+}
+
+interface ScreenshotCaptureOptions {
+  now?: () => number;
+  cwd?: () => string;
+  resolvePath?: (...paths: string[]) => string;
+}
+
+export interface ScreenshotCaptureModule {
+  capture(udid: string, request: ParsedScreenshot): Promise<string>;
+}
+
+export function createScreenshotCapture(
+  host: HostCommands,
+  options: ScreenshotCaptureOptions = {},
+): ScreenshotCaptureModule {
+  const now = options.now ?? Date.now;
+  const cwd = options.cwd ?? process.cwd;
+  const resolvePath = options.resolvePath ?? resolve;
+
+  return {
+    async capture(udid, request) {
+      const outPath = request.path
+        ? resolvePath(request.path)
+        : resolvePath(cwd(), `screenshot-${now()}.${extForType(request.type)}`);
+      const args = ["simctl", "io", udid, "screenshot", "--type", request.type];
+      if (request.display) args.push("--display", request.display);
+      if (request.mask) args.push("--mask", request.mask);
+      args.push(outPath);
+
+      const result = await host.run({
+        executable: "xcrun",
+        args,
+        stdio: "capture",
+      });
+      if (result.exitCode !== 0 || result.timedOut) {
+        throw new Error(
+          result.stderr.toString().trim() ||
+            `Host command failed with exit code ${result.exitCode ?? "unknown"}`,
+        );
+      }
+      return outPath;
+    },
+  };
+}
+
+let productionCapture: ScreenshotCaptureModule | null = null;
+
+function productionScreenshotCapture(): ScreenshotCaptureModule {
+  productionCapture ??= createScreenshotCapture(createNodeHostCommands());
+  return productionCapture;
 }
 
 export async function screenshot(args: string[]): Promise<void> {
@@ -128,22 +182,11 @@ export async function screenshot(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Date.now lives here (not the parser) so the parser stays deterministic.
-  const outPath = parsed.path
-    ? resolve(parsed.path)
-    : resolve(process.cwd(), `screenshot-${Date.now()}.${extForType(parsed.type)}`);
-
-  // type is enum-validated; display/mask too. `outPath` is a discrete argv
-  // element (no shell), so a path with spaces/quotes is safe without escaping.
-  const argv = ["simctl", "io", udid, "screenshot", "--type", parsed.type];
-  if (parsed.display) argv.push("--display", parsed.display);
-  if (parsed.mask) argv.push("--mask", parsed.mask);
-  argv.push(outPath);
-
+  let outPath: string;
   try {
-    execFileSync("xcrun", argv, { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
-  } catch (e: any) {
-    console.error(String(e?.stderr ?? e?.message ?? e).trim());
+    outPath = await productionScreenshotCapture().capture(udid, parsed);
+  } catch (error: unknown) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
 

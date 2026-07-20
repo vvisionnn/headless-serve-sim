@@ -25,9 +25,9 @@ jobs:
       - run: bun run lint
       - run: bun run typecheck
       - name: Client unit tests
-        run: bun test packages/headless-serve-sim-client/src/__tests__/
+        run: bun run test -- packages/headless-serve-sim-client/src/__tests__/
 
-  # Full build + simulator integration tests on macOS. On a v* tag this also
+  # Full build + hermetic tests on macOS. On a v* tag this also
   # packages the binary and uploads it for the release job.
   build-test:
     runs-on: macos-14 # Apple Silicon (arm64)
@@ -41,52 +41,8 @@ jobs:
         run: bun run build.ts
         working-directory: packages/headless-serve-sim
 
-      - name: Boot iOS simulator
-        id: boot-sim
-        run: |
-          UDID=""
-          for NAME in "iPhone 16 Pro" "iPhone 16" "iPhone 15 Pro" "iPhone 15"; do
-            echo "Trying to boot \"$NAME\"..."
-            if OUT=$(xcrun simctl boot "$NAME" 2>&1); then
-              UDID=$(xcrun simctl list devices booted -j | node -e "
-                const data = JSON.parse(require('fs').readFileSync(0, 'utf-8'));
-                for (const devs of Object.values(data.devices)) {
-                  for (const d of devs) { console.log(d.udid); process.exit(0); }
-                }
-              ")
-              echo "Booted \"$NAME\" -> $UDID"
-              break
-            fi
-            echo "  skip: $OUT"
-          done
-
-          if [ -z "$UDID" ]; then
-            echo "No pre-created iPhone simulator booted; creating one from the latest runtime"
-            RUNTIME=$(xcrun simctl list runtimes -j | node -e "
-              const data = JSON.parse(require('fs').readFileSync(0, 'utf-8'));
-              const ios = data.runtimes.filter(r => r.isAvailable && r.identifier.includes('iOS'));
-              ios.sort((a, b) => a.version.localeCompare(b.version));
-              console.log(ios[ios.length - 1].identifier);
-            ")
-            DEVICETYPE=$(xcrun simctl list devicetypes -j | node -e "
-              const data = JSON.parse(require('fs').readFileSync(0, 'utf-8'));
-              const iphones = data.devicetypes.filter(d => d.identifier.includes('iPhone'));
-              console.log(iphones[iphones.length - 1].identifier);
-            ")
-            UDID=$(xcrun simctl create "ci-test-iphone" "$DEVICETYPE" "$RUNTIME")
-            xcrun simctl boot "$UDID" || true
-          fi
-
-          xcrun simctl bootstatus "$UDID" -b
-          open -ga Simulator || true
-          echo "udid=$UDID" >> $GITHUB_OUTPUT
-
       - name: headless-serve-sim tests
-        run: bun test packages/headless-serve-sim/src/__tests__/
-
-      - name: Shutdown simulator
-        if: always() && steps.boot-sim.outputs.udid != ''
-        run: xcrun simctl shutdown "${{ steps.boot-sim.outputs.udid }}" || true
+        run: bun run test -- packages/headless-serve-sim/src/__tests__/
 
       - name: Package release tarball
         if: startsWith(github.ref, 'refs/tags/v')
