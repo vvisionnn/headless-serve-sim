@@ -131,6 +131,22 @@ export interface UserDefaultsModule {
   execute(udid: string, request: ParsedDefaults): Promise<string | null>;
 }
 
+/**
+ * `plutil -convert json` rejects plist dates and data even though `defaults
+ * export` emits both. Preserve their textual representation as JSON strings so
+ * every valid defaults domain remains inspectable in the web UI.
+ */
+export function normalizeDefaultsPlistForJson(xml: Buffer): Buffer {
+  return Buffer.from(
+    xml
+      .toString()
+      .replace(/<date>([\s\S]*?)<\/date>/g, "<string>$1</string>")
+      .replace(/<data>([\s\S]*?)<\/data>/g, (_match, value: string) => {
+        return `<string>${value.replace(/\s+/g, "")}</string>`;
+      }),
+  );
+}
+
 export function createUserDefaults(host: HostCommands): UserDefaultsModule {
   const run = async (
     executable: string,
@@ -164,7 +180,11 @@ export function createUserDefaults(host: HostCommands): UserDefaultsModule {
           request.domain,
           "-",
         ]);
-        const json = await run("plutil", ["-convert", "json", "-o", "-", "-"], xml);
+        const json = await run(
+          "plutil",
+          ["-convert", "json", "-o", "-", "-"],
+          normalizeDefaultsPlistForJson(xml),
+        );
         return json.toString().trim();
       }
       if (request.verb === "delete") {

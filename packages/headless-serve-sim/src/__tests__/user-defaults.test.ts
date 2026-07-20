@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { createUserDefaults, parseDefaultsArgs } from "../user-defaults";
+import {
+  createUserDefaults,
+  normalizeDefaultsPlistForJson,
+  parseDefaultsArgs,
+} from "../user-defaults";
 import { createScriptedHostCommands } from "../test-support/scripted-host-commands";
 
 describe("parseDefaultsArgs", () => {
@@ -181,6 +185,39 @@ describe("parseDefaultsArgs", () => {
 });
 
 describe("user defaults module", () => {
+  test("normalizes plist date and data values before JSON conversion", () => {
+    const xml = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+  <key>LastUpdated</key><date>2026-07-20T14:00:00Z</date>
+  <key>Archive</key><data>YWJj\nZA==</data>
+</dict></plist>`);
+
+    expect(normalizeDefaultsPlistForJson(xml).toString()).toContain(
+      "<string>2026-07-20T14:00:00Z</string>",
+    );
+    expect(normalizeDefaultsPlistForJson(xml).toString()).toContain("<string>YWJjZA==</string>");
+  });
+
+  test("passes normalized plist values to plutil", async () => {
+    const xml = Buffer.from(
+      "<plist><dict><key>Updated</key><date>2026-07-20T14:00:00Z</date></dict></plist>",
+    );
+    const host = createScriptedHostCommands([
+      { result: { stdout: xml } },
+      { result: { stdout: '{"Updated":"2026-07-20T14:00:00Z"}' } },
+    ]);
+
+    await createUserDefaults(host).execute("DEVICE", {
+      verb: "read",
+      domain: "com.example.app",
+      quiet: false,
+    });
+
+    expect(host.calls[1]?.request.input?.toString()).toContain(
+      "<string>2026-07-20T14:00:00Z</string>",
+    );
+  });
+
   test("reads exported defaults through plist conversion with byte-preserving stdin", async () => {
     const xml = Buffer.from("<plist><dict/></plist>");
     const host = createScriptedHostCommands([
