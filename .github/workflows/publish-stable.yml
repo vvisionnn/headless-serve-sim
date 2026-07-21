@@ -6,13 +6,17 @@ on:
 permissions:
   contents: read
 
+env:
+  MISE_LOCKED: "1"
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v4
-      - run: bun install
+      - run: bun install --frozen-lockfile
+      - run: bun run check:static
 
       - name: Client tests
         run: bun run test -- packages/headless-serve-sim-client/src/__tests__/
@@ -79,7 +83,8 @@ jobs:
           bun run build:swift
           bun run build
 
-          npm publish --access public --tag latest --provenance
+          bun pm pack --filename headless-serve-sim.tgz
+          npm publish headless-serve-sim.tgz --access public --tag latest --provenance
 
       - name: Configure git and commit stable version bump
         run: |
