@@ -605,7 +605,7 @@ export function SimulatorView({
         }, 6000);
 
     if (!useAvcc)
-      (async () => {
+      void (async () => {
         try {
           const res = await fetch(streamUrl, { signal: fpsAbort.signal });
           const reader = res.body?.getReader();

@@ -16,7 +16,7 @@ export function useGridDevices(endpoint: string | undefined, enabled: boolean, f
         if (!cancelled) setDevices([]);
       }
     };
-    tick();
+    void tick();
     const id = setInterval(tick, fast ? 750 : 3000);
     return () => {
       cancelled = true;

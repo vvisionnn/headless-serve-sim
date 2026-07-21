@@ -147,7 +147,7 @@ export function BootEmptyState({
                     key={d.udid}
                     className={`flex items-center gap-2.5 px-3 py-2 transition-[background-color] duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] ${disabled ? "cursor-default opacity-50" : "cursor-pointer hover:bg-hover"}`}
                     onClick={() => {
-                      if (!disabled) start(d);
+                      if (!disabled) void start(d);
                     }}
                   >
                     <span

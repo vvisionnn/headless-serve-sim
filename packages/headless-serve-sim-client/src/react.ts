@@ -234,7 +234,7 @@ export function useGatewayStatus(options: UseGatewayStatusOptions = {}): UseGate
   }, []);
 
   useEffect(() => {
-    doFetch();
+    void doFetch();
     if (pollInterval <= 0) return;
     const id = setInterval(doFetch, pollInterval);
     return () => clearInterval(id);

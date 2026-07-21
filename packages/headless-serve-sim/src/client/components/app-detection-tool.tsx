@@ -25,7 +25,7 @@ export function AppDetectionTool({
       pid: currentApp.pid,
       loading: true,
     });
-    fetchAppDetails(execOnHost, udid, currentApp.bundleId).then((extra) => {
+    void fetchAppDetails(execOnHost, udid, currentApp.bundleId).then((extra) => {
       if (cancelled) return;
       setDetails({
         bundleId: currentApp.bundleId,
@@ -112,7 +112,7 @@ export function AppDetectionTool({
                   ? {
                       title: "Reveal in Finder",
                       onClick: () => {
-                        execOnHost(`open -R ${shellEscape(details.appPath!)}`);
+                        void execOnHost(`open -R ${shellEscape(details.appPath!)}`);
                       },
                       icon: (
                         <svg

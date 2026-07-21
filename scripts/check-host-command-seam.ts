@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import ts from "typescript";
+import { parseSync, Visitor, type Argument, type CallExpression } from "oxc-parser";
 
 export interface SourceInput {
   path: string;
@@ -45,75 +45,50 @@ function isOrdinaryTest(path: string): boolean {
   return value.includes("/src/__tests__/") && value !== HOST_COMMAND_CONTRACT_TEST;
 }
 
-function propertyName(expression: ts.Expression): string | null {
-  if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
-  if (
-    ts.isElementAccessExpression(expression) &&
-    expression.argumentExpression &&
-    ts.isStringLiteral(expression.argumentExpression)
-  ) {
-    return expression.argumentExpression.text;
-  }
-  return null;
-}
-
-function propertyOwner(expression: ts.Expression): ts.Expression | null {
-  if (ts.isPropertyAccessExpression(expression)) return expression.expression;
-  if (ts.isElementAccessExpression(expression)) return expression.expression;
-  return null;
-}
-
-function importedModule(node: ts.Node): string | null {
-  if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
-    return node.moduleSpecifier.text;
-  }
-  if (
-    ts.isExportDeclaration(node) &&
-    node.moduleSpecifier &&
-    ts.isStringLiteral(node.moduleSpecifier)
-  ) {
-    return node.moduleSpecifier.text;
-  }
-  if (
-    ts.isImportEqualsDeclaration(node) &&
-    ts.isExternalModuleReference(node.moduleReference) &&
-    node.moduleReference.expression &&
-    ts.isStringLiteral(node.moduleReference.expression)
-  ) {
-    return node.moduleReference.expression.text;
-  }
-  if (!ts.isCallExpression(node) || node.arguments.length !== 1) return null;
-  const first = node.arguments[0];
-  if (!first || !ts.isStringLiteral(first)) return null;
-  if (node.expression.kind === ts.SyntaxKind.ImportKeyword) return first.text;
-  if (ts.isIdentifier(node.expression) && node.expression.text === "require") return first.text;
-  return null;
-}
-
 function isChildProcessModule(value: string | null): boolean {
   return value === "child_process" || value === "node:child_process";
 }
 
-function isNamedCall(node: ts.CallExpression, owner: string, names: readonly string[]): boolean {
-  const property = propertyName(node.expression);
-  const expression = propertyOwner(node.expression);
+function stringValue(expression: Argument | undefined): string | null {
+  return expression?.type === "Literal" && typeof expression.value === "string"
+    ? expression.value
+    : null;
+}
+
+function calledMember(node: CallExpression, owner: string, names: readonly string[]): boolean {
+  const callee = node.callee;
+  if (callee.type !== "MemberExpression" || callee.object.type !== "Identifier") return false;
+  const property =
+    callee.property.type === "Identifier"
+      ? callee.property.name
+      : callee.property.type === "Literal" && typeof callee.property.value === "string"
+        ? callee.property.value
+        : null;
+  return callee.object.name === owner && property !== null && names.includes(property);
+}
+
+function callsCreateNodeHostCommands(node: CallExpression): boolean {
+  if (node.callee.type === "Identifier") return node.callee.name === "createNodeHostCommands";
+  if (node.callee.type !== "MemberExpression") return false;
+  const property = node.callee.property;
   return (
-    property !== null &&
-    names.includes(property) &&
-    expression !== null &&
-    ts.isIdentifier(expression) &&
-    expression.text === owner
+    (property.type === "Identifier" && property.name === "createNodeHostCommands") ||
+    (property.type === "Literal" && property.value === "createNodeHostCommands")
   );
 }
 
-function callsCreateNodeHostCommands(node: ts.CallExpression): boolean {
-  if (ts.isIdentifier(node.expression)) return node.expression.text === "createNodeHostCommands";
-  return propertyName(node.expression) === "createNodeHostCommands";
+function hasExplicitFakeOverrides(node: CallExpression): boolean {
+  const first = node.arguments[0];
+  return first?.type === "ObjectExpression" && first.properties.length > 0;
 }
 
-function hasExplicitFakeOverrides(node: ts.CallExpression): boolean {
-  const first = node.arguments[0];
-  return !!first && ts.isObjectLiteralExpression(first) && first.properties.length > 0;
+function sourcePosition(source: string, offset: number): { line: number; column: number } {
+  const prefix = source.slice(0, offset);
+  const lastNewline = prefix.lastIndexOf("\n");
+  return {
+    line: prefix.split("\n").length,
+    column: offset - lastNewline,
+  };
 }
 
 export function findHostCommandSeamViolations(
@@ -124,50 +99,72 @@ export function findHostCommandSeamViolations(
   for (const input of inputs) {
     const path = normalized(input.path);
     if (!isRuntimeSource(path)) continue;
-    const sourceFile = ts.createSourceFile(
-      path,
-      input.source,
-      ts.ScriptTarget.Latest,
-      true,
-      path.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-    );
+    const { program } = parseSync(path, input.source);
 
-    const report = (node: ts.Node, rule: HostCommandSeamViolation["rule"], message: string) => {
-      const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+    const report = (
+      node: { start: number },
+      rule: HostCommandSeamViolation["rule"],
+      message: string,
+    ) => {
+      const position = sourcePosition(input.source, node.start);
       violations.push({
         path,
-        line: position.line + 1,
-        column: position.character + 1,
+        line: position.line,
+        column: position.column,
         rule,
         message,
       });
     };
 
-    const visit = (node: ts.Node): void => {
-      if (
-        !isNodeAdapter(path) &&
-        !isOrdinaryTest(path) &&
-        isChildProcessModule(importedModule(node))
-      ) {
+    const reportChildProcessImport = (node: { start: number }, moduleName: string | null) => {
+      if (!isNodeAdapter(path) && !isOrdinaryTest(path) && isChildProcessModule(moduleName)) {
         report(
           node,
           "child-process-import",
           "Import HostCommands instead of importing child_process directly.",
         );
       }
+    };
 
-      if (ts.isCallExpression(node)) {
+    new Visitor({
+      ImportDeclaration(node) {
+        reportChildProcessImport(node, node.source.value);
+      },
+      ExportNamedDeclaration(node) {
+        reportChildProcessImport(node, node.source?.value ?? null);
+      },
+      ExportAllDeclaration(node) {
+        reportChildProcessImport(node, node.source.value);
+      },
+      TSImportEqualsDeclaration(node) {
+        const reference = node.moduleReference;
+        reportChildProcessImport(
+          node,
+          reference.type === "TSExternalModuleReference" ? reference.expression.value : null,
+        );
+      },
+      ImportExpression(node) {
+        reportChildProcessImport(node, stringValue(node.source));
+      },
+      CallExpression(node) {
+        if (
+          node.callee.type === "Identifier" &&
+          node.callee.name === "require" &&
+          node.arguments.length === 1
+        ) {
+          reportChildProcessImport(node, stringValue(node.arguments[0]));
+        }
         if (
           !isNodeAdapter(path) &&
           !isOrdinaryTest(path) &&
-          isNamedCall(node, "Bun", ["spawn", "spawnSync"])
+          calledMember(node, "Bun", ["spawn", "spawnSync"])
         ) {
           report(node, "direct-bun-spawn", "Route process creation through HostCommands.");
         }
         if (
           !isNodeAdapter(path) &&
           !isOrdinaryTest(path) &&
-          isNamedCall(node, "process", ["kill"])
+          calledMember(node, "process", ["kill"])
         ) {
           report(node, "direct-process-kill", "Route process signals through HostCommands.");
         }
@@ -182,11 +179,8 @@ export function findHostCommandSeamViolations(
             "Ordinary tests must use scripted commands or explicit fake Node adapter overrides.",
           );
         }
-      }
-      ts.forEachChild(node, visit);
-    };
-
-    visit(sourceFile);
+      },
+    }).visit(program);
   }
 
   return violations.sort(

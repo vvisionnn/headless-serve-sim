@@ -102,8 +102,8 @@ describe("sendKeyEventsToWs e2e", () => {
     wsUrl = `ws://127.0.0.1:${server.port}/ws`;
   }, 30_000);
 
-  afterAll(() => {
-    server.stop(true);
+  afterAll(async () => {
+    await server.stop(true);
   });
 
   it("sends one 0x06 WS frame per key event with the JSON payload", async () => {

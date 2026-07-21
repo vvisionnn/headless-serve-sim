@@ -1,6 +1,9 @@
 {
-  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "react", "import"],
+  "options": {
+    "typeAware": true
+  },
   "categories": {
     "correctness": "error"
   },
@@ -8,7 +11,23 @@
     "import/no-cycle": "error",
     "no-debugger": "error",
     "no-duplicate-imports": "error",
-    "react/react-in-jsx-scope": "off"
+    "react/react-in-jsx-scope": "off",
+    "typescript/await-thenable": "error",
+    "typescript/no-base-to-string": "off",
+    "typescript/no-floating-promises": ["error", { "ignoreVoid": true }],
+    "typescript/no-misused-promises": ["error", { "checksVoidReturn": false }],
+    "typescript/no-redundant-type-constituents": "off",
+    "typescript/require-array-sort-compare": "off",
+    "typescript/restrict-template-expressions": "off",
+    "typescript/unbound-method": "off"
   },
+  "overrides": [
+    {
+      "files": ["**/src/__tests__/**"],
+      "rules": {
+        "typescript/await-thenable": "off"
+      }
+    }
+  ],
   "ignorePatterns": ["**/node_modules/**", "**/dist/**", "**/build/**"]
 }

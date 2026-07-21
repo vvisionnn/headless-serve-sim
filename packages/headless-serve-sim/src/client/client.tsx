@@ -173,7 +173,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    fetchDevices();
+    void fetchDevices();
   }, [fetchDevices]);
 
   // Refresh the device list whenever a new simulator is committed, so its name
@@ -760,7 +760,7 @@ function AppWithConfig({
           (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
         if (!typing) {
           e.preventDefault();
-          if (type === "down" && !e.repeat) captureAndDownloadScreenshot();
+          if (type === "down" && !e.repeat) void captureAndDownloadScreenshot();
           return;
         }
       }

@@ -941,7 +941,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
     // inside embedded browser iframes. Serving it from the preview origin keeps
     // the frontend's relative assets and CSP on the local page.
     if (url === devtoolsFrontendBase || url.startsWith(`${devtoolsFrontendBase}/`)) {
-      (async () => {
+      void (async () => {
         const assetPath =
           url === devtoolsFrontendBase
             ? "inspector.html"
@@ -1004,7 +1004,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
       // instead of rendering a generic fallback and resizing when the config
       // arrives over the control socket a moment later. Best-effort, so a slow
       // helper never blocks the page (fetchHelperScreenConfig resolves to null).
-      (async () => {
+      void (async () => {
         const remoteState = rewriteStateForRequestHost(state, req.headers?.host);
         const [screenConfig, deviceMetadata] = await Promise.all([
           fetchHelperScreenConfig(state.url),
@@ -1285,7 +1285,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
     // /devtools/page/:id on localhost; the preview adds iframe-safe frontend
     // URLs so the browser UI can embed Chrome DevTools.
     if (url === base + "/devtools") {
-      (async () => {
+      void (async () => {
         const states = readStates();
         const state = selectServeSimState(states, selectedDevice);
         if (!state) {
@@ -1836,7 +1836,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
           }
           const event = parseForegroundAppLogMessage(msg);
           if (!event) continue;
-          emitApp(event.bundleId, event.pid);
+          void emitApp(event.bundleId, event.pid);
         }
         if (buf.length > SSE_LINE_BUFFER_LIMIT) buf = "";
       });

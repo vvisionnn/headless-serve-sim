@@ -585,7 +585,7 @@ async function runBenchmark(options: BenchmarkOptions): Promise<boolean> {
     console.log(JSON.stringify(result, null, 2));
     return result.pass;
   } finally {
-    patternServer.stop(true);
+    await patternServer.stop(true);
     if (temporaryOutput) rmSync(outputDirectory, { recursive: true, force: true });
   }
 }

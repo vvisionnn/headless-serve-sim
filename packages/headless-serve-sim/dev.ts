@@ -654,15 +654,17 @@ export function createDevFetchHandler(dependencies: DevServerDependencies) {
               if (!isUserFacingBundle(bundleId)) continue;
               if (bundleId === lastBundle) continue;
               lastBundle = bundleId;
-              detectReactNative(dependencies.hostCommands, udid, bundleId).then((isReactNative) => {
-                try {
-                  controller.enqueue(
-                    `data: ${JSON.stringify({ bundleId, pid, isReactNative })}\n\n`,
-                  );
-                } catch {
-                  child.stop();
-                }
-              });
+              void detectReactNative(dependencies.hostCommands, udid, bundleId).then(
+                (isReactNative) => {
+                  try {
+                    controller.enqueue(
+                      `data: ${JSON.stringify({ bundleId, pid, isReactNative })}\n\n`,
+                    );
+                  } catch {
+                    child.stop();
+                  }
+                },
+              );
             }
           });
           void child.result.then(() => {

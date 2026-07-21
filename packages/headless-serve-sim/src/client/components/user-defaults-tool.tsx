@@ -233,7 +233,7 @@ export function UserDefaultsTool({ udid, bundleId }: { udid: string; bundleId: s
                   setError(null);
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") load();
+                  if (e.key === "Enter") void load();
                 }}
                 placeholder="com.example.app"
                 spellCheck={false}
@@ -297,7 +297,7 @@ export function UserDefaultsTool({ udid, bundleId }: { udid: string; bundleId: s
                   value={newValue}
                   onChange={(e) => setNewValue((e.target as HTMLInputElement).value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") add();
+                    if (e.key === "Enter") void add();
                   }}
                   placeholder={newType === "bool" ? "true / false" : "value"}
                   spellCheck={false}

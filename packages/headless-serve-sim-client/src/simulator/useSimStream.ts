@@ -65,7 +65,7 @@ export function useSimStream({
     if (deviceProp && infoRef.current?.device === deviceProp) return;
 
     let cancelled = false;
-    (async () => {
+    void (async () => {
       setLoading(true);
       setError(null);
       try {

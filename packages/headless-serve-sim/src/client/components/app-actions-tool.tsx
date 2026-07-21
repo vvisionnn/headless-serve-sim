@@ -144,7 +144,7 @@ export function AppActionsTool({ udid, bundleId }: { udid: string; bundleId: str
                 value={urlText}
                 onChange={(e) => setUrlText((e.target as HTMLInputElement).value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") openUrl();
+                  if (e.key === "Enter") void openUrl();
                 }}
                 placeholder="https://example.com or myapp://path"
                 spellCheck={false}

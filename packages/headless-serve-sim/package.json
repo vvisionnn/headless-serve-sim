@@ -73,22 +73,21 @@
     "dev": "bun run dev.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest",
+    "@types/bun": "catalog:",
     "@types/debug": "^4.1.13",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
     "@types/ws": "^8.18.1",
     "debug": "^4.4.3",
     "bun-plugin-tailwind": "^0.1.2",
     "commander": "^14.0.1",
     "preact": "^10.29.1",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "tailwindcss": "^4.1.7",
-    "typescript": "^5.7.0"
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tailwindcss": "^4.1.7"
   },
   "dependencies": {
-    "headless-serve-sim-client": "^0.1.16",
+    "headless-serve-sim-client": "workspace:^",
     "inspect-webkit": "^0.0.5",
     "ws": "^8.21.0"
   }

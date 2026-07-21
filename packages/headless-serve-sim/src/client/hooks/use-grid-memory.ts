@@ -13,7 +13,7 @@ export function useGridMemory(endpoint: string | undefined, enabled: boolean) {
         if (!cancelled) setReport(json);
       } catch {}
     };
-    tick();
+    void tick();
     const id = setInterval(tick, 5000);
     return () => {
       cancelled = true;

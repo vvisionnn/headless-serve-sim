@@ -2,10 +2,12 @@
   "name": "headless-serve-sim-repo",
   "private": true,
   "license": "Apache-2.0",
+  "packageManager": "bun@1.3.14",
   "scripts": {
     "build": "bun run --filter '*' build",
     "build:swift": "cd packages/headless-serve-sim && ./build.sh",
-    "check": "bun run format:check && bun run lint && bun run typecheck && bun run check:test-safety && bun run check:host-command-seam && bun run knip && bun run test",
+    "check": "bun run check:static && bun run test",
+    "check:static": "bun run format:check && bun run lint && bun run typecheck && bun run check:test-safety && bun run check:host-command-seam && bun run knip",
     "check:host-command-seam": "bun run scripts/check-host-command-seam.ts",
     "check:test-safety": "bun run scripts/check-test-safety.ts",
     "format": "oxfmt --write package.json knip.json .oxlintrc.json .oxfmtrc.json '.github/**/*.{yml,yaml}' 'scripts/**/*.{ts,js,json}' 'packages/**/*.{ts,tsx,js,json,css,md}'",
@@ -16,14 +18,25 @@
     "test:unit": "bun run scripts/run-hermetic-tests.ts",
     "typecheck": "tsc --noEmit"
   },
-  "workspaces": [
-    "packages/*"
-  ],
+  "workspaces": {
+    "packages": [
+      "packages/*"
+    ],
+    "catalog": {
+      "@types/bun": "1.3.14",
+      "@types/react": "^19.0.0",
+      "@types/react-dom": "^19.0.0",
+      "react": "^19.0.0",
+      "react-dom": "^19.0.0"
+    }
+  },
   "devDependencies": {
-    "@types/node": "^25.6.2",
+    "@types/node": "^24.3.0",
     "knip": "^6.12.2",
+    "oxc-parser": "^0.140.0",
     "oxfmt": "^0.59.0",
-    "oxlint": "^1.63.0",
-    "typescript": "^6.0.3"
+    "oxlint": "^1.74.0",
+    "oxlint-tsgolint": "^0.25.0",
+    "typescript": "^7.0.2"
   }
 }

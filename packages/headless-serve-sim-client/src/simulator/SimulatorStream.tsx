@@ -124,7 +124,7 @@ export function SimulatorStream({
               <button
                 onClick={() => {
                   if (relayMode) stream.stop();
-                  disconnect();
+                  void disconnect();
                 }}
                 disabled={loading}
                 style={btnStyle}
