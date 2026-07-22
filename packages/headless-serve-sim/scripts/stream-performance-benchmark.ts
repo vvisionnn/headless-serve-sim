@@ -29,6 +29,19 @@ export function subtractNumericMetrics(
   return delta;
 }
 
+export function derivePipelineMetrics(metrics: Record<string, number>): Record<string, number> {
+  const pipeline = { ...metrics };
+  delete pipeline.copyAvoidancePercent;
+  const offered = pipeline.framesOffered ?? 0;
+  const skipped = pipeline.snapshotsSkippedBeforeCopy ?? 0;
+  pipeline.copyAvoidancePercent = offered > 0 ? Number(((skipped * 100) / offered).toFixed(2)) : 0;
+  const writes = pipeline.avccCompletedWrites ?? 0;
+  const writeNanoseconds = pipeline.avccWriteNanoseconds ?? 0;
+  pipeline.avccAverageWriteMs =
+    writes > 0 ? Number((writeNanoseconds / writes / 1_000_000).toFixed(4)) : 0;
+  return pipeline;
+}
+
 export function assertIsolatedSimulator(
   inventory: SimulatorInventory,
   udid: string,
@@ -176,14 +189,10 @@ async function run(): Promise<void> {
   const metricsAfter = await readStreamMetrics(options.url);
   const pipeline =
     metricsBefore && metricsAfter ? subtractNumericMetrics(metricsAfter, metricsBefore) : null;
-  if (pipeline) {
-    delete pipeline.copyAvoidancePercent;
-    const offered = pipeline.framesOffered ?? 0;
-    const skipped = pipeline.snapshotsSkippedBeforeCopy ?? 0;
-    pipeline.copyAvoidancePercent =
-      offered > 0 ? Number(((skipped * 100) / offered).toFixed(2)) : 0;
-  }
   const quality = JSON.parse(stdout) as { pipeline?: Record<string, number> };
+  const measuredPipeline = quality.pipeline ?? pipeline;
+  const derivedPipeline = measuredPipeline ? derivePipelineMetrics(measuredPipeline) : null;
+  if (derivedPipeline) quality.pipeline = derivedPipeline;
 
   const result = {
     label: options.label,
@@ -192,7 +201,7 @@ async function run(): Promise<void> {
     measuredAt: new Date().toISOString(),
     quality,
     hostProcess: summarizeProcessSamples(samples),
-    pipeline: quality.pipeline ?? pipeline,
+    pipeline: derivedPipeline,
   };
   mkdirSync(dirname(options.output), { recursive: true });
   await Bun.write(options.output, `${JSON.stringify(result, null, 2)}\n`);

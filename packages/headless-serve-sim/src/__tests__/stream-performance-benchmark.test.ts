@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   assertIsolatedSimulator,
+  derivePipelineMetrics,
   subtractNumericMetrics,
   summarizeProcessSamples,
 } from "../../scripts/stream-performance-benchmark";
@@ -45,5 +46,19 @@ describe("stream performance benchmark", () => {
         { framesOffered: 20, snapshotsRequired: 10, mode: "perf" },
       ),
     ).toEqual({ framesOffered: 100, snapshotsRequired: 80 });
+  });
+
+  test("derives copy avoidance and average socket-write latency", () => {
+    expect(
+      derivePipelineMetrics({
+        framesOffered: 100,
+        snapshotsSkippedBeforeCopy: 25,
+        avccCompletedWrites: 4,
+        avccWriteNanoseconds: 2_000_000,
+      }),
+    ).toMatchObject({
+      copyAvoidancePercent: 25,
+      avccAverageWriteMs: 0.5,
+    });
   });
 });

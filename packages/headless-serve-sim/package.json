@@ -68,6 +68,7 @@
     "build:swift": "./build.sh",
     "benchmark:stream-quality": "bun run scripts/stream-quality-benchmark.ts",
     "benchmark:stream-performance": "bun run scripts/stream-performance-benchmark.ts",
+    "report:stream-performance": "bun run scripts/stream-performance-report.ts",
     "test:adaptive": "DEVELOPER_DIR=$(xcode-select -p) swiftc Sources/SimStreamHelper/AdaptiveController.swift scripts/adaptive-controller-selftest.swift -o /tmp/adaptive-selftest && /tmp/adaptive-selftest",
     "test:metrics": "swiftc Sources/SimStreamHelper/ProcessMetrics.swift scripts/process-metrics-selftest.swift -o /tmp/process-metrics-selftest && /tmp/process-metrics-selftest",
     "test:snapshot": "swiftc Sources/SimStreamHelper/FrameSnapshotter.swift scripts/frame-snapshot-selftest.swift -o /tmp/frame-snapshot-selftest && /tmp/frame-snapshot-selftest",
