@@ -9,10 +9,22 @@ import IOSurface
 /// update overwrite rows while an encoder is reading them. A snapshot closes
 /// that lifetime boundary once, then both encoders can safely share the result.
 final class FrameSnapshotter {
+    struct Stats {
+        let snapshots: UInt64
+        let nanoseconds: UInt64
+        let failedSnapshots: UInt64
+        let retriedSnapshots: UInt64
+    }
+
     private var pool: CVPixelBufferPool?
     private var width = 0
     private var height = 0
     private let maximumAttempts: Int
+    private let statsLock = NSLock()
+    private var completedSnapshots: UInt64 = 0
+    private var snapshotNanoseconds: UInt64 = 0
+    private var failedSnapshots: UInt64 = 0
+    private var retriedSnapshots: UInt64 = 0
 
     init(maximumAttempts: Int = 3) {
         self.maximumAttempts = max(1, maximumAttempts)
@@ -30,7 +42,8 @@ final class FrameSnapshotter {
               let surface = CVPixelBufferGetIOSurface(source)?.takeUnretainedValue()
         else { return nil }
 
-        for _ in 0..<maximumAttempts {
+        for attempt in 0..<maximumAttempts {
+            let started = DispatchTime.now().uptimeNanoseconds
             var destination: CVPixelBuffer?
             guard let pool,
                   CVPixelBufferPoolCreatePixelBuffer(
@@ -68,10 +81,24 @@ final class FrameSnapshotter {
             var seedAtUnlock: UInt32 = 0
             let unlockStatus = IOSurfaceUnlock(surface, .readOnly, &seedAtUnlock)
             if copied, unlockStatus == 0, seedAtLock == seedAtUnlock {
+                recordSuccess(nanoseconds: DispatchTime.now().uptimeNanoseconds - started)
                 return destination
             }
+            if attempt + 1 < maximumAttempts { recordRetry() }
         }
+        recordFailure()
         return nil
+    }
+
+    func stats() -> Stats {
+        statsLock.lock()
+        defer { statsLock.unlock() }
+        return Stats(
+            snapshots: completedSnapshots,
+            nanoseconds: snapshotNanoseconds,
+            failedSnapshots: failedSnapshots,
+            retriedSnapshots: retriedSnapshots
+        )
     }
 
     private func preparePool(width: Int, height: Int) -> Bool {
@@ -92,5 +119,24 @@ final class FrameSnapshotter {
         self.width = width
         self.height = height
         return true
+    }
+
+    private func recordSuccess(nanoseconds: UInt64) {
+        statsLock.lock()
+        completedSnapshots += 1
+        snapshotNanoseconds &+= nanoseconds
+        statsLock.unlock()
+    }
+
+    private func recordRetry() {
+        statsLock.lock()
+        retriedSnapshots += 1
+        statsLock.unlock()
+    }
+
+    private func recordFailure() {
+        statsLock.lock()
+        failedSnapshots += 1
+        statsLock.unlock()
     }
 }

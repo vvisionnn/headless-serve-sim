@@ -14,6 +14,8 @@ import ObjectiveC
 /// Pipeline: IOSurface callback → owned `FrameSnapshotter` buffer → encoders
 final class FrameCapture {
     private var onFrame: ((CVPixelBuffer, CMTime, Bool) -> Void)?
+    private var onIdle: (() -> Void)?
+    private var requiresIdleFrame: (() -> Bool)?
     private var frameCount: UInt64 = 0
     private(set) var capturedWidth: Int = 0
     private(set) var capturedHeight: Int = 0
@@ -37,12 +39,19 @@ final class FrameCapture {
     private var descriptors: [NSObject] = []
     private var callbackUUIDs: [ObjectIdentifier: NSUUID] = [:]
     private var ioClient: NSObject?
+    private var activeDescriptor: NSObject?
+    private var cachedSurfaceID: IOSurfaceID?
+    private var cachedPixelBuffer: CVPixelBuffer?
 
     func start(
         deviceUDID: String,
+        onIdle: @escaping () -> Void,
+        requiresIdleFrame: @escaping () -> Bool,
         onFrame: @escaping (CVPixelBuffer, CMTime, Bool) -> Void
     ) throws {
         self.onFrame = onFrame
+        self.onIdle = onIdle
+        self.requiresIdleFrame = requiresIdleFrame
 
         _ = dlopen("/Library/Developer/PrivateFrameworks/CoreSimulator.framework/CoreSimulator", RTLD_NOW)
         _ = dlopen("/Applications/Xcode.app/Contents/Developer/Library/PrivateFrameworks/SimulatorKit.framework/SimulatorKit", RTLD_NOW)
@@ -93,6 +102,9 @@ final class FrameCapture {
         }
         callbackUUIDs.removeAll()
         lastSeeds.removeAll()
+        activeDescriptor = nil
+        cachedSurfaceID = nil
+        cachedPixelBuffer = nil
         descriptors = candidates
 
         // Registering screen callbacks is what causes SimulatorKit to wire the
@@ -102,6 +114,7 @@ final class FrameCapture {
         }
 
         if let best = pickBestDescriptor() {
+            activeDescriptor = best
             let surfSel = NSSelectorFromString("framebufferSurface")
             if let surfObj = best.perform(surfSel)?.takeUnretainedValue() {
                 let surf = unsafeBitCast(surfObj, to: IOSurface.self)
@@ -180,10 +193,14 @@ final class FrameCapture {
         callbackUUIDs[ObjectIdentifier(desc)] = uuid
 
         let frameCallback: @convention(block) () -> Void = { [weak self] in
-            self?.captureQueue.async { self?.captureFrame() }
+            self?.captureFrame()
         }
         let surfacesCallback: @convention(block) () -> Void = { [weak self] in
-            self?.captureQueue.async { self?.captureFrame() }
+            guard let self else { return }
+            self.activeDescriptor = self.pickBestDescriptor()
+            self.cachedSurfaceID = nil
+            self.cachedPixelBuffer = nil
+            self.captureFrame()
         }
         let propsCallback: @convention(block) () -> Void = {}
 
@@ -202,7 +219,12 @@ final class FrameCapture {
             guard let self else { return }
             let nowMs = DispatchTime.now().uptimeNanoseconds / 1_000_000
             if (nowMs - self.lastCaptureTimeMs) >= Self.idleIntervalMs {
-                self.captureFrame()
+                self.onIdle?()
+                if self.requiresIdleFrame?() == true {
+                    self.captureFrame()
+                } else {
+                    self.lastCaptureTimeMs = nowMs
+                }
             }
             // Self-heal: if we've never captured a frame, the cached descriptor
             // is likely stale. Re-wire the pipeline periodically (every ~1s)
@@ -225,7 +247,8 @@ final class FrameCapture {
     // MARK: - Frame capture
 
     private func captureFrame() {
-        guard let desc = pickBestDescriptor() else { return }
+        guard let desc = activeDescriptor ?? pickBestDescriptor() else { return }
+        activeDescriptor = desc
 
         let surfSel = NSSelectorFromString("framebufferSurface")
         guard let surfObj = desc.perform(surfSel)?.takeUnretainedValue() else { return }
@@ -255,13 +278,23 @@ final class FrameCapture {
             print("[capture] Surface size changed: \(w)x\(h)")
         }
 
-        var pixelBuffer: Unmanaged<CVPixelBuffer>?
-        let status = CVPixelBufferCreateWithIOSurface(
-            kCFAllocatorDefault, surface,
-            [kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA] as CFDictionary,
-            &pixelBuffer
-        )
-        guard status == kCVReturnSuccess, let pb = pixelBuffer?.takeRetainedValue() else { return }
+        let surfaceID = IOSurfaceGetID(surface)
+        let pb: CVPixelBuffer
+        if cachedSurfaceID == surfaceID, let cachedPixelBuffer {
+            pb = cachedPixelBuffer
+        } else {
+            var pixelBuffer: Unmanaged<CVPixelBuffer>?
+            let status = CVPixelBufferCreateWithIOSurface(
+                kCFAllocatorDefault, surface,
+                [kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA] as CFDictionary,
+                &pixelBuffer
+            )
+            guard status == kCVReturnSuccess,
+                  let created = pixelBuffer?.takeRetainedValue() else { return }
+            cachedSurfaceID = surfaceID
+            cachedPixelBuffer = created
+            pb = created
+        }
 
         lastCaptureTimeMs = nowMs
         frameCount += 1
@@ -288,7 +321,12 @@ final class FrameCapture {
         callbackUUIDs.removeAll()
         descriptors.removeAll()
         lastSeeds.removeAll()
+        activeDescriptor = nil
+        cachedSurfaceID = nil
+        cachedPixelBuffer = nil
         ioClient = nil
+        onIdle = nil
+        requiresIdleFrame = nil
     }
 
     // MARK: - Helpers

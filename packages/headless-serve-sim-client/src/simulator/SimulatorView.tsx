@@ -132,6 +132,8 @@ export interface SimulatorRecordingSnapshot {
 
 export interface SimulatorRecordingSource {
   snapshot(nowMs?: number): SimulatorRecordingSnapshot | null;
+  /** Subscribe to frames after they have been presented by the AVCC canvas. */
+  subscribe?(listener: () => void): () => void;
 }
 
 /**
@@ -223,6 +225,10 @@ export function SimulatorView({
   hideControlsRef.current = hideControls;
   const [showSlowOverlay, setShowSlowOverlay] = useState(false);
   const slowOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordingFrameListenersRef = useRef(new Set<() => void>());
+  const notifyRecordingFrame = useCallback(() => {
+    for (const listener of recordingFrameListenersRef.current) listener();
+  }, []);
 
   // Show "Slow connection" overlay briefly when quality drops to poor
   useEffect(() => {
@@ -346,31 +352,35 @@ export function SimulatorView({
     setConnected(true);
     setError(null);
   }, []);
-  const onAvccFrame = useCallback((info: AvccFrameInfo) => {
-    frameCountRef.current++;
-    lastFrameAtRef.current = Date.now();
-    const acc = statsAccRef.current;
-    if (acc) {
-      acc.recordFrame({ tMs: performance.now(), bytes: info.bytes, decodeMs: info.decodeMs });
-      codecRef.current = info.codec;
-      droppedRef.current = info.dropped;
-      recoveriesRef.current = info.recoveries;
-      if (info.keyframe) {
-        const now = performance.now();
-        const last = lastKeyframeAtRef.current;
-        if (last != null) keyframeIntervalRef.current = now - last;
-        lastKeyframeAtRef.current = now;
+  const onAvccFrame = useCallback(
+    (info: AvccFrameInfo) => {
+      frameCountRef.current++;
+      lastFrameAtRef.current = Date.now();
+      const acc = statsAccRef.current;
+      if (acc) {
+        acc.recordFrame({ tMs: performance.now(), bytes: info.bytes, decodeMs: info.decodeMs });
+        codecRef.current = info.codec;
+        droppedRef.current = info.dropped;
+        recoveriesRef.current = info.recoveries;
+        if (info.keyframe) {
+          const now = performance.now();
+          const last = lastKeyframeAtRef.current;
+          if (last != null) keyframeIntervalRef.current = now - last;
+          lastKeyframeAtRef.current = now;
+        }
       }
-    }
-    // Re-establish "connected" if the relay staleness watchdog tripped during
-    // the decoder's startup buffering gap (keyframe + several deltas can land
-    // before the first frame is emitted). Mirrors the MJPEG relay path; guarded
-    // so it only fires on the false→true transition, not every frame.
-    if (!connectedRef.current) {
-      setConnected(true);
-      setError(null);
-    }
-  }, []);
+      // Re-establish "connected" if the relay staleness watchdog tripped during
+      // the decoder's startup buffering gap (keyframe + several deltas can land
+      // before the first frame is emitted). Mirrors the MJPEG relay path; guarded
+      // so it only fires on the false→true transition, not every frame.
+      if (!connectedRef.current) {
+        setConnected(true);
+        setError(null);
+      }
+      notifyRecordingFrame();
+    },
+    [notifyRecordingFrame],
+  );
   // Liveness ping: stream bytes arrived (even if this chunk painted nothing —
   // e.g. a delta the server dropped while the client awaits the next IDR). The
   // AVCC staleness watchdog keys off this, not painted frames, so a brief
@@ -717,6 +727,7 @@ export function SimulatorView({
 
   useEffect(() => {
     if (!recordingSourceRef) return;
+    const recordingFrameListeners = recordingFrameListenersRef.current;
     const source: SimulatorRecordingSource = {
       snapshot(nowMs) {
         const element = getViewElement();
@@ -737,12 +748,20 @@ export function SimulatorView({
           touches: recordingTouchTracker.snapshot(nowMs),
         };
       },
+      ...(useAvcc
+        ? {
+            subscribe(listener: () => void) {
+              recordingFrameListeners.add(listener);
+              return () => recordingFrameListeners.delete(listener);
+            },
+          }
+        : {}),
     };
     recordingSourceRef.current = source;
     return () => {
       if (recordingSourceRef.current === source) recordingSourceRef.current = null;
     };
-  }, [getViewElement, recordingSourceRef, recordingTouchTracker]);
+  }, [getViewElement, recordingSourceRef, recordingTouchTracker, useAvcc]);
 
   // Read the surface rect fresh per pointer event. A panel expand/collapse
   // moves the frame horizontally without firing a resize/scroll, so any cached

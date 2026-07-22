@@ -47,7 +47,7 @@ enum AVCCEnvelope {
         wrap(tag: disposableDeltaTag, payload: avcc)
     }
 
-    private static func wrap(tag: UInt8, payload: Data) -> Data {
+    static func wrap(tag: UInt8, payload: Data) -> Data {
         let length = UInt32(payload.count + 1)
         var out = Data(capacity: 5 + payload.count)
         out.append(UInt8((length >> 24) & 0xFF))
@@ -56,6 +56,24 @@ enum AVCCEnvelope {
         out.append(UInt8(length & 0xFF))
         out.append(tag)
         out.append(payload)
+        return out
+    }
+
+    /// Build the final wire envelope directly from VideoToolbox's contiguous
+    /// block buffer, avoiding an intermediate payload `Data` allocation and a
+    /// second full-frame copy during `append`.
+    static func wrap(tag: UInt8, payloadPointer: UnsafeRawPointer, payloadCount: Int) -> Data {
+        let length = UInt32(payloadCount + 1)
+        var out = Data(count: 5 + payloadCount)
+        out.withUnsafeMutableBytes { raw in
+            guard let bytes = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+            bytes[0] = UInt8((length >> 24) & 0xFF)
+            bytes[1] = UInt8((length >> 16) & 0xFF)
+            bytes[2] = UInt8((length >> 8) & 0xFF)
+            bytes[3] = UInt8(length & 0xFF)
+            bytes[4] = tag
+            memcpy(bytes + 5, payloadPointer, payloadCount)
+        }
         return out
     }
 }

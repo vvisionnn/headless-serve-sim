@@ -257,7 +257,7 @@ export class GatewayTransport {
         if (msgType === 0x01) {
           // Frame: [0x01][JPEG bytes]
           this._trackFrameTiming();
-          const jpegData = buf.slice(1);
+          const jpegData = new Uint8Array(buf, 1);
           const blob = new Blob([jpegData], { type: "image/jpeg" });
           const blobUrl = URL.createObjectURL(blob);
           this._checkAdaptiveFps();

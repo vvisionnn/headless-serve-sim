@@ -5,6 +5,8 @@ import {
   decodeBackpressureAction,
   isAvccSupported,
 } from "../avcc-codec.js";
+import { streamLivenessAction } from "../stream-liveness.js";
+import { LatestFramePresenter } from "../latest-frame-presenter.js";
 
 /** Per-frame telemetry handed to `onFrame` for the Connection Stats panel. */
 export interface AvccFrameInfo {
@@ -101,6 +103,8 @@ export function useAvccStream({
     let connController: AbortController | null = null;
     let reconnecting = false;
     const demuxer = new AvccDemuxer();
+    let connectionStartedAtMs = performance.now();
+    let lastStreamByteAtMs: number | null = null;
 
     const VideoDecoderCtor = (globalThis as any).VideoDecoder as typeof VideoDecoder;
     const EncodedVideoChunkCtor = (globalThis as any).EncodedVideoChunk as typeof EncodedVideoChunk;
@@ -146,25 +150,46 @@ export function useAvccStream({
       }
     };
 
+    type PendingPresentation = {
+      width: number;
+      height: number;
+      info: Omit<AvccFrameInfo, "dropped">;
+    };
+    const presenter = new LatestFramePresenter<VideoFrame, PendingPresentation>(
+      (callback) => requestAnimationFrame(callback),
+      (handle) => cancelAnimationFrame(handle),
+      (frame, pending) => {
+        paint(frame, pending.width, pending.height, { ...pending.info, dropped });
+      },
+      () => dropped++,
+      () => performance.now(),
+      12,
+    );
+
     let decoder: VideoDecoder | null = null;
     const makeDecoder = (generation: number) =>
       new VideoDecoderCtor({
         output: (frame) => {
-          try {
-            if (stopped || generation !== decoderGeneration) return;
-            const pend = pendingDecodes.shift();
-            if (!pend || pend.generation !== generation) return;
-            paint(frame, frame.displayWidth, frame.displayHeight, {
+          if (stopped || generation !== decoderGeneration) {
+            frame.close();
+            return;
+          }
+          const pend = pendingDecodes.shift();
+          if (!pend || pend.generation !== generation) {
+            frame.close();
+            return;
+          }
+          presenter.enqueue(frame, {
+            width: frame.displayWidth,
+            height: frame.displayHeight,
+            info: {
               bytes: pend.bytes,
               decodeMs: performance.now() - pend.t0,
               codec: currentCodec,
-              dropped,
               keyframe: pend.keyframe,
               recoveries,
-            });
-          } finally {
-            frame.close();
-          }
+            },
+          });
         },
         error: (err) => {
           if (stopped || generation !== decoderGeneration) return;
@@ -183,6 +208,7 @@ export function useAvccStream({
       }
       decoder = null;
       pendingDecodes.length = 0;
+      presenter.clear();
       decoderGeneration++;
     };
 
@@ -334,9 +360,27 @@ export function useAvccStream({
       }, 1000);
     };
 
+    // A TCP connection can remain open forever after its peer or route stops
+    // making progress. Bound both network silence and a decoder that accepts
+    // chunks but never emits output; neither condition may leave a frozen
+    // simulator canvas indefinitely.
+    const watchdogTimer = setInterval(() => {
+      if (stopped || reconnecting || !connController) return;
+      const action = streamLivenessAction({
+        nowMs: performance.now(),
+        connectionStartedAtMs,
+        lastByteAtMs: lastStreamByteAtMs,
+        oldestDecodeStartedAtMs: pendingDecodes[0]?.t0 ?? null,
+      });
+      if (action === "reconnect") reconnect();
+      else if (action === "reset-decoder") resetDecoderForKeyframe();
+    }, 250);
+
     const read = async () => {
       const ctrl = new AbortController();
       connController = ctrl;
+      connectionStartedAtMs = performance.now();
+      lastStreamByteAtMs = null;
       try {
         const res = await fetch(`${url}/stream.avcc`, { signal: ctrl.signal });
         const reader = res.body?.getReader();
@@ -348,12 +392,11 @@ export function useAvccStream({
           const { done, value } = await reader.read();
           if (done) break;
           if (!value) continue;
+          lastStreamByteAtMs = performance.now();
           // Bytes arrived → the stream is alive even if this chunk paints
           // nothing (e.g. a delta skipped while awaiting the next keyframe).
           onProgress?.();
-          for (const chunk of demuxer.push(value)) {
-            handleChunk(chunk.type, chunk.payload);
-          }
+          demuxer.visit(value, handleChunk);
         }
       } catch {
         /* aborted or network error */
@@ -367,9 +410,11 @@ export function useAvccStream({
     return () => {
       stopped = true;
       if (retryTimer) clearTimeout(retryTimer);
+      clearInterval(watchdogTimer);
       connController?.abort();
       demuxer.reset();
       closeDecoder();
+      presenter.close();
     };
   }, [url, enabled, canvasRef, onFirstFrame, onFrame, onError, onRequestKeyframe, onProgress]);
 }

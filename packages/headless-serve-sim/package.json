@@ -74,6 +74,7 @@
     "test:frame-admission": "swiftc Sources/SimStreamHelper/FrameAdmissionController.swift scripts/frame-admission-selftest.swift -o /tmp/frame-admission-selftest && /tmp/frame-admission-selftest",
     "test:stream-format": "swiftc Sources/SimStreamHelper/StreamFormat.swift scripts/stream-format-selftest.swift -o /tmp/stream-format-selftest && /tmp/stream-format-selftest",
     "test:keyframe-request": "swiftc Sources/SimStreamHelper/KeyframeRequest.swift scripts/keyframe-request-selftest.swift -o /tmp/keyframe-request-selftest && /tmp/keyframe-request-selftest",
+    "test:avcc-send-queue": "swiftc Sources/SimStreamHelper/AVCCSendQueue.swift scripts/avcc-send-queue-selftest.swift -o /tmp/avcc-send-queue-selftest && /tmp/avcc-send-queue-selftest",
     "dev": "bun run dev.ts"
   },
   "devDependencies": {

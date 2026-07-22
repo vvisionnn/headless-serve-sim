@@ -53,6 +53,7 @@ export type RecordingSource = SimulatorRecordingSource;
 
 export interface RecorderMediaStreamTrack {
   stop(): void;
+  requestFrame?(): void;
 }
 
 export interface RecorderMediaStream {
@@ -89,6 +90,8 @@ export interface ScreenRecorderPlatform {
   isTypeSupported(mimeType: string): boolean;
   requestAnimationFrame(callback: FrameRequestCallback): number;
   cancelAnimationFrame(id: number): void;
+  setTimeout(callback: () => void, delayMs: number): number;
+  clearTimeout(id: number): void;
   /** Monotonic milliseconds, shared with touch tracking and duration math. */
   now(): number;
   /** Epoch milliseconds, used only for the downloaded filename. */
@@ -718,6 +721,8 @@ function defaultScreenRecorderPlatform(): ScreenRecorderPlatform {
       typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(mimeType),
     requestAnimationFrame: (callback) => globalThis.requestAnimationFrame(callback),
     cancelAnimationFrame: (id) => globalThis.cancelAnimationFrame(id),
+    setTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
+    clearTimeout: (id) => window.clearTimeout(id),
     now: () => performance.now(),
     wallClock: () => Date.now(),
     createObjectURL: (blob) => URL.createObjectURL(blob),
@@ -735,6 +740,9 @@ export class CanvasScreenRecorder {
   private mediaRecorder: RecorderMediaRecorder | null = null;
   private chunks: Blob[] = [];
   private rafId: number | null = null;
+  private keepAliveTimerId: number | null = null;
+  private unsubscribeSource: (() => void) | null = null;
+  private manualFrameTrack: RecorderMediaStreamTrack | null = null;
   private nextPaintAt = 0;
   private startedAt = 0;
   private startedWallClock = 0;
@@ -783,7 +791,19 @@ export class CanvasScreenRecorder {
     this.context.imageSmoothingQuality = "high";
     if (!this.paint(snapshot)) throw new Error("recording source is not ready");
 
-    this.stream = this.canvas.captureStream(this.options.fps ?? 30);
+    if (this.options.source.subscribe) {
+      const manualStream = this.canvas.captureStream(0);
+      const manualTrack = manualStream.getTracks()[0];
+      if (manualTrack?.requestFrame) {
+        this.stream = manualStream;
+        this.manualFrameTrack = manualTrack;
+      } else {
+        for (const track of manualStream.getTracks()) track.stop();
+        this.stream = this.canvas.captureStream(this.options.fps ?? 30);
+      }
+    } else {
+      this.stream = this.canvas.captureStream(this.options.fps ?? 30);
+    }
     let lastFailure: Error | null = null;
     for (const mimeType of mimeTypes) {
       let candidate: RecorderMediaRecorder | null = null;
@@ -826,7 +846,13 @@ export class CanvasScreenRecorder {
       this.fail(failure);
       throw failure;
     }
-    this.schedulePaint();
+    if (this.manualFrameTrack && this.options.source.subscribe) {
+      this.manualFrameTrack.requestFrame?.();
+      this.unsubscribeSource = this.options.source.subscribe(() => this.paintIfDue());
+      this.scheduleKeepAlive();
+    } else {
+      this.schedulePaint();
+    }
   }
 
   stop(): Promise<RecordingArtifact> {
@@ -908,6 +934,29 @@ export class CanvasScreenRecorder {
     });
   }
 
+  private paintIfDue(): void {
+    if (this._state !== "recording" && this._state !== "stopping") return;
+    const now = this.platform.now();
+    if (now < this.nextPaintAt) return;
+    this.nextPaintAt = now + 1_000 / (this.options.fps ?? 30);
+    try {
+      const snapshot = this.options.source.snapshot(now);
+      if (snapshot && this.paint(snapshot)) this.manualFrameTrack?.requestFrame?.();
+    } catch (error) {
+      this.fail(error);
+    }
+  }
+
+  private scheduleKeepAlive(): void {
+    this.keepAliveTimerId = this.platform.setTimeout(() => {
+      this.keepAliveTimerId = null;
+      this.paintIfDue();
+      if (this._state === "recording" || this._state === "stopping") {
+        this.scheduleKeepAlive();
+      }
+    }, 1_000);
+  }
+
   private finish(): void {
     if (this._state !== "stopping" || !this.layout || !this.mediaRecorder) return;
     let artifact: RecordingArtifact;
@@ -963,6 +1012,12 @@ export class CanvasScreenRecorder {
       this.platform.cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+    if (this.keepAliveTimerId !== null) {
+      this.platform.clearTimeout(this.keepAliveTimerId);
+      this.keepAliveTimerId = null;
+    }
+    this.unsubscribeSource?.();
+    this.unsubscribeSource = null;
     for (const track of this.stream?.getTracks() ?? []) track.stop();
     if (this.mediaRecorder) {
       this.mediaRecorder.ondataavailable = null;
@@ -970,6 +1025,7 @@ export class CanvasScreenRecorder {
       this.mediaRecorder.onerror = null;
     }
     this.stream = null;
+    this.manualFrameTrack = null;
     this.mediaRecorder = null;
     this.context = null;
     this.canvas = null;

@@ -162,6 +162,18 @@ describe("AvccDemuxer", () => {
     expect(Array.from(second[0]!.payload)).toEqual([5, 6]);
   });
 
+  test("visit exposes a zero-copy payload view to synchronous consumers", () => {
+    const input = frame(AVCC_TAG_DELTA, [1, 2, 3]);
+    let payload: Uint8Array | null = null;
+    const demuxer = new AvccDemuxer();
+    demuxer.visit(input, (_type, value) => {
+      payload = value;
+    });
+    expect(payload).not.toBeNull();
+    expect(payload!.buffer).toBe(input.buffer);
+    expect([...payload!]).toEqual([1, 2, 3]);
+  });
+
   test("fast path: multiple complete chunks in one drained push, no remainder held", () => {
     const d = new AvccDemuxer();
     const chunks = d.push(

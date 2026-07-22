@@ -15,8 +15,8 @@ final class H264Encoder {
         /// avcC parameter-set blob — emitted once on the first IDR per session.
         let description: Data?
         let kind: Kind
-        /// Length-prefixed AVCC NAL bytes (not Annex-B start codes).
-        let avcc: Data
+        /// Complete serve-sim envelope ready for the socket queue.
+        let envelope: Data
         /// Temporal enhancement frame that future frames do not reference.
         let disposable: Bool
         enum Kind { case keyframe, delta }
@@ -215,7 +215,15 @@ final class H264Encoder {
             dataBuf, atOffset: 0, lengthAtOffsetOut: nil,
             totalLengthOut: &totalLength, dataPointerOut: &dataPointer
         ) == noErr, let dataPointer else { return nil }
-        let avcc = Data(bytes: dataPointer, count: totalLength)
+        let disposable = !isKeyframe && isDroppable(sample)
+        let tag: UInt8 = isKeyframe
+            ? AVCCEnvelope.keyframeTag
+            : (disposable ? AVCCEnvelope.disposableDeltaTag : AVCCEnvelope.deltaTag)
+        let envelope = AVCCEnvelope.wrap(
+            tag: tag,
+            payloadPointer: UnsafeRawPointer(dataPointer),
+            payloadCount: totalLength
+        )
 
         var description: Data?
         if isKeyframe, let format = CMSampleBufferGetFormatDescription(sample) {
@@ -232,8 +240,8 @@ final class H264Encoder {
         return Encoded(
             description: description,
             kind: isKeyframe ? .keyframe : .delta,
-            avcc: avcc,
-            disposable: !isKeyframe && isDroppable(sample)
+            envelope: envelope,
+            disposable: disposable
         )
     }
 

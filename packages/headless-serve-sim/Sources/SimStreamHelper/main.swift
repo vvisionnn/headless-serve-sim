@@ -51,6 +51,7 @@ let frameCapture = FrameCapture()
 let frameSnapshotter = FrameSnapshotter()
 let frameAdmission = FrameAdmissionController()
 let keyframeRequest = KeyframeRequest()
+let jpegSeedRequest = KeyframeRequest()
 let videoEncoder = VideoEncoder(quality: 0.7)
 let h264Encoder = H264Encoder(fps: 60, maxQP: streamMode == .quality ? 40 : 48)
 let hidInjector = HIDInjector()
@@ -69,7 +70,7 @@ var screenWidth = 0
 var screenHeight = 0
 var encoderReady = false
 var lastJpegEncodeMs: UInt64 = 0
-let jpegSeedIntervalMs: UInt64 = 1_000
+var lastAvccHeartbeatMs: UInt64 = 0
 // H.264 output → AVCC envelope → broadcast to /stream.avcc clients.
 h264Encoder.onEncoded = { encoded in
     adaptiveDriver.noteEncoded()
@@ -77,23 +78,19 @@ h264Encoder.onEncoded = { encoded in
         httpServer.clientManager.broadcastAvcc(AVCCEnvelope.description(avcc: description), kind: .description)
     }
     switch encoded.kind {
-    case .keyframe: httpServer.clientManager.broadcastAvcc(AVCCEnvelope.keyframe(avcc: encoded.avcc), kind: .keyframe)
+    case .keyframe:
+        httpServer.clientManager.broadcastAvcc(encoded.envelope, kind: .keyframe)
     case .delta:
         if encoded.disposable {
-            httpServer.clientManager.broadcastAvcc(
-                AVCCEnvelope.disposableDelta(avcc: encoded.avcc),
-                kind: .disposableDelta
-            )
+            httpServer.clientManager.broadcastAvcc(encoded.envelope, kind: .disposableDelta)
         } else {
-            httpServer.clientManager.broadcastAvcc(
-                AVCCEnvelope.delta(avcc: encoded.avcc),
-                kind: .delta
-            )
+            httpServer.clientManager.broadcastAvcc(encoded.envelope, kind: .delta)
         }
     }
 }
 httpServer.clientManager.onAvccClientConnect = {
     keyframeRequest.request()
+    jpegSeedRequest.request()
 }
 // A viewer's send queue overflowed (or it explicitly asked over /ws) — force a
 // fresh IDR so it can resync after we dropped deltas.
@@ -107,6 +104,7 @@ httpServer.clientManager.onSetMode = { modeStr in
 }
 httpServer.onStreamMetrics = {
     let stats = frameAdmission.stats()
+    let snapshotStats = frameSnapshotter.stats()
     let skipped = stats.framesOffered &- stats.snapshotsRequired
     let avoidance = stats.framesOffered == 0
         ? 0
@@ -123,11 +121,18 @@ httpServer.onStreamMetrics = {
         "h264Admitted": stats.h264Admitted,
         "h264BusyDrops": stats.h264BusyDrops,
         "idleAvccHeartbeats": stats.idleAvccHeartbeats,
+        "snapshotsCompleted": snapshotStats.snapshots,
+        "snapshotNanoseconds": snapshotStats.nanoseconds,
+        "failedSnapshots": snapshotStats.failedSnapshots,
+        "retriedSnapshots": snapshotStats.retriedSnapshots,
     ]
     if let process = readProcessMetricsCounters(pid: getpid()) {
         result["helperCpuTicks"] = process.userTimeTicks + process.systemTimeTicks
         result["helperSampleTicks"] = mach_absolute_time()
         result["helperResidentBytes"] = process.residentBytes
+    }
+    for (key, value) in httpServer.clientManager.avccTransportMetrics() {
+        result[key] = value
     }
     return result
 }
@@ -214,19 +219,13 @@ let frameHandler: (CVPixelBuffer, CMTime, Bool) -> Void = { pixelBuffer, timesta
     let hasMJPEGClients = httpServer.clientManager.hasMJPEGClients()
     let hasAvccClients = httpServer.clientManager.hasAvccClients()
     let keyframePending = keyframeRequest.isPending()
-    if hasAvccClients && !contentChanged && !keyframePending {
-        // Preserve byte-level liveness without copying and encoding an
-        // unchanged multi-megabyte framebuffer. The browser's progress signal
-        // fires before demux, and old clients safely skip this unknown tag.
-        frameAdmission.noteIdleAvccHeartbeat()
-        httpServer.clientManager.broadcastAvcc(AVCCEnvelope.heartbeat(), kind: .heartbeat)
-    }
+    let jpegSeedPending = jpegSeedRequest.isPending()
     let wantsJpeg = hasMJPEGClients
-        || hasAvccClients
+        || jpegSeedPending
         || lastJpegEncodeMs == 0
     let jpegDue = hasMJPEGClients
+        || jpegSeedPending
         || lastJpegEncodeMs == 0
-        || (nowMs &- lastJpegEncodeMs) >= jpegSeedIntervalMs
     let wantsJpegNow = encoderReady && wantsJpeg && jpegDue
 
     // Reserve asynchronous encoder capacity before copying 12+ MB of BGRA.
@@ -254,6 +253,7 @@ let frameHandler: (CVPixelBuffer, CMTime, Bool) -> Void = { pixelBuffer, timesta
         // encoding every frame as both JPEG and H.264 competes with the low-latency
         // path for CPU and pixel-buffer locks.
         lastJpegEncodeMs = nowMs
+        _ = jpegSeedRequest.consume()
         encodeQueue.async {
             videoEncoder.encode(pixelBuffer: snapshot)
             frameAdmission.completeJpeg()
@@ -274,7 +274,23 @@ let frameHandler: (CVPixelBuffer, CMTime, Bool) -> Void = { pixelBuffer, timesta
 }
 
 do {
-    try frameCapture.start(deviceUDID: deviceUDID, onFrame: frameHandler)
+    try frameCapture.start(
+        deviceUDID: deviceUDID,
+        onIdle: {
+            let nowMs = DispatchTime.now().uptimeNanoseconds / 1_000_000
+            if httpServer.clientManager.hasAvccClients(),
+               !keyframeRequest.isPending(),
+               nowMs &- lastAvccHeartbeatMs >= 1_000 {
+                lastAvccHeartbeatMs = nowMs
+                frameAdmission.noteIdleAvccHeartbeat()
+                httpServer.clientManager.broadcastAvcc(AVCCEnvelope.heartbeat(), kind: .heartbeat)
+            }
+        },
+        requiresIdleFrame: {
+            httpServer.clientManager.hasMJPEGClients() || keyframeRequest.isPending()
+        },
+        onFrame: frameHandler
+    )
     print("[main] Capture started, waiting for frames...")
     print("\nOpen your browser at: http://localhost:\(port)")
     print("Press Ctrl+C to stop.\n")

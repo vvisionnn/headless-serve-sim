@@ -223,8 +223,12 @@ class FakeRecorderPlatform implements ScreenRecorderPlatform {
   readonly recorder = new FakeMediaRecorder();
   readonly track = {
     stops: 0,
+    requestedFrames: 0,
     stop: () => {
       this.track.stops++;
+    },
+    requestFrame: () => {
+      this.track.requestedFrames++;
     },
   };
   readonly stream: RecorderMediaStream = { getTracks: () => [this.track] };
@@ -243,6 +247,8 @@ class FakeRecorderPlatform implements ScreenRecorderPlatform {
   nextRaf = 1;
   rafCallbacks = new Map<number, FrameRequestCallback>();
   cancelledRafs: number[] = [];
+  nextTimer = 1;
+  timerCallbacks = new Map<number, () => void>();
   revokedUrls: string[] = [];
 
   createCanvas(width: number, height: number) {
@@ -269,6 +275,16 @@ class FakeRecorderPlatform implements ScreenRecorderPlatform {
   cancelAnimationFrame(id: number) {
     this.cancelledRafs.push(id);
     this.rafCallbacks.delete(id);
+  }
+
+  setTimeout(callback: () => void) {
+    const id = this.nextTimer++;
+    this.timerCallbacks.set(id, callback);
+    return id;
+  }
+
+  clearTimeout(id: number) {
+    this.timerCallbacks.delete(id);
   }
 
   now() {
@@ -989,6 +1005,50 @@ describe("screen recording composition", () => {
 });
 
 describe("CanvasScreenRecorder lifecycle", () => {
+  test("records AVCC presentation events without a continuous animation-frame loop", () => {
+    const platform = new FakeRecorderPlatform();
+    const listeners = new Set<() => void>();
+    let snapshots = 0;
+    const recorder = new CanvasScreenRecorder(
+      {
+        source: {
+          snapshot: () => {
+            snapshots++;
+            return {
+              source: {} as CanvasImageSource,
+              width: 100,
+              height: 200,
+              surfaceWidth: 100,
+              surfaceHeight: 200,
+              touches: [],
+            };
+          },
+          subscribe: (listener) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+        },
+        fps: 30,
+      },
+      platform,
+    );
+
+    recorder.start();
+    expect(platform.captureFrameRates).toEqual([0]);
+    expect(platform.rafCallbacks.size).toBe(0);
+    for (let frame = 1; frame <= 120; frame++) {
+      platform.nowMs = 1_000 + frame * (1_000 / 120);
+      for (const listener of listeners) listener();
+    }
+
+    expect(snapshots).toBeGreaterThanOrEqual(30);
+    expect(snapshots).toBeLessThanOrEqual(32);
+    expect(platform.track.requestedFrames).toBe(snapshots);
+    recorder.cancel();
+    expect(listeners.size).toBe(0);
+    expect(platform.timerCallbacks.size).toBe(0);
+  });
+
   test("limits compositor snapshots to the requested recording frame rate", () => {
     const platform = new FakeRecorderPlatform();
     let snapshots = 0;

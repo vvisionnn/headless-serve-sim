@@ -22,6 +22,9 @@ final class ClientManager {
     /// natural IDR.
     private var avccClients: [ObjectIdentifier: AVCCClient] = [:]
     private var cachedAvccDescription: Data?
+    private var retiredAvccCompletedWrites: UInt64 = 0
+    private var retiredAvccWriteNanoseconds: UInt64 = 0
+    private var retiredAvccDroppedChunks: UInt64 = 0
     /// Fired when an AVCC client connects so the owner can force a keyframe —
     /// the new decoder needs an IDR before any delta will decode.
     var onAvccClientConnect: (() -> Void)?
@@ -186,10 +189,38 @@ final class ClientManager {
     func removeAvccClient(_ client: AVCCClient) {
         let key = ObjectIdentifier(client)
         configLock.lock(); avccClientCount = max(0, avccClientCount - 1); configLock.unlock()
-        queue.async {
+        queue.sync {
+            let stats = client.transportStats()
+            self.retiredAvccCompletedWrites &+= stats.completedWrites
+            self.retiredAvccWriteNanoseconds &+= stats.totalWriteNanoseconds
+            self.retiredAvccDroppedChunks &+= stats.droppedChunks
             self.avccClients.removeValue(forKey: key)
             print("[clients] AVCC client disconnected (\(self.avccClients.count) total)")
         }
+    }
+
+    /// Cumulative transport counters survive client disconnects so an external
+    /// benchmark can sample before/after one complete stream connection.
+    func avccTransportMetrics() -> [String: UInt64] {
+        var completedWrites: UInt64 = 0
+        var writeNanoseconds: UInt64 = 0
+        var droppedChunks: UInt64 = 0
+        queue.sync {
+            completedWrites = self.retiredAvccCompletedWrites
+            writeNanoseconds = self.retiredAvccWriteNanoseconds
+            droppedChunks = self.retiredAvccDroppedChunks
+            for (_, client) in self.avccClients {
+                let stats = client.transportStats()
+                completedWrites &+= stats.completedWrites
+                writeNanoseconds &+= stats.totalWriteNanoseconds
+                droppedChunks &+= stats.droppedChunks
+            }
+        }
+        return [
+            "avccCompletedWrites": completedWrites,
+            "avccWriteNanoseconds": writeNanoseconds,
+            "avccDroppedChunks": droppedChunks,
+        ]
     }
 
     /// Broadcast one enveloped AVCC chunk. Caches the description so it can be
@@ -330,17 +361,6 @@ final class ClientManager {
     }
 }
 
-/// Kind of an AVCC chunk — lets the client's coalescing queue decide what is
-/// safe to drop when the link falls behind.
-enum AVCCChunkKind {
-    case description  // SPS/PPS; must keep — precedes a keyframe
-    case keyframe     // IDR; a resync point that makes pending deltas obsolete
-    case delta        // P-frame; droppable (dropping any forces a resync)
-    case seed         // one-shot JPEG; droppable
-    case heartbeat    // payload-free idle liveness; droppable without resync
-    case disposableDelta // temporal enhancement frame; safe to drop without IDR
-}
-
 /// A single AVCC streaming client with a bounded, coalescing outbound queue.
 ///
 /// The previous design wrote each chunk inline on the shared client-manager
@@ -355,24 +375,8 @@ enum AVCCChunkKind {
 final class AVCCClient {
     let id: Int
     private let cond = NSCondition()
-    private var pending: [Data] = []
-    /// Latest decoder config (avcC SPS/PPS) awaiting delivery, held OUTSIDE the
-    /// droppable `pending` queue. A keyframe resync clears `pending`, but the
-    /// config is a sticky preamble — a keyframe is undecodable without it — so it
-    /// must survive that drop and always flush before the IDR it configures. On
-    /// the first connection after launch the encoder emits the description and
-    /// the forced IDR back-to-back, so without this slot the keyframe's
-    /// `removeAll()` races the config out before the drain thread sends it, and
-    /// the viewer's WebCodecs decoder never configures — stranding the preview on
-    /// "Connecting…" until the stream is reopened.
-    private var pendingDescription: Data?
-    private var queuedBytes = 0
+    private let sendQueue = AVCCSendQueue()
     private var closed = false
-    private var needKeyframe = false
-    private var droppedSinceSample = 0
-    /// High-water mark of `queuedBytes` since the last sample — the congestion
-    /// signal the adaptive controller reads.
-    private var highWater = 0
     private let highWaterBytes: Int
     /// Fired (off the producer path) when the queue overflows and a fresh IDR
     /// is needed to resync after dropping deltas.
@@ -387,64 +391,13 @@ final class AVCCClient {
     func enqueue(_ chunk: Data, kind: AVCCChunkKind) {
         cond.lock()
         guard !closed else { cond.unlock(); return }
-        switch kind {
-        case .keyframe:
-            // Resync point: anything still queued is now obsolete.
-            pending.removeAll()
-            queuedBytes = 0
-            needKeyframe = false
-            append(chunk)
-            cond.unlock()
-        case .description:
-            // Sticky preamble: park it in the dedicated slot (latest config
-            // wins) so a following keyframe's resync drop can't discard it.
-            pendingDescription = chunk
+        let admission = sendQueue.enqueue(chunk, kind: kind, limit: highWaterBytes)
+        if admission == .enqueued {
             cond.signal()
-            cond.unlock()
-        case .delta, .seed:
-            if queuedBytes >= highWaterBytes {
-                // Behind: drop this frame rather than grow an unplayable
-                // backlog, and ask for a keyframe to resync cleanly.
-                droppedSinceSample += 1
-                let fire = !needKeyframe
-                needKeyframe = true
-                let cb = onNeedKeyframe
-                cond.unlock()
-                if fire, let cb { DispatchQueue.global(qos: .userInteractive).async { cb() } }
-            } else {
-                append(chunk)
-                cond.unlock()
-            }
-        case .heartbeat:
-            // A heartbeat carries no decoder state. Drop it silently when a
-            // socket is already congested; unlike a P-frame this never needs a
-            // keyframe recovery.
-            if queuedBytes >= highWaterBytes {
-                cond.unlock()
-            } else {
-                append(chunk)
-                cond.unlock()
-            }
-        case .disposableDelta:
-            // Preserve room for the 30fps reference layer. Discarding this
-            // enhancement frame never invalidates later frames, so no IDR is
-            // requested and the viewer keeps moving smoothly at base-layer FPS.
-            if queuedBytes >= highWaterBytes / 2 {
-                droppedSinceSample += 1
-                cond.unlock()
-            } else {
-                append(chunk)
-                cond.unlock()
-            }
         }
-    }
-
-    /// Caller must hold `cond`.
-    private func append(_ chunk: Data) {
-        pending.append(chunk)
-        queuedBytes += chunk.count
-        if queuedBytes > highWater { highWater = queuedBytes }
-        cond.signal()
+        let cb = admission == .droppedNeedsKeyframe ? onNeedKeyframe : nil
+        cond.unlock()
+        if let cb { DispatchQueue.global(qos: .userInteractive).async { cb() } }
     }
 
     /// Consumer side: block-drains the queue via `write` until closed or a write
@@ -453,20 +406,21 @@ final class AVCCClient {
     func drain(write: (Data) -> Bool) {
         while true {
             cond.lock()
-            while pending.isEmpty && pendingDescription == nil && !closed { cond.wait() }
+            while sendQueue.isEmpty && !closed { cond.wait() }
             if closed { cond.unlock(); return }
-            // Flush the decoder config ahead of the batch so it always precedes
-            // the keyframe it configures.
-            let desc = pendingDescription
-            pendingDescription = nil
-            let batch = pending
-            pending = []
-            queuedBytes = 0
-            cond.unlock()
-            if let desc, !write(desc) { close(); return }
-            for data in batch {
-                if !write(data) { close(); return }
+            guard let data = sendQueue.beginNextWrite() else {
+                cond.unlock()
+                continue
             }
+            cond.unlock()
+
+            let started = DispatchTime.now().uptimeNanoseconds
+            let succeeded = write(data)
+            let duration = DispatchTime.now().uptimeNanoseconds &- started
+            cond.lock()
+            sendQueue.completeWrite(durationNanoseconds: duration)
+            cond.unlock()
+            if !succeeded { close(); return }
         }
     }
 
@@ -474,24 +428,23 @@ final class AVCCClient {
     /// signal for the adaptive controller).
     func sampleHighWater() -> Int {
         cond.lock(); defer { cond.unlock() }
-        let hw = highWater
-        highWater = queuedBytes
-        return hw
+        return sendQueue.sampleHighWater()
     }
 
     func sampleDropped() -> Int {
         cond.lock(); defer { cond.unlock() }
-        let dropped = droppedSinceSample
-        droppedSinceSample = 0
-        return dropped
+        return sendQueue.sampleDropped()
+    }
+
+    func transportStats() -> AVCCSendQueue.Stats {
+        cond.lock(); defer { cond.unlock() }
+        return sendQueue.stats()
     }
 
     func close() {
         cond.lock()
         closed = true
-        pending.removeAll()
-        pendingDescription = nil
-        queuedBytes = 0
+        sendQueue.clear()
         cond.signal()
         cond.unlock()
     }

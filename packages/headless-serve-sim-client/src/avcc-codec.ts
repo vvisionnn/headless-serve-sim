@@ -65,6 +65,18 @@ export class AvccDemuxer {
   private buffer = EMPTY;
 
   push(bytes: Uint8Array): AvccChunk[] {
+    const chunks: AvccChunk[] = [];
+    this.visit(bytes, (type, payload) => chunks.push({ type, payload: payload.slice() }));
+    return chunks;
+  }
+
+  /**
+   * Allocation-free steady-state parser for synchronous consumers. Payload
+   * views are valid only for the duration of `visitor`; callers that retain a
+   * payload must copy it. `EncodedVideoChunk` and `Blob` consume their input
+   * synchronously, while decoder descriptions explicitly clone before return.
+   */
+  visit(bytes: Uint8Array, visitor: (type: AvccChunkType, payload: Uint8Array) => void): void {
     // Fast path: with nothing retained, parse straight out of the incoming
     // bytes and copy only the trailing partial chunk back into `buffer`. In
     // steady state each read carries ~one whole frame and drains fully, so this
@@ -82,7 +94,6 @@ export class AvccDemuxer {
       src = this.buffer;
     }
 
-    const chunks: AvccChunk[] = [];
     let offset = 0;
     while (src.length - offset >= 4) {
       const view = new DataView(src.buffer, src.byteOffset + offset, 4);
@@ -99,11 +110,9 @@ export class AvccDemuxer {
       // Need the whole chunk buffered before we can emit it.
       if (src.length - offset - 4 < length) break;
       const tag = src[offset + 4]!;
-      // slice() copies, so emitted payloads never alias a transient reader
-      // buffer (important now that `src` may be the caller's `bytes`).
-      const payload = src.slice(offset + 5, offset + 4 + length);
+      const payload = src.subarray(offset + 5, offset + 4 + length);
       const type = TAG_TO_TYPE[tag];
-      if (type) chunks.push({ type, payload });
+      if (type) visitor(type, payload);
       offset += 4 + length;
     }
 
@@ -117,7 +126,6 @@ export class AvccDemuxer {
     } else {
       this.buffer = src.slice(offset);
     }
-    return chunks;
   }
 
   reset(): void {
