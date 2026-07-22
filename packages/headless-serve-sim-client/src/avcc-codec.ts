@@ -11,6 +11,7 @@
  *   0x02 keyframe    — IDR (decodable standalone)
  *   0x03 delta       — non-IDR P-frame
  *   0x04 seed        — JPEG painted before the first IDR decodes
+ *   0x06 disposable  — temporal enhancement P-frame; safe to drop
  *
  * The stream is read incrementally from a `fetch()` ReadableStream, so chunks
  * arrive split across reads. `AvccDemuxer` buffers partial bytes and yields
@@ -21,8 +22,9 @@ export const AVCC_TAG_DESCRIPTION = 0x01;
 export const AVCC_TAG_KEYFRAME = 0x02;
 export const AVCC_TAG_DELTA = 0x03;
 export const AVCC_TAG_SEED = 0x04;
+export const AVCC_TAG_DISPOSABLE_DELTA = 0x06;
 
-export type AvccChunkType = "description" | "keyframe" | "delta" | "seed";
+export type AvccChunkType = "description" | "keyframe" | "delta" | "seed" | "disposable-delta";
 
 export interface AvccChunk {
   type: AvccChunkType;
@@ -35,7 +37,17 @@ const TAG_TO_TYPE: Record<number, AvccChunkType | undefined> = {
   [AVCC_TAG_KEYFRAME]: "keyframe",
   [AVCC_TAG_DELTA]: "delta",
   [AVCC_TAG_SEED]: "seed",
+  [AVCC_TAG_DISPOSABLE_DELTA]: "disposable-delta",
 };
+
+export function decodeBackpressureAction(
+  type: "delta" | "disposable-delta",
+  decodeQueueSize: number,
+): "decode" | "drop" | "reset" {
+  if (type === "disposable-delta" && decodeQueueSize > 1) return "drop";
+  if (type === "delta" && decodeQueueSize > 4) return "reset";
+  return "decode";
+}
 
 // Upper bound on a single chunk. A full-resolution IDR is well under this; a
 // declared length above it means we've lost framing, so we resync instead of

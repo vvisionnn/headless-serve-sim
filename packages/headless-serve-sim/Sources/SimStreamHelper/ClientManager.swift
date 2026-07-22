@@ -337,6 +337,8 @@ enum AVCCChunkKind {
     case keyframe     // IDR; a resync point that makes pending deltas obsolete
     case delta        // P-frame; droppable (dropping any forces a resync)
     case seed         // one-shot JPEG; droppable
+    case heartbeat    // payload-free idle liveness; droppable without resync
+    case disposableDelta // temporal enhancement frame; safe to drop without IDR
 }
 
 /// A single AVCC streaming client with a bounded, coalescing outbound queue.
@@ -409,6 +411,27 @@ final class AVCCClient {
                 let cb = onNeedKeyframe
                 cond.unlock()
                 if fire, let cb { DispatchQueue.global(qos: .userInteractive).async { cb() } }
+            } else {
+                append(chunk)
+                cond.unlock()
+            }
+        case .heartbeat:
+            // A heartbeat carries no decoder state. Drop it silently when a
+            // socket is already congested; unlike a P-frame this never needs a
+            // keyframe recovery.
+            if queuedBytes >= highWaterBytes {
+                cond.unlock()
+            } else {
+                append(chunk)
+                cond.unlock()
+            }
+        case .disposableDelta:
+            // Preserve room for the 30fps reference layer. Discarding this
+            // enhancement frame never invalidates later frames, so no IDR is
+            // requested and the viewer keeps moving smoothly at base-layer FPS.
+            if queuedBytes >= highWaterBytes / 2 {
+                droppedSinceSample += 1
+                cond.unlock()
             } else {
                 append(chunk)
                 cond.unlock()

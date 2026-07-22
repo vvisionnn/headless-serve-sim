@@ -239,8 +239,16 @@ const patternPage = `<!doctype html>
   requestAnimationFrame(render);
 </script>`;
 
+export function makeBenchmarkPatternPage(workload: "motion" | "idle"): string {
+  if (workload === "motion") return patternPage;
+  return patternPage
+    .replace("    requestAnimationFrame(render);", "")
+    .replace("  requestAnimationFrame(render);\n</script>", "  render();\n</script>");
+}
+
 interface BenchmarkOptions {
   format: "avcc" | "mjpeg";
+  workload: "motion" | "idle";
   streamUrl: string;
   udid: string;
   durationSeconds: number;
@@ -255,6 +263,13 @@ interface CaptureResult {
   inputFormat: "h264" | "mjpeg";
   frameTimesMs: number[];
   wireBytes: number;
+  elapsedMs: number;
+  avccChunks?: {
+    keyframes: number;
+    referenceDeltaFrames: number;
+    disposableDeltaFrames: number;
+    heartbeats: number;
+  };
 }
 
 function parseArguments(args: string[]): BenchmarkOptions {
@@ -285,8 +300,13 @@ function parseArguments(args: string[]): BenchmarkOptions {
   if (format !== "avcc" && format !== "mjpeg") {
     throw new Error("--format must be avcc or mjpeg");
   }
+  const workload = values.get("--workload") ?? "motion";
+  if (workload !== "motion" && workload !== "idle") {
+    throw new Error("--workload must be motion or idle");
+  }
   return {
     format,
+    workload,
     streamUrl: streamUrl.replace(/\/$/, ""),
     udid,
     durationSeconds: positiveNumber("--duration", 6),
@@ -297,7 +317,11 @@ function parseArguments(args: string[]): BenchmarkOptions {
   };
 }
 
-async function captureAvcc(url: string, durationSeconds: number): Promise<CaptureResult> {
+async function captureAvcc(
+  url: string,
+  durationSeconds: number,
+  allowIdle: boolean,
+): Promise<CaptureResult> {
   const controller = new AbortController();
   const response = await fetch(`${url}/stream.avcc`, { signal: controller.signal });
   if (!response.ok || !response.body) {
@@ -311,8 +335,15 @@ async function captureAvcc(url: string, durationSeconds: number): Promise<Captur
   let startedAt: number | null = null;
   let started = false;
   let wireBytes = 0;
+  let endedAt: number | null = null;
   const frameTimesMs: number[] = [];
   const recordingParts: Uint8Array[] = [];
+  const avccChunks = {
+    keyframes: 0,
+    referenceDeltaFrames: 0,
+    disposableDeltaFrames: 0,
+    heartbeats: 0,
+  };
 
   try {
     capture: while (true) {
@@ -336,6 +367,14 @@ async function captureAvcc(url: string, durationSeconds: number): Promise<Captur
         const payload = pending.subarray(offset + 5, offset + 4 + length);
         offset += 4 + length;
 
+        const envelopeNow = performance.now();
+        if (started && envelopeNow - startedAt! >= durationSeconds * 1000) {
+          endedAt = envelopeNow;
+          break capture;
+        }
+        if (started) wireBytes += 4 + length;
+        if (started && tag === 0x05) avccChunks.heartbeats++;
+
         if (tag === 0x01) {
           const converted = avccDescriptionToAnnexB(payload);
           decoderDescription = converted.data;
@@ -343,17 +382,20 @@ async function captureAvcc(url: string, durationSeconds: number): Promise<Captur
           if (started) recordingParts.push(decoderDescription);
           continue;
         }
-        if (tag !== 0x02 && tag !== 0x03) continue;
+        if (tag !== 0x02 && tag !== 0x03 && tag !== 0x06) continue;
         if (!started) {
           if (tag !== 0x02 || !decoderDescription) continue;
           recordingParts.push(decoderDescription);
           started = true;
           startedAt = performance.now();
+          wireBytes += 4 + length;
         }
 
         const now = performance.now();
+        if (tag === 0x02) avccChunks.keyframes++;
+        else if (tag === 0x03) avccChunks.referenceDeltaFrames++;
+        else avccChunks.disposableDeltaFrames++;
         frameTimesMs.push(now - startedAt!);
-        wireBytes += 4 + length;
         recordingParts.push(avccFrameToAnnexB(payload, nalLengthBytes));
         if (now - startedAt! >= durationSeconds * 1000) break capture;
       }
@@ -364,7 +406,7 @@ async function captureAvcc(url: string, durationSeconds: number): Promise<Captur
     await reader.cancel().catch(() => {});
   }
 
-  if (!started || frameTimesMs.length < 2) {
+  if (!started || frameTimesMs.length < (allowIdle ? 1 : 2)) {
     throw new Error("AVCC stream did not produce a decoder description and keyframe");
   }
   return {
@@ -372,6 +414,8 @@ async function captureAvcc(url: string, durationSeconds: number): Promise<Captur
     inputFormat: "h264",
     frameTimesMs,
     wireBytes,
+    elapsedMs: (endedAt ?? performance.now()) - startedAt!,
+    avccChunks,
   };
 }
 
@@ -422,6 +466,7 @@ async function captureMjpeg(url: string, durationSeconds: number): Promise<Captu
     inputFormat: "mjpeg",
     frameTimesMs,
     wireBytes,
+    elapsedMs: (frameTimesMs.at(-1) ?? 0) - frameTimesMs[0]!,
   };
 }
 
@@ -436,9 +481,11 @@ function runFfmpeg(args: string[]): Uint8Array {
   return result.stdout;
 }
 
-function oneSecondFrameCounts(frameTimesMs: readonly number[]): number[] {
-  const last = frameTimesMs.at(-1) ?? 0;
-  const fullWindows = Math.floor(last / 1000);
+export function oneSecondFrameCounts(
+  frameTimesMs: readonly number[],
+  elapsedMs = frameTimesMs.at(-1) ?? 0,
+): number[] {
+  const fullWindows = Math.floor(elapsedMs / 1000);
   const counts: number[] = [];
   for (let window = 0; window < fullWindows; window++) {
     const start = window * 1000;
@@ -448,6 +495,62 @@ function oneSecondFrameCounts(frameTimesMs: readonly number[]): number[] {
   return counts;
 }
 
+export function summarizeFrameIntervals(frameTimesMs: readonly number[]) {
+  const intervals = frameTimesMs
+    .slice(1)
+    .map((time, index) => time - frameTimesMs[index]!)
+    .sort((a, b) => a - b);
+  const percentile = (fraction: number) => {
+    if (intervals.length === 0) return 0;
+    return intervals[Math.max(0, Math.ceil(intervals.length * fraction) - 1)]!;
+  };
+  return {
+    p50Ms: Number(percentile(0.5).toFixed(2)),
+    p95Ms: Number(percentile(0.95).toFixed(2)),
+    p99Ms: Number(percentile(0.99).toFixed(2)),
+    maxMs: Number((intervals.at(-1) ?? 0).toFixed(2)),
+    over25Ms: intervals.filter((interval) => interval > 25).length,
+    over50Ms: intervals.filter((interval) => interval > 50).length,
+    over100Ms: intervals.filter((interval) => interval > 100).length,
+  };
+}
+
+async function readPipelineMetrics(url: string): Promise<Record<string, number> | null> {
+  try {
+    const response = await fetch(`${url.replace(/\/$/, "")}/stream-metrics`);
+    if (!response.ok) return null;
+    const json = (await response.json()) as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(json).filter(
+        (entry): entry is [string, number] => typeof entry[1] === "number",
+      ),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function pipelineDelta(
+  before: Record<string, number> | null,
+  after: Record<string, number> | null,
+) {
+  if (!before || !after) return null;
+  const delta: Record<string, number> = {};
+  for (const [key, value] of Object.entries(after)) {
+    if (typeof before[key] === "number") delta[key] = value - before[key]!;
+  }
+  delete delta.copyAvoidancePercent;
+  delete delta.helperResidentBytes;
+  const offered = delta.framesDemandingEncode ?? 0;
+  const avoided = delta.busyFramesAvoidedCopy ?? 0;
+  delta.busyCopyAvoidancePercent = offered > 0 ? Number(((avoided * 100) / offered).toFixed(2)) : 0;
+  const cpuTicks = delta.helperCpuTicks ?? 0;
+  const elapsedTicks = delta.helperSampleTicks ?? 0;
+  delta.helperCpuAveragePercent =
+    elapsedTicks > 0 ? Number(((cpuTicks * 100) / elapsedTicks).toFixed(2)) : 0;
+  return delta;
+}
+
 async function runBenchmark(options: BenchmarkOptions): Promise<boolean> {
   let patternRequested = false;
   const patternServer = Bun.serve({
@@ -455,7 +558,8 @@ async function runBenchmark(options: BenchmarkOptions): Promise<boolean> {
     port: 0,
     fetch() {
       patternRequested = true;
-      return new Response(patternPage, {
+      const page = makeBenchmarkPatternPage(options.workload);
+      return new Response(page, {
         headers: {
           "cache-control": "no-store",
           "content-type": "text/html; charset=utf-8",
@@ -483,10 +587,12 @@ async function runBenchmark(options: BenchmarkOptions): Promise<boolean> {
     if (!patternRequested) throw new Error("Simulator did not load the benchmark pattern");
     await Bun.sleep(1_500);
 
+    const metricsBefore = await readPipelineMetrics(options.streamUrl);
     const capture =
       options.format === "avcc"
-        ? await captureAvcc(options.streamUrl, options.durationSeconds)
+        ? await captureAvcc(options.streamUrl, options.durationSeconds, options.workload === "idle")
         : await captureMjpeg(options.streamUrl, options.durationSeconds);
+    const metricsAfter = await readPipelineMetrics(options.streamUrl);
     const streamPath = join(outputDirectory, `stream-quality.${capture.inputFormat}`);
     const mp4Path = join(outputDirectory, "stream-quality.mp4");
     await Bun.write(streamPath, capture.data);
@@ -545,11 +651,16 @@ async function runBenchmark(options: BenchmarkOptions): Promise<boolean> {
       height: 64,
       palette: benchmarkPalette,
     });
-    const elapsedMs = (capture.frameTimesMs.at(-1) ?? 0) - capture.frameTimesMs[0]!;
-    const averageFps = ((capture.frameTimesMs.length - 1) * 1000) / elapsedMs;
-    const windowCounts = oneSecondFrameCounts(capture.frameTimesMs);
+    const elapsedMs = capture.elapsedMs;
+    const firstToLastMs = (capture.frameTimesMs.at(-1) ?? 0) - capture.frameTimesMs[0]!;
+    const averageFps =
+      options.workload === "motion" && capture.frameTimesMs.length > 1
+        ? ((capture.frameTimesMs.length - 1) * 1000) / firstToLastMs
+        : capture.frameTimesMs.length / (elapsedMs / 1000);
+    const windowCounts = oneSecondFrameCounts(capture.frameTimesMs, elapsedMs);
     const minimumWindowFps = windowCounts.length > 0 ? Math.min(...windowCounts) : 0;
     const megabitsPerSecond = (capture.wireBytes * 8) / elapsedMs / 1000;
+    const frameIntervals = summarizeFrameIntervals(capture.frameTimesMs);
     const failures: string[] = [];
     if (frameReport.tornFrames !== 0) failures.push(`${frameReport.tornFrames} torn frame(s)`);
     if (frameReport.invalidFrames !== 0)
@@ -559,9 +670,9 @@ async function runBenchmark(options: BenchmarkOptions): Promise<boolean> {
         `captured ${capture.frameTimesMs.length} frame(s), decoded ${frameReport.totalFrames}`,
       );
     }
-    if (averageFps < options.minFps)
+    if (options.workload === "motion" && averageFps < options.minFps)
       failures.push(`average FPS ${averageFps.toFixed(2)} < ${options.minFps}`);
-    if (minimumWindowFps < options.minWindowFps) {
+    if (options.workload === "motion" && minimumWindowFps < options.minWindowFps) {
       failures.push(`minimum 1s FPS ${minimumWindowFps} < ${options.minWindowFps}`);
     }
     if (megabitsPerSecond > options.maxMbps) {
@@ -570,6 +681,7 @@ async function runBenchmark(options: BenchmarkOptions): Promise<boolean> {
     const result = {
       pass: failures.length === 0,
       format: options.format,
+      workload: options.workload,
       durationSeconds: elapsedMs / 1000,
       capturedFrames: capture.frameTimesMs.length,
       decodedFrames: frameReport.totalFrames,
@@ -579,6 +691,9 @@ async function runBenchmark(options: BenchmarkOptions): Promise<boolean> {
       oneSecondFps: windowCounts,
       minimumOneSecondFps: minimumWindowFps,
       bandwidthMbps: Number(megabitsPerSecond.toFixed(2)),
+      avccChunks: capture.avccChunks,
+      frameIntervals,
+      pipeline: pipelineDelta(metricsBefore, metricsAfter),
       recording: temporaryOutput ? undefined : mp4Path,
       failures,
     };

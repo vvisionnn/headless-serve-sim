@@ -4,6 +4,9 @@ import {
   avccDescriptionToAnnexB,
   avccFrameToAnnexB,
   extractJpegFrames,
+  oneSecondFrameCounts,
+  makeBenchmarkPatternPage,
+  summarizeFrameIntervals,
   type Rgb,
 } from "../../scripts/stream-quality-benchmark";
 
@@ -67,5 +70,26 @@ describe("stream quality benchmark", () => {
 
     expect(result.frames.map((frame) => [...frame])).toEqual([[0xff, 0xd8, 1, 2, 0xff, 0xd9]]);
     expect([...result.remaining]).toEqual([0xff, 0xd8, 3]);
+  });
+
+  test("reports frame-time tails and visible stall counts", () => {
+    expect(summarizeFrameIntervals([0, 16, 33, 83, 203])).toEqual({
+      p50Ms: 17,
+      p95Ms: 120,
+      p99Ms: 120,
+      maxMs: 120,
+      over25Ms: 2,
+      over50Ms: 1,
+      over100Ms: 1,
+    });
+  });
+
+  test("keeps empty full-second windows visible for idle/hang detection", () => {
+    expect(oneSecondFrameCounts([0, 200, 2200], 3200)).toEqual([2, 0, 1]);
+  });
+
+  test("uses a truly static page for idle measurements", () => {
+    expect(makeBenchmarkPatternPage("motion")).toContain("requestAnimationFrame");
+    expect(makeBenchmarkPatternPage("idle")).not.toContain("requestAnimationFrame");
   });
 });

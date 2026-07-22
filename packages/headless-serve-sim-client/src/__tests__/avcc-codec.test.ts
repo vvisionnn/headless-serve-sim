@@ -6,6 +6,8 @@ import {
   AVCC_TAG_KEYFRAME,
   AVCC_TAG_DELTA,
   AVCC_TAG_SEED,
+  AVCC_TAG_DISPOSABLE_DELTA,
+  decodeBackpressureAction,
 } from "../avcc-codec";
 
 /** Build one wire chunk: [len:u32-be][tag][payload]. len = payload + 1. */
@@ -47,9 +49,22 @@ describe("AvccDemuxer", () => {
         frame(AVCC_TAG_KEYFRAME, [9]),
         frame(AVCC_TAG_DELTA, [8, 7]),
         frame(AVCC_TAG_SEED, [0xff, 0xd8, 0xff, 0xd9]),
+        frame(AVCC_TAG_DISPOSABLE_DELTA, [6]),
       ),
     );
-    expect(chunks.map((c) => c.type)).toEqual(["description", "keyframe", "delta", "seed"]);
+    expect(chunks.map((c) => c.type)).toEqual([
+      "description",
+      "keyframe",
+      "delta",
+      "seed",
+      "disposable-delta",
+    ]);
+  });
+
+  test("drops only disposable temporal frames at a shallow decode backlog", () => {
+    expect(decodeBackpressureAction("disposable-delta", 2)).toBe("drop");
+    expect(decodeBackpressureAction("delta", 2)).toBe("decode");
+    expect(decodeBackpressureAction("delta", 5)).toBe("reset");
   });
 
   test("buffers a chunk split across reads (header split)", () => {

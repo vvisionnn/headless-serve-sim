@@ -13,7 +13,7 @@ import ObjectiveC
 ///
 /// Pipeline: IOSurface callback → owned `FrameSnapshotter` buffer → encoders
 final class FrameCapture {
-    private var onFrame: ((CVPixelBuffer, CMTime) -> Void)?
+    private var onFrame: ((CVPixelBuffer, CMTime, Bool) -> Void)?
     private var frameCount: UInt64 = 0
     private(set) var capturedWidth: Int = 0
     private(set) var capturedHeight: Int = 0
@@ -38,7 +38,10 @@ final class FrameCapture {
     private var callbackUUIDs: [ObjectIdentifier: NSUUID] = [:]
     private var ioClient: NSObject?
 
-    func start(deviceUDID: String, onFrame: @escaping (CVPixelBuffer, CMTime) -> Void) throws {
+    func start(
+        deviceUDID: String,
+        onFrame: @escaping (CVPixelBuffer, CMTime, Bool) -> Void
+    ) throws {
         self.onFrame = onFrame
 
         _ = dlopen("/Library/Developer/PrivateFrameworks/CoreSimulator.framework/CoreSimulator", RTLD_NOW)
@@ -263,7 +266,7 @@ final class FrameCapture {
         lastCaptureTimeMs = nowMs
         frameCount += 1
         let timestamp = CMTime(value: CMTimeValue(frameCount), timescale: 60)
-        onFrame?(pb, timestamp)
+        onFrame?(pb, timestamp, seedChanged)
     }
 
     func getScreenSize() -> (width: Int, height: Int)? {

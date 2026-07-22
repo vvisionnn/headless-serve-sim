@@ -67,9 +67,13 @@
     "build": "bun run build.ts",
     "build:swift": "./build.sh",
     "benchmark:stream-quality": "bun run scripts/stream-quality-benchmark.ts",
+    "benchmark:stream-performance": "bun run scripts/stream-performance-benchmark.ts",
     "test:adaptive": "DEVELOPER_DIR=$(xcode-select -p) swiftc Sources/SimStreamHelper/AdaptiveController.swift scripts/adaptive-controller-selftest.swift -o /tmp/adaptive-selftest && /tmp/adaptive-selftest",
     "test:metrics": "swiftc Sources/SimStreamHelper/ProcessMetrics.swift scripts/process-metrics-selftest.swift -o /tmp/process-metrics-selftest && /tmp/process-metrics-selftest",
     "test:snapshot": "swiftc Sources/SimStreamHelper/FrameSnapshotter.swift scripts/frame-snapshot-selftest.swift -o /tmp/frame-snapshot-selftest && /tmp/frame-snapshot-selftest",
+    "test:frame-admission": "swiftc Sources/SimStreamHelper/FrameAdmissionController.swift scripts/frame-admission-selftest.swift -o /tmp/frame-admission-selftest && /tmp/frame-admission-selftest",
+    "test:stream-format": "swiftc Sources/SimStreamHelper/StreamFormat.swift scripts/stream-format-selftest.swift -o /tmp/stream-format-selftest && /tmp/stream-format-selftest",
+    "test:keyframe-request": "swiftc Sources/SimStreamHelper/KeyframeRequest.swift scripts/keyframe-request-selftest.swift -o /tmp/keyframe-request-selftest && /tmp/keyframe-request-selftest",
     "dev": "bun run dev.ts"
   },
   "devDependencies": {

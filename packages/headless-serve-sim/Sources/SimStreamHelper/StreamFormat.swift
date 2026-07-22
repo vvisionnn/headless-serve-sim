@@ -23,6 +23,10 @@ enum StreamFormat: String {
 /// - `0x03` delta — non-IDR P-frame (depends on prior frames).
 /// - `0x04` seed — a JPEG painted immediately on connect so the viewer sees
 ///   the current screen before the first IDR decodes.
+/// - `0x05` heartbeat — no payload; keeps idle connections live without
+///   encoding the same screen again. Older clients safely skip unknown tags.
+/// - `0x06` disposable delta — temporal enhancement P-frame that no later
+///   frame references; safe to drop under congestion or decode backlog.
 ///
 /// A parser reads the 4-byte length, then `length` bytes that begin with the
 /// tag. Mirrors baguette's `AVCCEnvelope` so the same browser decoder works.
@@ -31,11 +35,17 @@ enum AVCCEnvelope {
     static let keyframeTag: UInt8 = 0x02
     static let deltaTag: UInt8 = 0x03
     static let seedTag: UInt8 = 0x04
+    static let heartbeatTag: UInt8 = 0x05
+    static let disposableDeltaTag: UInt8 = 0x06
 
     static func description(avcc: Data) -> Data { wrap(tag: descriptionTag, payload: avcc) }
     static func keyframe(avcc: Data) -> Data { wrap(tag: keyframeTag, payload: avcc) }
     static func delta(avcc: Data) -> Data { wrap(tag: deltaTag, payload: avcc) }
     static func seed(jpeg: Data) -> Data { wrap(tag: seedTag, payload: jpeg) }
+    static func heartbeat() -> Data { wrap(tag: heartbeatTag, payload: Data()) }
+    static func disposableDelta(avcc: Data) -> Data {
+        wrap(tag: disposableDeltaTag, payload: avcc)
+    }
 
     private static func wrap(tag: UInt8, payload: Data) -> Data {
         let length = UInt32(payload.count + 1)

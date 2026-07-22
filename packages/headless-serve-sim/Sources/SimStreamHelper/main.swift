@@ -2,6 +2,7 @@ import Foundation
 import CoreVideo
 import CoreMedia
 import AppKit
+import Darwin
 
 // Force unbuffered output
 setbuf(stdout, nil)
@@ -48,6 +49,8 @@ let avccHighWaterBytes = 256 * 1024
 let httpServer = HTTPServer(deviceUDID: deviceUDID, port: port)
 let frameCapture = FrameCapture()
 let frameSnapshotter = FrameSnapshotter()
+let frameAdmission = FrameAdmissionController()
+let keyframeRequest = KeyframeRequest()
 let videoEncoder = VideoEncoder(quality: 0.7)
 let h264Encoder = H264Encoder(fps: 60, maxQP: streamMode == .quality ? 40 : 48)
 let hidInjector = HIDInjector()
@@ -65,14 +68,8 @@ let adaptiveDriver = AdaptiveDriver(
 var screenWidth = 0
 var screenHeight = 0
 var encoderReady = false
-var encoding = false // backpressure flag (MJPEG)
-var h264Encoding = false // backpressure flag (H.264)
 var lastJpegEncodeMs: UInt64 = 0
 let jpegSeedIntervalMs: UInt64 = 1_000
-// Set when an AVCC client connects; the next H.264 frame is forced to an IDR
-// so the freshly-configured decoder has a keyframe to start from.
-var forceKeyframe = false
-
 // H.264 output → AVCC envelope → broadcast to /stream.avcc clients.
 h264Encoder.onEncoded = { encoded in
     adaptiveDriver.noteEncoded()
@@ -81,25 +78,58 @@ h264Encoder.onEncoded = { encoded in
     }
     switch encoded.kind {
     case .keyframe: httpServer.clientManager.broadcastAvcc(AVCCEnvelope.keyframe(avcc: encoded.avcc), kind: .keyframe)
-    case .delta: httpServer.clientManager.broadcastAvcc(AVCCEnvelope.delta(avcc: encoded.avcc), kind: .delta)
+    case .delta:
+        if encoded.disposable {
+            httpServer.clientManager.broadcastAvcc(
+                AVCCEnvelope.disposableDelta(avcc: encoded.avcc),
+                kind: .disposableDelta
+            )
+        } else {
+            httpServer.clientManager.broadcastAvcc(
+                AVCCEnvelope.delta(avcc: encoded.avcc),
+                kind: .delta
+            )
+        }
     }
 }
 httpServer.clientManager.onAvccClientConnect = {
-    h264Queue.async {
-        forceKeyframe = true
-    }
+    keyframeRequest.request()
 }
 // A viewer's send queue overflowed (or it explicitly asked over /ws) — force a
 // fresh IDR so it can resync after we dropped deltas.
 httpServer.clientManager.onNeedKeyframe = {
-    h264Queue.async {
-        forceKeyframe = true
-    }
+    keyframeRequest.request()
 }
 // Live perf/quality switch from the panel (/ws 0x0C).
 httpServer.clientManager.onSetMode = { modeStr in
     guard let m = StreamMode(rawValue: modeStr) else { return }
     adaptiveDriver.setMode(m, width: screenWidth, height: screenHeight)
+}
+httpServer.onStreamMetrics = {
+    let stats = frameAdmission.stats()
+    let skipped = stats.framesOffered &- stats.snapshotsRequired
+    let avoidance = stats.framesOffered == 0
+        ? 0
+        : Double(skipped) * 100.0 / Double(stats.framesOffered)
+    var result: [String: Any] = [
+        "framesOffered": stats.framesOffered,
+        "framesDemandingEncode": stats.framesDemandingEncode,
+        "snapshotsRequired": stats.snapshotsRequired,
+        "snapshotsSkippedBeforeCopy": skipped,
+        "busyFramesAvoidedCopy": stats.busyFramesAvoidedCopy,
+        "copyAvoidancePercent": avoidance,
+        "jpegAdmitted": stats.jpegAdmitted,
+        "jpegBusyDrops": stats.jpegBusyDrops,
+        "h264Admitted": stats.h264Admitted,
+        "h264BusyDrops": stats.h264BusyDrops,
+        "idleAvccHeartbeats": stats.idleAvccHeartbeats,
+    ]
+    if let process = readProcessMetricsCounters(pid: getpid()) {
+        result["helperCpuTicks"] = process.userTimeTicks + process.systemTimeTicks
+        result["helperSampleTicks"] = mach_absolute_time()
+        result["helperResidentBytes"] = process.residentBytes
+    }
+    return result
 }
 
 // Setup HID injector
@@ -154,7 +184,7 @@ adaptiveDriver.start()
 // Start frame capture — encoder is initialized lazily on first frame.
 // The framebuffer surface may not be available immediately after boot,
 // so retry a few times with backoff before giving up.
-let frameHandler: (CVPixelBuffer, CMTime) -> Void = { pixelBuffer, timestamp in
+let frameHandler: (CVPixelBuffer, CMTime, Bool) -> Void = { pixelBuffer, timestamp, contentChanged in
     let w = CVPixelBufferGetWidth(pixelBuffer)
     let h = CVPixelBufferGetHeight(pixelBuffer)
 
@@ -183,47 +213,61 @@ let frameHandler: (CVPixelBuffer, CMTime) -> Void = { pixelBuffer, timestamp in
     let nowMs = DispatchTime.now().uptimeNanoseconds / 1_000_000
     let hasMJPEGClients = httpServer.clientManager.hasMJPEGClients()
     let hasAvccClients = httpServer.clientManager.hasAvccClients()
+    let keyframePending = keyframeRequest.isPending()
+    if hasAvccClients && !contentChanged && !keyframePending {
+        // Preserve byte-level liveness without copying and encoding an
+        // unchanged multi-megabyte framebuffer. The browser's progress signal
+        // fires before demux, and old clients safely skip this unknown tag.
+        frameAdmission.noteIdleAvccHeartbeat()
+        httpServer.clientManager.broadcastAvcc(AVCCEnvelope.heartbeat(), kind: .heartbeat)
+    }
     let wantsJpeg = hasMJPEGClients
         || hasAvccClients
         || lastJpegEncodeMs == 0
     let jpegDue = hasMJPEGClients
         || lastJpegEncodeMs == 0
         || (nowMs &- lastJpegEncodeMs) >= jpegSeedIntervalMs
-    let encodeJpeg = encoderReady && wantsJpeg && jpegDue && !encoding
+    let wantsJpegNow = encoderReady && wantsJpeg && jpegDue
+
+    // Reserve asynchronous encoder capacity before copying 12+ MB of BGRA.
+    // When both encoders are busy the frame is intentionally dropped here,
+    // keeping latency bounded without spending memory bandwidth on pixels that
+    // cannot be consumed.
+    let claims = frameAdmission.claim(
+        wantsJpeg: wantsJpegNow,
+        wantsH264: hasAvccClients && (contentChanged || keyframePending)
+    )
 
     // Close the recycled-IOSurface lifetime boundary synchronously, before any
     // encoder queueing or first-use VideoToolbox setup. Both encoders share this
     // one owned copy; neither can observe SimulatorKit painting the next frame.
-    guard encodeJpeg || hasAvccClients,
-          let snapshot = frameSnapshotter.snapshot(pixelBuffer)
-    else { return }
+    guard claims.requiresSnapshot else { return }
+    guard let snapshot = frameSnapshotter.snapshot(pixelBuffer) else {
+        if claims.jpeg { frameAdmission.completeJpeg() }
+        if claims.h264 { frameAdmission.completeH264() }
+        return
+    }
 
-    if encodeJpeg {
+    if claims.jpeg {
         // Backpressure: skip frame if encoder is still working on the previous one.
         // AVCC viewers only need an occasional JPEG seed for instant first paint;
         // encoding every frame as both JPEG and H.264 competes with the low-latency
         // path for CPU and pixel-buffer locks.
-        encoding = true
         lastJpegEncodeMs = nowMs
         encodeQueue.async {
             videoEncoder.encode(pixelBuffer: snapshot)
-            encoding = false
+            frameAdmission.completeJpeg()
         }
     }
 
     // H.264 path runs only while at least one AVCC viewer is connected, so an
     // all-MJPEG session pays no VideoToolbox cost. Its own backpressure flag
     // lets it skip independently of the JPEG encoder.
-    if hasAvccClients {
+    if claims.h264 {
         h264Queue.async {
-            if h264Encoding { return }
-            h264Encoding = true
-            let force = forceKeyframe
-            forceKeyframe = false
+            let force = keyframeRequest.consume()
             h264Encoder.encode(snapshot, forceKeyframe: force) {
-                h264Queue.async {
-                    h264Encoding = false
-                }
+                frameAdmission.completeH264()
             }
         }
     }

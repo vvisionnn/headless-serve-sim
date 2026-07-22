@@ -5,6 +5,7 @@ import Swifter
 /// Serves MJPEG stream on /stream.mjpeg, WebSocket on /ws for input.
 final class HTTPServer {
     let clientManager = ClientManager()
+    var onStreamMetrics: (() -> [String: Any])?
     private let server = HttpServer()
     private let processMetricsSampler = ProcessMetricsSampler()
     private let processPidResolver: SimulatorAppPidResolver
@@ -123,6 +124,15 @@ final class HTTPServer {
         // Health endpoint
         server["/health"] = { [weak self] _ in
             return self?.jsonResponse(["status": "ok"]) ?? .internalServerError
+        }
+
+        // Capture/encoder admission counters used by the isolated performance
+        // benchmark. Read-only and cheap: the provider takes one short lock.
+        server["/stream-metrics"] = { [weak self] _ in
+            guard let self, let metrics = self.onStreamMetrics?() else {
+                return .notFound
+            }
+            return self.jsonResponse(metrics)
         }
 
         // Real foreground-app resource metrics. The helper resolves the

@@ -17,6 +17,8 @@ final class H264Encoder {
         let kind: Kind
         /// Length-prefixed AVCC NAL bytes (not Annex-B start codes).
         let avcc: Data
+        /// Temporal enhancement frame that future frames do not reference.
+        let disposable: Bool
         enum Kind { case keyframe, delta }
     }
 
@@ -173,6 +175,10 @@ final class H264Encoder {
             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse!),
             (kVTCompressionPropertyKey_AverageBitRate, NSNumber(value: bitrate)),
             (kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: fps)),
+            // Split the 60fps stream into a 30fps reference base layer and
+            // disposable enhancement frames. Under pressure we can discard the
+            // enhancement layer without breaking prediction or forcing an IDR.
+            (kVTCompressionPropertyKey_BaseLayerFrameRateFraction, NSNumber(value: 0.5)),
             // NOTE: deliberately NO kVTCompressionPropertyKey_DataRateLimits. It
             // is a HARD cap over a 1s window; a fast/erratic scroll produces a
             // burst of large frames that blow past it, and VideoToolbox obeys the
@@ -223,7 +229,12 @@ final class H264Encoder {
                 description = nextDescription
             }
         }
-        return Encoded(description: description, kind: isKeyframe ? .keyframe : .delta, avcc: avcc)
+        return Encoded(
+            description: description,
+            kind: isKeyframe ? .keyframe : .delta,
+            avcc: avcc,
+            disposable: !isKeyframe && isDroppable(sample)
+        )
     }
 
     private func notSync(_ sample: CMSampleBuffer) -> Bool {
@@ -232,6 +243,17 @@ final class H264Encoder {
               let dict = CFArrayGetValueAtIndex(attachments, 0) else { return false }
         let cfDict = unsafeBitCast(dict, to: CFDictionary.self)
         return CFDictionaryContainsKey(cfDict, Unmanaged.passUnretained(kCMSampleAttachmentKey_NotSync).toOpaque())
+    }
+
+    private func isDroppable(_ sample: CMSampleBuffer) -> Bool {
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false),
+              CFArrayGetCount(attachments) > 0,
+              let raw = CFArrayGetValueAtIndex(attachments, 0) else { return false }
+        let dictionary = unsafeBitCast(raw, to: CFDictionary.self) as NSDictionary
+        guard let dependedOn = dictionary[kCMSampleAttachmentKey_IsDependedOnByOthers] as? Bool else {
+            return false
+        }
+        return !dependedOn
     }
 
     /// avcC parameter-set blob (ISO/IEC 14496-15 §5.2.4.1) carrying SPS + PPS.

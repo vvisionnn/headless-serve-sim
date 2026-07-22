@@ -1,7 +1,10 @@
 import { useEffect } from "react";
-import { AvccDemuxer, avcCodecString, isAvccSupported } from "../avcc-codec.js";
-
-const MAX_DECODE_QUEUE_SIZE = 4;
+import {
+  AvccDemuxer,
+  avcCodecString,
+  decodeBackpressureAction,
+  isAvccSupported,
+} from "../avcc-codec.js";
 
 /** Per-frame telemetry handed to `onFrame` for the Connection Stats panel. */
 export interface AvccFrameInfo {
@@ -224,7 +227,7 @@ export function useAvccStream({
     };
 
     const handleChunk = (
-      type: "description" | "keyframe" | "delta" | "seed",
+      type: "description" | "keyframe" | "delta" | "seed" | "disposable-delta",
       payload: Uint8Array,
     ) => {
       if (type === "seed") {
@@ -256,20 +259,28 @@ export function useAvccStream({
         configureDecoder(payload);
         return;
       }
-      // keyframe | delta
+      // keyframe | reference delta | disposable temporal enhancement delta
       if (!decoder || decoder.state !== "configured") return;
-      if (type === "delta" && awaitingKeyframe) {
+      if ((type === "delta" || type === "disposable-delta") && awaitingKeyframe) {
         // Skip deltas until a keyframe resyncs the decoder — feeding them now
         // would composite on a stale/absent reference (ghosting).
         return;
       }
-      if (type === "delta" && decoder.decodeQueueSize > MAX_DECODE_QUEUE_SIZE) {
-        // Do not let WebCodecs queue become hidden latency. Dropping a P-frame
-        // invalidates following deltas, so switch to drop-until-IDR and ask the
-        // server for a fresh keyframe instead of playing delayed frames.
-        dropped++;
-        resetDecoderForKeyframe();
-        return;
+      if (type !== "keyframe") {
+        const action = decodeBackpressureAction(type, decoder.decodeQueueSize);
+        if (action === "drop") {
+          // Temporal enhancement frames are explicitly non-reference frames.
+          // Drop them early instead of accumulating hidden decode latency.
+          dropped++;
+          return;
+        }
+        if (action === "reset") {
+          // A reference P-frame cannot be dropped safely. Reset and request an
+          // IDR rather than playing an increasingly delayed queue.
+          dropped++;
+          resetDecoderForKeyframe();
+          return;
+        }
       }
       try {
         const t0 = performance.now();
