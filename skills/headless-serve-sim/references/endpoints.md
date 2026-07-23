@@ -1,6 +1,6 @@
 # HTTP and WebSocket endpoints reference
 
-For agents that want to bypass the CLI — for example to drive gestures from a long-running process without forking `npx` per call — headless-serve-sim exposes two surfaces over HTTP.
+For agents that want to bypass the CLI — for example to drive gestures from a long-running process without spawning a CLI process per call — headless-serve-sim exposes two surfaces over HTTP.
 
 ## Contents
 
@@ -60,7 +60,7 @@ For most agents, the CLI is the right entry point. Use the WebSocket directly on
 
 ## Preview middleware (default port 3200)
 
-This is a Node middleware that serves the preview UI and proxies state. It can be run standalone (`npx headless-serve-sim`) or embedded in another dev server (`headless-serve-sim/middleware`).
+The released CLI serves the preview UI and proxies state when run standalone with `headless-serve-sim`.
 
 | Method | Path | Returns / accepts |
 |---|---|---|
@@ -76,13 +76,6 @@ This is a Node middleware that serves the preview UI and proxies state. It can b
 | `POST` | `/grid/api/shutdown` | Shut down a specific device. |
 | `POST` | `/grid/api/memory` | Memory usage report. |
 
-When embedding the middleware in another dev server (Metro, Vite, Express), the `basePath` is configurable:
-
-```ts
-import { simMiddleware } from "headless-serve-sim/middleware";
-app.use(simMiddleware({ basePath: "/.sim" }));
-```
-
 ## Authentication
 
 - The Swift stream server has no authentication. It listens on `0.0.0.0` by default — be careful when tunneling.
@@ -93,7 +86,7 @@ app.use(simMiddleware({ basePath: "/.sim" }));
 The simplest path is the CLI:
 
 ```sh
-npx headless-serve-sim --list -q
+headless-serve-sim --list -q
 ```
 
 Returns a JSON array of running streams, each with `url`, `streamUrl`, `wsUrl`, `device`, `pid`, `port`. An agent should call this once on entry to discover ports — they are not guaranteed to be 3200/3100 if other processes occupy those defaults.
@@ -105,4 +98,4 @@ ls $TMPDIR/headless-serve-sim/server-*.json
 cat $TMPDIR/headless-serve-sim/server-<udid>.json
 ```
 
-This is faster than spawning `npx` but couples you to the file format. Prefer `--list -q` for portability.
+This is faster than spawning the CLI but couples you to the file format. Prefer `--list -q` for portability.

@@ -17,8 +17,8 @@ allowed-tools: Bash(git fetch:*), Bash(git status:*), Bash(git worktree list:*),
 
 Release the `headless-serve-sim` package the way this repo already does it: a version bump
 commit + a lightweight `vX.Y.Z` tag on **main**, pushed to `origin`. The push is the only
-trigger — **GitHub Actions owns all publishing** (npm beta on the branch push, the GitHub
-Release on the tag push). This skill never publishes anything itself.
+trigger — **GitHub Actions owns publishing the GitHub Release from the tag push**. This
+skill never publishes anything itself.
 
 Then it stays with the release: it polls CI every 5 minutes and, if a run fails, fixes the
 cause and cuts another version, repeating until the release is green.
@@ -42,7 +42,7 @@ them in how you drive it:
   the current worktree's branch would disrupt other work. If you aren't on main, you operate
   on the *main worktree* by pointing the script at it with `--repo <path>` — you do not move.
 - **Never bump/tag on a non-main branch or worktree.**
-- **Publishing is 100% GitHub Actions.** Do not run `npm publish`, `bun publish`, or
+- **Publishing is 100% GitHub Actions.** Do not publish manually or run
   `gh workflow run` — pushing the branch and tag is the whole job.
 - Only `packages/headless-serve-sim/package.json` is bumped (matches the repo's history).
 

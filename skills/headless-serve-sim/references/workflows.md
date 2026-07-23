@@ -18,7 +18,7 @@ Pixel-hunting is fragile across device sizes. Prefer driving taps from the acces
 
 ```sh
 # 1. Ensure headless-serve-sim is running and discover the stream port
-URL=$(npx headless-serve-sim --list -q | jq -r '.[0].streamUrl')
+URL=$(headless-serve-sim --list -q | jq -r '.[0].streamUrl')
 PORT=$(echo "$URL" | sed -E 's|.*://[^:]+:([0-9]+).*|\1|')
 
 # 2. Fetch the accessibility tree
@@ -46,7 +46,7 @@ NX=$(echo "scale=4; $CX / $W" | bc)
 NY=$(echo "scale=4; $CY / $H" | bc)
 
 # 5. Tap
-npx headless-serve-sim tap "$NX" "$NY"
+headless-serve-sim tap "$NX" "$NY"
 ```
 
 The exact `jq` query depends on your tree shape — inspect with `curl /ax | jq` and adapt.
@@ -61,7 +61,7 @@ xcrun simctl openurl booted "myapp://products/42"
 sleep 1
 
 # 3. Resolve the stream endpoint — do not hardcode :3100, it may differ
-PORT=$(npx headless-serve-sim --list -q | jq -r '.[0].streamUrl' | sed -E 's|.*://[^:]+:([0-9]+).*|\1|')
+PORT=$(headless-serve-sim --list -q | jq -r '.[0].streamUrl' | sed -E 's|.*://[^:]+:([0-9]+).*|\1|')
 
 # 4. Verify the frontmost app is yours
 curl -s "http://localhost:${PORT}/foreground" | jq
@@ -75,18 +75,18 @@ curl -s "http://localhost:${PORT}/ax" | jq '.[] | select(.label | test("Product 
 
 ```sh
 # 1. Clean state
-npx headless-serve-sim camera --stop-webcam
+headless-serve-sim camera --stop-webcam
 xcrun simctl terminate booted com.acme.MyApp
 
 # 2. Inject a known test image, force no-mirror so any text reads right
-npx headless-serve-sim camera com.acme.MyApp --file ~/test-assets/reference.png --mirror off
+headless-serve-sim camera com.acme.MyApp --file ~/test-assets/reference.png --mirror off
 
 # 3. Navigate to the capture screen
 xcrun simctl openurl booted "myapp://camera/capture"
 sleep 1
 
 # 4. Tap the shutter (50% horizontal, 90% vertical)
-npx headless-serve-sim tap 0.5 0.9
+headless-serve-sim tap 0.5 0.9
 sleep 1
 
 # 5. Inspect the saved capture in the app's sandbox
@@ -94,20 +94,20 @@ APP_DATA=$(xcrun simctl get_app_container booted com.acme.MyApp data)
 ls -la "$APP_DATA/Documents/captures/"
 
 # 6. Tear down
-npx headless-serve-sim camera --stop-webcam
+headless-serve-sim camera --stop-webcam
 ```
 
 ## Workflow 4: Find blended layers in a screen
 
 ```sh
 # 1. Turn on blended-layers overlay
-npx headless-serve-sim ca-debug blended on
+headless-serve-sim ca-debug blended on
 
 # 2. Navigate to the screen of interest (via openurl, taps, etc.)
 xcrun simctl openurl booted "myapp://settings"
 
 # 3. Resolve the stream endpoint — do not hardcode :3100, it may differ
-PORT=$(npx headless-serve-sim --list -q | jq -r '.[0].streamUrl' | sed -E 's|.*://[^:]+:([0-9]+).*|\1|')
+PORT=$(headless-serve-sim --list -q | jq -r '.[0].streamUrl' | sed -E 's|.*://[^:]+:([0-9]+).*|\1|')
 
 # 4. Grab a screenshot from the MJPEG stream
 curl -s "http://localhost:${PORT}/stream.mjpeg?raw=1" \
@@ -117,7 +117,7 @@ curl -s "http://localhost:${PORT}/stream.mjpeg?raw=1" \
 open /tmp/blended.jpg
 
 # 6. Turn off
-npx headless-serve-sim ca-debug blended off
+headless-serve-sim ca-debug blended off
 ```
 
 The single-shot `curl --max-time 1` grabs the first JPEG frame from the MJPEG stream. For a clean frame grab, prefer the preview UI's screenshot button or read multiple frames and pick a stable one.
@@ -128,7 +128,7 @@ When tests pollute the simulator state, fastest reset:
 
 ```sh
 # Kill all headless-serve-sim helpers (frees ports, drops streams)
-npx headless-serve-sim --kill
+headless-serve-sim --kill
 
 # Terminate your app
 xcrun simctl terminate booted com.acme.MyApp
@@ -139,7 +139,7 @@ xcrun simctl terminate booted com.acme.MyApp
 # xcrun simctl boot <UDID>
 
 # Restart headless-serve-sim
-npx headless-serve-sim --detach -q
+headless-serve-sim --detach -q
 ```
 
 The full erase is destructive — only do it when the user explicitly asks.
@@ -188,7 +188,7 @@ The trick is that **the skill cannot invoke the host's preview tool directly** �
 
 ```sh
 # 1. Start headless-serve-sim in detached mode and capture the JSON
-STREAM_JSON=$(npx headless-serve-sim --detach -q)
+STREAM_JSON=$(headless-serve-sim --detach -q)
 URL=$(echo "$STREAM_JSON" | jq -r '.url')
 STREAM_URL=$(echo "$STREAM_JSON" | jq -r '.streamUrl')
 
@@ -206,7 +206,7 @@ echo "Raw MJPEG endpoint:   $STREAM_URL"
 
 4. **Never invent a tool name.** If your toolset does not include a URL-opening tool, do not pretend to call one. Tell the user explicitly: "I can't open URLs in your host's preview directly. Open $URL in your browser to see the stream."
 
-5. The stream persists until `npx headless-serve-sim --kill`. Multiple clients (the host preview + the user's browser + a tunnel) can connect to the same URL at once.
+5. The stream persists until `headless-serve-sim --kill`. Multiple clients (the host preview + the user's browser + a tunnel) can connect to the same URL at once.
 
 ### Why this is split between skill and host
 

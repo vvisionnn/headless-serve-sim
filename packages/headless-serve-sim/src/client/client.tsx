@@ -383,10 +383,9 @@ function AppWithConfig({
   // by SimulatorView's `useAvccStream`; this hook just reports browser support.
   //
   // Browser support is necessary but not sufficient: the helper may not serve
-  // `/stream.avcc` at all. A device started from the UI is spawned via
-  // `bunx headless-serve-sim --detach`, which runs the published `headless-serve-sim` — older
-  // versions predate H.264 and 404 the endpoint (cross-origin that 404 is
-  // opaque to fetch, so "no frame arrived" is the only reliable signal).
+  // `/stream.avcc` at all. A device started from an older installed CLI may
+  // predate H.264 and 404 the endpoint (cross-origin that 404 is opaque to
+  // fetch, so "no frame arrived" is the only reliable signal).
   // `avccFallback` drives a startup timeout: if AVCC paints nothing in time,
   // drop to MJPEG, which every helper serves. See avcc-fallback.ts.
   const avcc = useAvccStream();
@@ -805,12 +804,20 @@ function AppWithConfig({
       if (switching || d.udid === config.device) return;
       setSwitching(true);
       try {
-        if (d.state !== "Booted") {
-          await execOnHost(`xcrun simctl boot ${d.udid}`);
+        const startEndpoint = config.gridStartEndpoint;
+        if (!startEndpoint) throw new Error("Simulator start endpoint is unavailable");
+        const response = await fetch(startEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ udid: d.udid }),
+        });
+        const result = (await response.json().catch(() => null)) as {
+          ok?: boolean;
+          error?: string;
+        } | null;
+        if (!response.ok || !result?.ok) {
+          throw new Error(result?.error || "Failed to start headless-serve-sim");
         }
-        const detach = await execOnHost(`bunx headless-serve-sim --detach ${d.udid}`);
-        if (detach.exitCode !== 0)
-          throw new Error(detach.stderr || "Failed to start headless-serve-sim");
         const nextUrl = new URL(window.location.href);
         nextUrl.searchParams.set("device", d.udid);
         window.location.assign(nextUrl.toString());
@@ -818,7 +825,7 @@ function AppWithConfig({
         setSwitching(false);
       }
     },
-    [switching, config.device, setSwitching],
+    [switching, config.device, config.gridStartEndpoint, setSwitching],
   );
 
   const uploads = useUploadToasts();

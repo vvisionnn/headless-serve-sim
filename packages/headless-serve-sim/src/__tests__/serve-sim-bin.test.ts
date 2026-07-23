@@ -64,7 +64,7 @@ describe("resolveServeSimInvocation", () => {
     expect(inv).toEqual({ command: "/usr/local/bin/headless-serve-sim", baseArgs: [] });
   });
 
-  test("node dist/headless-serve-sim.js → node + entry (npm install / npx)", () => {
+  test("node dist/headless-serve-sim.js → node + entry (Node-compatible release)", () => {
     const inv = resolveServeSimInvocation(
       ["/usr/bin/node", "/app/node_modules/headless-serve-sim/dist/headless-serve-sim.js", "serve"],
       "/usr/bin/node",

@@ -8,8 +8,8 @@
  *   dist/middleware.js    Public subpath export "headless-serve-sim/middleware" (ESM)
  *   dist/middleware.cjs   Thin CJS wrapper for the same
  *
- * The bin and middleware bundles target `node` so users without `bun` on
- * their PATH can still run `npx headless-serve-sim` / mount the Connect middleware.
+ * The bin and middleware bundles target `node` so the release build can also
+ * provide a Node-compatible CLI and Connect middleware.
  * Runtime server and timing behavior is implemented with Node stdlib APIs.
  *
  * The preview HTML (bundled client.tsx + Preact + headless-serve-sim-client, base64

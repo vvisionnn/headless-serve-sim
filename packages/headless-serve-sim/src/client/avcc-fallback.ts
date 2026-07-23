@@ -3,8 +3,7 @@
  *
  * The client commits to AVCC whenever the *browser* can decode H.264
  * (WebCodecs). But the *server* may not actually serve `/stream.avcc`: a
- * device started from the UI is spawned via `bunx headless-serve-sim --detach`, which
- * runs the published `headless-serve-sim` — older versions predate H.264 and 404 the
+ * device started from an older installed CLI may predate H.264 and 404 the
  * endpoint. Cross-origin that 404 is opaque to `fetch`, so the only reliable
  * signal is "no frame ever arrived." This reducer drives a one-shot timeout:
  * if AVCC produces no frame within the window, we fall back to MJPEG (which

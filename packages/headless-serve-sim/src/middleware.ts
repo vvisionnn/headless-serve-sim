@@ -780,8 +780,8 @@ function buildMemoryReport(hostCommands: HostCommands): MemoryReport {
  *      virtual path that doesn't exist on the real filesystem, so the binary
  *      itself (execPath, or a headless-serve-sim-named argv[0]) IS the CLI.
  *   2. argv[0] is the compiled binary directly (no bunfs entry in argv).
- *   3. `node /path/to/headless-serve-sim.js` (npm-installed / npx).
- *   4. `headless-serve-sim` on PATH (global install, or embedded in a host dev
+ *   3. `node /path/to/headless-serve-sim.js` (Node-compatible release build).
+ *   4. `headless-serve-sim` on PATH (downloaded release, or embedded in a host dev
  *      server whose argv is unrelated to us).
  */
 export function resolveServeSimInvocation(
@@ -1215,7 +1215,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
             JSON.stringify({
               ok: false,
               error:
-                "headless-serve-sim CLI not found in PATH. Install it (npm i -g headless-serve-sim) and retry.",
+                "headless-serve-sim CLI not found in PATH. Download the latest GitHub release and retry.",
             }),
           );
           return;

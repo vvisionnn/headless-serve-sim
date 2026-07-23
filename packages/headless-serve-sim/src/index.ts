@@ -1357,7 +1357,7 @@ const NATIVE_PACKAGE_ROOT = join(__dirname, "..", "..", "headless-serve-sim-bina
 
 /**
  * Resolve the path to the SimCameraInjector dylib. The dev/source layout
- * places it under packages/headless-serve-sim/dist/simcam/; the published npm tarball
+ * places it under packages/headless-serve-sim/dist/simcam/; the release distribution
  * ships the same file at <package>/dist/simcam/.
  */
 function locateCameraDylib(): string | null {

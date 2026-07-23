@@ -103,7 +103,7 @@ export function BootEmptyState({
         <p className="text-fg-2 text-[15px] tracking-[-0.01em] max-w-120">
           Pick a simulator to connect, or start a specific one yourself with{" "}
           <code className="bg-surface-2 rounded-pill px-2 py-0.5 text-[13px]">
-            bunx headless-serve-sim --detach &lt;device&gt;
+            headless-serve-sim --detach &lt;device&gt;
           </code>
           .
         </p>

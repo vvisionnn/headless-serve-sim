@@ -6,18 +6,18 @@
 >
 > **This is a self-maintained version of the original project, [`EvanBacon/serve-sim`](https://github.com/EvanBacon/serve-sim).**
 >
-> **Renamed to avoid conflicts:** this fork ships as **`headless-serve-sim`** — the npm package, the CLI command, and the released binary are all named `headless-serve-sim` (not `serve-sim`). This lets it coexist with the upstream `serve-sim` without clashing. Anywhere you'd run `serve-sim …`, run `headless-serve-sim …` instead.
+> **Renamed to avoid conflicts:** this fork ships as **`headless-serve-sim`** — the CLI command and released binary are both named `headless-serve-sim` (not `serve-sim`). This lets it coexist with the upstream `serve-sim` without clashing. Anywhere you'd run `serve-sim …`, run `headless-serve-sim …` instead.
 >
 > It is maintained independently and may diverge from upstream. For the original project — official releases, issues, and support — please use the source repository:
 >
 > ### 👉 https://github.com/EvanBacon/serve-sim
 
-The `npx serve` of Apple Simulators.
+A local preview server for Apple Simulators.
 
 Host your simulator for use with Agent tools like Codex, Cursor, or Claude Desktop — locally, over your LAN, or host on a remote mac and tunnel anywhere.
 
 ```sh
-npx headless-serve-sim
+headless-serve-sim
 # → Preview at http://localhost:3200
 ```
 
@@ -43,7 +43,20 @@ I develop the Expo framework, but this tool is completely agnostic to React Nati
 
 ## Install
 
-Requires macOS with Xcode command line tools (`xcrun simctl`) and Node.js 18+. `bun` is **not** required to run the CLI. Camera injection uses a host-side helper built for macOS 14+.
+Requires an Apple Silicon Mac (arm64) with Xcode command line tools (`xcrun simctl`). Camera injection uses a host-side helper built for macOS 14+.
+
+Download and extract the latest GitHub release, then add its directory to your `PATH`:
+
+```sh
+mkdir -p "$HOME/.local/headless-serve-sim"
+curl -fL https://github.com/vvisionnn/headless-serve-sim/releases/latest/download/headless-serve-sim-darwin-arm64.tar.gz \
+  -o /tmp/headless-serve-sim.tar.gz
+tar -xzf /tmp/headless-serve-sim.tar.gz -C "$HOME/.local/headless-serve-sim"
+export PATH="$HOME/.local/headless-serve-sim:$PATH"
+headless-serve-sim --help
+```
+
+Add the `PATH` export to your shell profile to keep it available in future terminals.
 
 ## CLI
 
@@ -160,16 +173,14 @@ The web preview exposes the same action as a **Documents** tool-panel card: pick
 
 ## Connectors
 
-`headless-serve-sim` can be used with dev servers, browser, and AI editors for more seamless integration.
+`headless-serve-sim` can be used with browsers and AI editors for more seamless integration.
 
 ### Agent Skill
 
 An [Agent Skill](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview) ships in [`skills/headless-serve-sim`](skills/headless-serve-sim) — it teaches AI coding agents (Claude Code, Cursor, Codex CLI, Gemini CLI, and any host implementing the open Agent Skills standard) how to drive a simulator through the CLI: taps, gestures, hardware buttons, rotation, camera injection, and handing the stream off to the host's preview pane.
 
 ```sh
-bunx add-skill EvanBacon/serve-sim
-# in Claude Code:
-/plugin marketplace add EvanBacon/serve-sim
+bunx add-skill vvisionnn/headless-serve-sim
 ```
 
 See [`skills/headless-serve-sim/README.md`](skills/headless-serve-sim/README.md) for the full capability list.
@@ -184,58 +195,13 @@ Create a `.claude/launch.json` and define a server:
   "configurations": [
     {
       "name": "Apple",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["headless-serve-sim"],
+      "runtimeExecutable": "headless-serve-sim",
+      "runtimeArgs": [],
       "port": 3200
     }
   ]
 }
 ```
-
-### Expo
-
-Automatically start the headless-serve-sim process with `npx expo start` and access the URL at `http://localhost:8081/.sim`.
-
-First, customize the `metro.config.js` file (`bunx expo customize`):
-
-```js
-// Learn more https://docs.expo.io/guides/customizing-metro
-const { getDefaultConfig } = require("expo/metro-config");
-const connect = require("connect");
-const { simMiddleware } = require("headless-serve-sim/middleware");
-
-/** @type {import('expo/metro-config').MetroConfig} */
-const config = getDefaultConfig(__dirname);
-
-config.server = config.server || {};
-const originalEnhanceMiddleware = config.server.enhanceMiddleware;
-config.server.enhanceMiddleware = (metroMiddleware, server) => {
-  const middleware = originalEnhanceMiddleware
-    ? originalEnhanceMiddleware(metroMiddleware, server)
-    : metroMiddleware;
-  const app = connect();
-  app.use(simMiddleware({ basePath: "/.sim" }));
-  app.use(middleware);
-  return app;
-};
-
-module.exports = config;
-```
-
-## Embed in your dev server
-
-`headless-serve-sim/middleware` is a Connect-style middleware that mounts the same preview UI inside your existing dev server (Metro, Vite, Next, plain Express, etc.). Run `headless-serve-sim --detach` once to start the streaming helper, then add the middleware:
-
-```ts
-import { simMiddleware } from "headless-serve-sim/middleware";
-
-app.use(simMiddleware({ basePath: "/.sim" }));
-// → preview HTML at /.sim
-// → state JSON  at /.sim/api
-// → SSE logs    at /.sim/logs
-```
-
-The middleware reads the helper's state from `$TMPDIR/headless-serve-sim/` and forwards the user's browser to the live MJPEG + WebSocket endpoints. CORS is wide-open on the helper, so the page renders without a proxy.
 
 ## How it works
 
@@ -249,12 +215,11 @@ The middleware reads the helper's state from `$TMPDIR/headless-serve-sim/` and f
                                 $TMPDIR/headless-serve-sim/
                                        ▲
                                ┌──────────────────┐
-                               │ headless-serve-sim CLI /  │
-                               │ middleware       │
+                               │ headless-serve-sim CLI    │
                                └──────────────────┘
 ```
 
-The Swift helper (`packages/headless-serve-sim-binary/bin/headless-serve-sim-bin`) is a tiny standalone binary — no Xcode dependency at runtime. The CLI embeds it via `bun build --compile`, so installing the npm package is enough.
+The Swift helper (`packages/headless-serve-sim-binary/bin/headless-serve-sim-bin`) is a tiny standalone binary — no Xcode dependency at runtime. The released CLI embeds it via `bun build --compile`.
 
 ## Development
 

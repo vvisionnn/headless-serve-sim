@@ -1,6 +1,6 @@
 # headless-serve-sim agent skill
 
-A portable [Agent Skill](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview) that teaches AI coding agents to drive an Apple Simulator via the [headless-serve-sim](https://github.com/EvanBacon/serve-sim) CLI.
+A portable [Agent Skill](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview) that teaches AI coding agents to drive an Apple Simulator via the [headless-serve-sim](https://github.com/vvisionnn/headless-serve-sim) CLI.
 
 Works in Claude Code, Cursor, Codex CLI, Gemini CLI, GitHub Copilot, and any other tool that implements the open Agent Skills standard. The same `SKILL.md` works across all of them without modification.
 
@@ -18,25 +18,16 @@ Once installed, your agent knows how to:
 - Discover the running stream's URL and read the simulator's accessibility tree to find UI elements.
 - Hand the stream URL off to the host agent's preview pane (`preview_start` in Claude Code, equivalents elsewhere) so the user sees the simulator inline.
 
-It also teaches the agent the **gotchas** (use `tap`, not `gesture`, for plain taps), the **prerequisites** (macOS, Xcode CLI tools, Node 18+, macOS 14+ for camera), and **anti-patterns** to avoid.
+It also teaches the agent the **gotchas** (use `tap`, not `gesture`, for plain taps), the **prerequisites** (Apple Silicon Mac, Xcode CLI tools, Node 18+, macOS 14+ for camera), and **anti-patterns** to avoid.
 
 ## Install
 
 The skill lives in this repo under `skills/headless-serve-sim/`, so it is discoverable by the Agent Skills tooling directly from the headless-serve-sim repository.
 
-### Claude Code
+### Agents that support the Agent Skills standard (Claude Code, Cursor, Codex CLI, Gemini CLI, …)
 
 ```sh
-/plugin marketplace add EvanBacon/serve-sim
-/plugin install headless-serve-sim
-```
-
-### Any agent that supports the Agent Skills standard (Cursor, Codex CLI, Gemini CLI, …)
-
-```sh
-bunx add-skill EvanBacon/serve-sim
-# or
-npx skills add EvanBacon/serve-sim
+bunx add-skill vvisionnn/headless-serve-sim
 ```
 
 ### Manual install
@@ -55,13 +46,14 @@ The skill is a folder with a `SKILL.md` file plus reference documents. No build 
 
 The agent checks these for you, but for reference:
 
-- macOS host (any recent version).
+- Apple Silicon Mac (arm64).
 - Xcode command line tools (`xcode-select --install`).
-- Node.js 18+.
+- Node.js 18+ for the skill's helper scripts.
+- The `headless-serve-sim` binary from the latest GitHub release, available on `PATH`.
 - macOS 14+ if you want camera injection.
 - At least one booted iOS, iPad, or Apple Watch simulator.
 
-`headless-serve-sim` itself is invoked via `npx headless-serve-sim` — no global install required.
+Download the CLI from the repository's [latest GitHub release](https://github.com/vvisionnn/headless-serve-sim/releases/latest).
 
 ## How it's structured
 

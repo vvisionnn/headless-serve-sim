@@ -9,7 +9,7 @@ set -u
 DEVICE="${1:-}"
 
 # If a helper is already running for any device, return it
-EXISTING="$(npx --yes headless-serve-sim --list -q 2>/dev/null || echo '[]')"
+EXISTING="$(headless-serve-sim --list -q 2>/dev/null || echo '[]')"
 if [[ "$EXISTING" != "[]" && -n "$EXISTING" ]]; then
   if [[ -n "$DEVICE" ]]; then
     MATCH="$(echo "$EXISTING" | node -e "
@@ -34,7 +34,7 @@ fi
 
 # Start a new detached helper
 if [[ -n "$DEVICE" ]]; then
-  npx --yes headless-serve-sim --detach -q "$DEVICE"
+  headless-serve-sim --detach -q "$DEVICE"
 else
-  npx --yes headless-serve-sim --detach -q
+  headless-serve-sim --detach -q
 fi

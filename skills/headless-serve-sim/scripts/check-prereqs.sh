@@ -10,9 +10,13 @@ fail() {
   exit 1
 }
 
-# macOS host
+# Apple Silicon macOS host
 if [[ "$(uname -s)" != "Darwin" ]]; then
   fail "headless-serve-sim requires macOS. Detected: $(uname -s)."
+fi
+
+if ! /usr/bin/arch -arm64 /usr/bin/true 2>/dev/null; then
+  fail "The released headless-serve-sim CLI requires an Apple Silicon Mac (arm64)."
 fi
 
 # Xcode CLI tools (simctl)
@@ -29,7 +33,12 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 NODE_MAJOR="$(node -e 'console.log(process.versions.node.split(".")[0])')"
 if [[ "$NODE_MAJOR" -lt 18 ]]; then
-  fail "node $NODE_MAJOR detected. headless-serve-sim requires Node.js 18+."
+  fail "node $NODE_MAJOR detected. The headless-serve-sim skill requires Node.js 18+."
+fi
+
+# Released CLI
+if ! command -v headless-serve-sim >/dev/null 2>&1; then
+  fail "headless-serve-sim not found. Download the latest GitHub release and add it to PATH."
 fi
 
 # macOS 14+ is optional (camera-only), so warn rather than fail
