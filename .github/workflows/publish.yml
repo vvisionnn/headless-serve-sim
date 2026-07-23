@@ -48,10 +48,10 @@ jobs:
             exit 0
           fi
 
-          # Publish beta if headless-serve-sim or bundled client source changed.
+          # Publish beta if the server, native helper, or bundled client source changed.
           CHANGED=$(git diff --name-only HEAD~1 HEAD)
           SOURCE_CHANGED=false
-          if echo "$CHANGED" | grep -Eq "^packages/(headless-serve-sim|headless-serve-sim-client)/"; then
+          if echo "$CHANGED" | grep -Eq "^packages/(headless-serve-sim|headless-serve-sim-binary|headless-serve-sim-client)/"; then
             SOURCE_CHANGED=true
           fi
 

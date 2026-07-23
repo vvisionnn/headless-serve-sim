@@ -2,7 +2,10 @@ import { describe, test, expect } from "bun:test";
 import { resolve } from "path";
 import { existsSync, readFileSync, statSync } from "fs";
 
-const BIN_PATH = resolve(__dirname, "../../bin/headless-serve-sim-bin");
+const BIN_PATH = resolve(
+  __dirname,
+  "../../../headless-serve-sim-binary/bin/headless-serve-sim-bin",
+);
 
 const isDarwin = process.platform === "darwin";
 const describeIfDarwin = isDarwin ? describe : describe.skip;

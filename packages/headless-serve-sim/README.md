@@ -254,14 +254,14 @@ The middleware reads the helper's state from `$TMPDIR/headless-serve-sim/` and f
                                └──────────────────┘
 ```
 
-The Swift helper (`bin/headless-serve-sim-bin`) is a tiny standalone binary — no Xcode dependency at runtime. The CLI embeds it via `bun build --compile`, so installing the npm package is enough.
+The Swift helper (`packages/headless-serve-sim-binary/bin/headless-serve-sim-bin`) is a tiny standalone binary — no Xcode dependency at runtime. The CLI embeds it via `bun build --compile`, so installing the npm package is enough.
 
 ## Development
 
 ```sh
 bun install
 bun run --filter headless-serve-sim build         # build the JS bundles
-bun run --filter headless-serve-sim build:swift   # rebuild the Swift helper
+bun run --filter headless-serve-sim-binary build:swift # rebuild the Swift helper
 bun run --filter headless-serve-sim dev           # watch mode
 ```
 

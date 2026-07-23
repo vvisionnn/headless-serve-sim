@@ -17,14 +17,34 @@
  * via the __PREVIEW_HTML_B64__ build-time define.
  */
 import { resolve } from "path";
-import { mkdirSync, writeFileSync, rmSync, readFileSync } from "fs";
+import {
+  chmodSync,
+  copyFileSync,
+  cpSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+} from "fs";
 import { spawnSync } from "child_process";
 import tailwindPlugin from "bun-plugin-tailwind";
 
 const root = import.meta.dir;
+const nativeRoot = resolve(root, "../headless-serve-sim-binary");
 const distDir = resolve(root, "dist");
 rmSync(distDir, { recursive: true, force: true });
 mkdirSync(distDir, { recursive: true });
+
+const packagedHelper = resolve(distDir, "headless-serve-sim-bin");
+copyFileSync(resolve(nativeRoot, "bin/headless-serve-sim-bin"), packagedHelper);
+chmodSync(packagedHelper, 0o755);
+
+const packagedNativeSources = resolve(distDir, "native-sources");
+for (const component of ["SimAXSettings", "SimCameraHelper", "SimCameraInjector"]) {
+  cpSync(resolve(nativeRoot, "Sources", component), resolve(packagedNativeSources, component), {
+    recursive: true,
+  });
+}
 
 function kb(n: number): string {
   return `${(n / 1024).toFixed(1)} KB`;
@@ -229,7 +249,7 @@ console.log("dist/headless-serve-sim      (compiled binary)");
 
 const camBuild = spawnSync(
   "bash",
-  [resolve(root, "Sources/SimCameraInjector/build.sh"), resolve(distDir, "simcam")],
+  [resolve(packagedNativeSources, "SimCameraInjector/build.sh"), resolve(distDir, "simcam")],
   { stdio: "inherit" },
 );
 if (camBuild.status !== 0) {
@@ -240,7 +260,7 @@ console.log("dist/simcam/libSimCameraInjector.dylib");
 
 const helperBuild = spawnSync(
   "bash",
-  [resolve(root, "Sources/SimCameraHelper/build.sh"), resolve(distDir, "simcam")],
+  [resolve(packagedNativeSources, "SimCameraHelper/build.sh"), resolve(distDir, "simcam")],
   { stdio: "inherit" },
 );
 if (helperBuild.status !== 0) {
@@ -251,11 +271,11 @@ console.log("dist/simcam/headless-serve-sim-camera-helper");
 
 // ─── 7. sim-ax-settings in-sim CLI (simulator-wide UI settings) ──────────
 // Ships in dist/simax/ alongside the JS bin; ui-settings.ts resolves it via
-// locateAxSettingsTool (and lazy-builds from Sources/SimAXSettings if absent).
+// locateAxSettingsTool (and lazy-builds from the native package if absent).
 
 const axSettingsBuild = spawnSync(
   "bash",
-  [resolve(root, "Sources/SimAXSettings/build.sh"), resolve(distDir, "simax")],
+  [resolve(packagedNativeSources, "SimAXSettings/build.sh"), resolve(distDir, "simax")],
   { stdio: "inherit" },
 );
 if (axSettingsBuild.status !== 0) {

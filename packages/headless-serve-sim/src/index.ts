@@ -29,6 +29,8 @@ import { cameraShmNameForUdid } from "./camera-shm-name";
 import { debugCli, debugHelper, debugState } from "./debug";
 import type { CommandRequest, CommandResult, CommandTask } from "./runtime/host-commands";
 import { createNodeHostCommands } from "./runtime/node-host-commands";
+import { resolveUnembeddedHelperBinary } from "./helper-binary";
+import { resolveNativeSourceRoot } from "./native-source-root";
 
 // `import.meta.dir` is Bun-only; resolve once via fileURLToPath so the bundled
 // CLI works under plain `node` too.
@@ -68,7 +70,7 @@ const permissionsDependencies = {
 // `headless-serve-sim` binary. In dev / the un-compiled ESM bin the returned path is a
 // real file on disk; inside a compiled binary it points at bun's virtual FS
 // and we extract the bytes to a cached location on first use.
-import swiftHelperEmbeddedPath from "../bin/headless-serve-sim-bin" with { type: "file" };
+import swiftHelperEmbeddedPath from "../../headless-serve-sim-binary/bin/headless-serve-sim-bin" with { type: "file" };
 
 interface ServerState {
   pid: number;
@@ -229,15 +231,11 @@ function clearState(udid?: string) {
 function findHelperBinary(): string {
   const isEmbedded = swiftHelperEmbeddedPath.startsWith("/$bunfs/");
 
-  // Dev / npm-installed: path bun gave us is a real file on disk.
-  if (!isEmbedded && existsSync(swiftHelperEmbeddedPath)) {
-    return swiftHelperEmbeddedPath;
-  }
   if (!isEmbedded) {
-    const rel = resolve(__dirname, "../bin/headless-serve-sim-bin");
-    if (existsSync(rel)) return rel;
+    const helper = resolveUnembeddedHelperBinary(__dirname);
+    if (helper) return helper;
     throw new Error(
-      `headless-serve-sim-bin not found. Run 'bun run build:swift' first.\nChecked: ${swiftHelperEmbeddedPath}, ${rel}`,
+      `headless-serve-sim-bin not found or not executable. Run 'bun run build:swift' first.\nChecked beside ${__dirname} and in the native workspace package.`,
     );
   }
 
@@ -1355,16 +1353,20 @@ async function memoryWarning(deviceArg?: string) {
 
 // ─── Camera injection ───
 
+const NATIVE_PACKAGE_ROOT = join(__dirname, "..", "..", "headless-serve-sim-binary");
+
 /**
  * Resolve the path to the SimCameraInjector dylib. The dev/source layout
  * places it under packages/headless-serve-sim/dist/simcam/; the published npm tarball
  * ships the same file at <package>/dist/simcam/.
  */
 function locateCameraDylib(): string | null {
+  const nativeSources = join(NATIVE_PACKAGE_ROOT, "Sources");
   const candidates = [
     join(__dirname, "..", "dist", "simcam", "libSimCameraInjector.dylib"),
     join(__dirname, "simcam", "libSimCameraInjector.dylib"),
-    join(__dirname, "..", "Sources", "SimCameraInjector", "build", "libSimCameraInjector.dylib"),
+    join(NATIVE_PACKAGE_ROOT, "dist", "simcam", "libSimCameraInjector.dylib"),
+    join(nativeSources, "SimCameraInjector", "build", "libSimCameraInjector.dylib"),
   ];
   for (const p of candidates) {
     if (existsSync(p)) return resolve(p);
@@ -1373,8 +1375,9 @@ function locateCameraDylib(): string | null {
 }
 
 function buildCameraDylib(): string {
-  const buildScript = join(__dirname, "..", "Sources", "SimCameraInjector", "build.sh");
-  if (!existsSync(buildScript)) {
+  const sourceRoot = resolveNativeSourceRoot(__dirname);
+  const buildScript = sourceRoot && join(sourceRoot, "SimCameraInjector", "build.sh");
+  if (!buildScript || !existsSync(buildScript)) {
     throw new Error(
       "SimCameraInjector source not found — this build of headless-serve-sim does not " +
         "include camera support sources. Reinstall from a recent release.",
@@ -1384,7 +1387,7 @@ function buildCameraDylib(): string {
   runHostSync(
     {
       executable: "bash",
-      args: [buildScript],
+      args: [buildScript, join(__dirname, "..", "dist", "simcam")],
       stdio: "inherit",
     },
     "SimCameraInjector build failed",
@@ -1398,24 +1401,26 @@ function locateCameraHelper(): string | null {
   const candidates = [
     join(__dirname, "..", "dist", "simcam", "headless-serve-sim-camera-helper"),
     join(__dirname, "simcam", "headless-serve-sim-camera-helper"),
+    join(NATIVE_PACKAGE_ROOT, "dist", "simcam", "headless-serve-sim-camera-helper"),
   ];
   for (const p of candidates) if (existsSync(p)) return resolve(p);
   return null;
 }
 
 function buildCameraHelper(): string {
-  const buildScript = join(__dirname, "..", "Sources", "SimCameraHelper", "build.sh");
-  if (!existsSync(buildScript)) {
+  const sourceRoot = resolveNativeSourceRoot(__dirname);
+  const buildScript = sourceRoot && join(sourceRoot, "SimCameraHelper", "build.sh");
+  if (!buildScript || !existsSync(buildScript)) {
     throw new Error(
-      "SimCameraHelper source not found — webcam support requires building " +
-        "from a checkout that includes Sources/SimCameraHelper.",
+      "SimCameraHelper source not found — this build of headless-serve-sim does not " +
+        "include camera support sources. Reinstall from a recent release.",
     );
   }
   console.error("[headless-serve-sim] building headless-serve-sim-camera-helper (one-time)…");
   runHostSync(
     {
       executable: "bash",
-      args: [buildScript],
+      args: [buildScript, join(__dirname, "..", "dist", "simcam")],
       stdio: "inherit",
     },
     "SimCameraHelper build failed",

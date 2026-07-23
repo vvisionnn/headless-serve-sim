@@ -4,11 +4,13 @@ import { findBootedDevice, resolveDevice } from "./device";
 import type { HostCommands } from "./runtime/host-commands";
 import { createNodeHostCommands } from "./runtime/node-host-commands";
 import { dirnameOf } from "./runtime";
+import { resolveNativeSourceRoot } from "./native-source-root";
 
 // Bun's bundler inlines a bare `__dirname` as the build machine's source
 // directory; shadow it with the runtime location so the published bundle
 // finds dist/simax next to itself (same pattern as index.ts).
 const __dirname = dirnameOf(import.meta.url);
+const NATIVE_PACKAGE_ROOT = join(__dirname, "..", "..", "headless-serve-sim-binary");
 
 // ─── Option catalogue ───
 //
@@ -16,7 +18,7 @@ const __dirname = dirnameOf(import.meta.url);
 // app. Three (`appearance`, `increase-contrast`, `text-size`) ride on
 // `simctl ui`; the rest have no simctl verb, so they go through the
 // sim-ax-settings helper spawned inside the simulator (see
-// Sources/SimAXSettings), which drives the same private libAccessibility /
+// packages/headless-serve-sim-binary/Sources/SimAXSettings), which drives the same private libAccessibility /
 // MediaAccessibility setters the Devices app uses.
 
 export const CONTENT_SIZE_CATEGORIES = [
@@ -163,6 +165,7 @@ export function locateAxSettingsTool(): string | null {
   const candidates = [
     join(__dirname, "..", "dist", "simax", "headless-serve-sim-ax-settings"),
     join(__dirname, "simax", "headless-serve-sim-ax-settings"),
+    join(NATIVE_PACKAGE_ROOT, "dist", "simax", "headless-serve-sim-ax-settings"),
   ];
   for (const p of candidates) if (existsSync(p)) return resolve(p);
   return null;
@@ -206,8 +209,9 @@ export function createUiSettings(
   options: UiSettingsModuleOptions = {},
 ): UiSettingsModule {
   const locateTool = options.locateAxSettingsTool ?? locateAxSettingsTool;
+  const sourceRoot = resolveNativeSourceRoot(__dirname);
   const buildScript =
-    options.buildScript ?? join(__dirname, "..", "Sources", "SimAXSettings", "build.sh");
+    options.buildScript ?? (sourceRoot && join(sourceRoot, "SimAXSettings", "build.sh"));
   let toolPromise: Promise<string> | null = null;
 
   const run = async (executable: string, args: readonly string[]): Promise<string> => {
@@ -224,14 +228,14 @@ export function createUiSettings(
     toolPromise ??= (async () => {
       const located = locateTool();
       if (located) return located;
-      if (!existsSync(buildScript)) {
+      if (!buildScript || !existsSync(buildScript)) {
         throw new Error(
           "sim-ax-settings binary not found — this build of headless-serve-sim does " +
             "not include the simulator settings helper. Reinstall from a recent release.",
         );
       }
       options.onBuild?.();
-      await run("bash", [buildScript]);
+      await run("bash", [buildScript, join(__dirname, "..", "dist", "simax")]);
       const built = locateTool();
       if (!built) throw new Error("Build succeeded but sim-ax-settings not found.");
       return built;
