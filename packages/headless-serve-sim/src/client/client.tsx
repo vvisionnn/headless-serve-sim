@@ -409,6 +409,11 @@ function AppWithConfig({
     const timer = setTimeout(() => dispatchAvccFallback("timeout"), AVCC_FRAME_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [useAvccVideo, config.streamUrl]);
+  // The stream layer already recovers from a decoder fault by recreating the
+  // decoder and reconnecting, so one error is not a reason to downgrade. A run
+  // of them with no frame in between means recovery isn't working — then the
+  // reducer drops us to MJPEG rather than looping on H.264.
+  const onDecoderError = useCallback(() => dispatchAvccFallback("error"), []);
   const [liveStreamConfig, setLiveStreamConfig] = useState<StreamConfig | null>(null);
   // Screen config now arrives over the input WebSocket (pushed by the helper on
   // connect + on every dimension/orientation change) instead of a 1s /config poll.
@@ -1013,6 +1018,7 @@ function AppWithConfig({
                 statsEnabled={statsOpen}
                 onConnectionStats={handleConnectionStats}
                 recordingSourceRef={recordingSourceRef}
+                onDecoderError={onDecoderError}
               />
               {axOverlayEnabled && <AxDomOverlay />}
               {mediaDrop.isDragOver && (

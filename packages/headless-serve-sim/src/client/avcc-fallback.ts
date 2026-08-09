@@ -18,6 +18,8 @@ export interface AvccFallbackState {
   streamed: boolean;
   /** True once we've given up on AVCC and switched to MJPEG. */
   fellBack: boolean;
+  /** Decoder errors since the last painted frame. Reset by `frame`. */
+  consecutiveErrors: number;
 }
 
 export type AvccFallbackEvent =
@@ -25,12 +27,30 @@ export type AvccFallbackEvent =
   | "frame"
   /** The startup window elapsed; fall back unless a frame already arrived. */
   | "timeout"
+  /**
+   * The WebCodecs decoder failed fatally. The stream layer already answers this
+   * by recreating the decoder and reconnecting, which recovers a transient
+   * fault — so a single error must NOT downgrade. What it can't answer is a
+   * persistent one (VideoToolbox starved by a screen recorder, say): there,
+   * recreate-and-retry just loops. Repeated errors with no frame in between are
+   * the signal that recovery isn't working.
+   */
+  | "error"
   /** Target stream changed (device switch / reconnect) — re-arm AVCC. */
   | "reset";
+
+/**
+ * Consecutive decoder errors, with no frame painted between them, before we
+ * stop retrying H.264 and drop to MJPEG for the session. Above 1 so a
+ * recoverable blip keeps the better codec; low enough that a wedged decoder
+ * doesn't spin for long.
+ */
+export const AVCC_MAX_CONSECUTIVE_DECODER_ERRORS = 3;
 
 export const initialAvccFallback: AvccFallbackState = {
   streamed: false,
   fellBack: false,
+  consecutiveErrors: 0,
 };
 
 export function avccFallbackReducer(
@@ -39,12 +59,24 @@ export function avccFallbackReducer(
 ): AvccFallbackState {
   switch (event) {
     case "frame":
-      return state.streamed ? state : { ...state, streamed: true };
+      // A painted frame proves the decoder recovered, so the error run ends.
+      return state.streamed && state.consecutiveErrors === 0
+        ? state
+        : { ...state, streamed: true, consecutiveErrors: 0 };
     case "timeout":
       // Only fall back if AVCC never produced a frame. A later stall (helper
       // dies mid-session) is handled by the normal reconnect path, not by
       // permanently downgrading a stream that was working.
       return state.streamed || state.fellBack ? state : { ...state, fellBack: true };
+    case "error": {
+      if (state.fellBack) return state;
+      const consecutiveErrors = state.consecutiveErrors + 1;
+      return {
+        ...state,
+        consecutiveErrors,
+        fellBack: consecutiveErrors >= AVCC_MAX_CONSECUTIVE_DECODER_ERRORS,
+      };
+    }
     case "reset":
       return initialAvccFallback;
   }

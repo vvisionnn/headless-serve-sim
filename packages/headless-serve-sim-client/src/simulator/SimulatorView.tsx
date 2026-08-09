@@ -116,6 +116,13 @@ export interface SimulatorViewProps {
   streamMode?: "perf" | "quality";
   /** Provides fresh screen and touch snapshots to a browser-side recorder. */
   recordingSourceRef?: MutableRefObject<SimulatorRecordingSource | null>;
+  /**
+   * Fired on each fatal WebCodecs decoder fault, after the stream has already
+   * recreated the decoder and reconnected. One of these is a recoverable blip;
+   * a run of them with no frame in between means H.264 decode is not viable on
+   * this host, and the caller should stop retrying it.
+   */
+  onDecoderError?: () => void;
 }
 
 export type SimulatorRecordingTouch = RecordingTouchPoint;
@@ -170,6 +177,7 @@ export function SimulatorView({
   onConnectionStats,
   streamMode,
   recordingSourceRef,
+  onDecoderError,
 }: SimulatorViewProps) {
   const relayMode = !!onStreamTouch;
   // AVCC decode is independent of input relay: the H.264 pipeline only needs
@@ -406,6 +414,7 @@ export function SimulatorView({
     onFirstFrame: onAvccFirstFrame,
     onFrame: onAvccFrame,
     onError: setError,
+    onDecoderError,
     onRequestKeyframe: requestKeyframe,
     onProgress: onAvccProgress,
   });
