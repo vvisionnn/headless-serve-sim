@@ -46,6 +46,11 @@ jobs:
       - name: headless-serve-sim tests
         run: bun run test -- packages/headless-serve-sim/src/__tests__/
 
+      # The Swift self-tests need a toolchain, so they can only run here.
+      - name: Native self-tests
+        run: bun run test:swift
+        working-directory: packages/headless-serve-sim-binary
+
       - name: Package release tarball
         if: startsWith(github.ref, 'refs/tags/v')
         working-directory: packages/headless-serve-sim/dist

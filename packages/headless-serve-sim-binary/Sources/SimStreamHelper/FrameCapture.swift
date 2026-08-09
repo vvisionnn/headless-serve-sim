@@ -351,15 +351,7 @@ final class FrameCapture {
     }
 
     static func getDeveloperDir() -> String {
-        let pipe = Pipe()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select")
-        process.arguments = ["-p"]
-        process.standardOutput = pipe
-        try? process.run()
-        process.waitUntilExit()
-        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "/Applications/Xcode.app/Contents/Developer"
+        DeveloperDir.resolve()
     }
 
     /// Xcode 27 moved SimulatorKit from `Developer/Library/PrivateFrameworks`
