@@ -31,6 +31,7 @@ import type { CommandRequest, CommandResult, CommandTask } from "./runtime/host-
 import { createNodeHostCommands } from "./runtime/node-host-commands";
 import { resolveUnembeddedHelperBinary } from "./helper-binary";
 import { resolveNativeSourceRoot } from "./native-source-root";
+import { resolveSimulatorApp, withSimulatorFrameworkPath } from "./xcode-layout";
 
 // `import.meta.dir` is Bun-only; resolve once via fileURLToPath so the bundled
 // CLI works under plain `node` too.
@@ -263,18 +264,9 @@ function findHelperBinary(): string {
   return extracted;
 }
 
-/**
- * Env to spawn the Swift helper with. The helper links SimulatorKit/CoreSimulator
- * via `@rpath`, but the rpath baked in at build time points at whatever Xcode
- * lived on the build machine (e.g. `/Applications/Xcode_16.4.app/...`). On any
- * machine with Xcode installed at a different path that lookup fails with
- * `dyld: Library not loaded: @rpath/SimulatorKit.framework`. Inject the user's
- * actual Xcode PrivateFrameworks dir so dyld can resolve it regardless.
- */
-function helperSpawnEnv(): NodeJS.ProcessEnv {
-  let dev: string | null = null;
+function developerDir(): string | null {
   try {
-    dev = runHostSync(
+    return runHostSync(
       {
         executable: "xcode-select",
         args: ["-p"],
@@ -283,15 +275,24 @@ function helperSpawnEnv(): NodeJS.ProcessEnv {
     )
       .toString()
       .trim();
-  } catch {}
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Env to spawn the Swift helper with. The helper we ship loads SimulatorKit and
+ * CoreSimulator by path at runtime and links neither, so it needs nothing from
+ * here. This stays for helpers built before that change: those carry an
+ * `@rpath/SimulatorKit.framework` load command pointing at the Xcode on their
+ * build machine, and fail with `dyld: Library not loaded` against any other
+ * install or layout. Offering the user's actual framework dirs lets dyld
+ * resolve them anyway.
+ */
+function helperSpawnEnv(): NodeJS.ProcessEnv {
+  const dev = developerDir();
   if (!dev) return process.env;
-  const fw = `${dev}/Library/PrivateFrameworks`;
-  return {
-    ...process.env,
-    DYLD_FRAMEWORK_PATH: process.env.DYLD_FRAMEWORK_PATH
-      ? `${fw}:${process.env.DYLD_FRAMEWORK_PATH}`
-      : fw,
-  };
+  return withSimulatorFrameworkPath(process.env, dev);
 }
 
 // ─── Device helpers ───
@@ -418,14 +419,18 @@ function bootDevice(udid: string, headed: boolean): void {
     }
   }
   if (!headed) return;
-  // Launch Simulator.app's GUI window. `-g` keeps it backgrounded; the short
+  // Launch the GUI simulator window — `Simulator.app` up to Xcode 26,
+  // `DeviceHub.app` from Xcode 27. `-g` keeps it backgrounded; the short
   // timeout avoids hanging on headless hosts where `open` waits forever for a
   // window server that never arrives.
+  const dev = developerDir();
+  const app = dev ? resolveSimulatorApp(dev) : null;
+  if (!app) return;
   try {
     runHostSync(
       {
         executable: "open",
-        args: ["-ga", "Simulator"],
+        args: ["-ga", app],
         timeoutMs: 3_000,
       },
       "open Simulator failed",
@@ -2266,7 +2271,8 @@ program
   .option("--no-preview", "Skip the web preview server; stream in foreground only")
   .option(
     "--headed",
-    "Launch the Simulator.app window alongside the stream. " +
+    "Launch the simulator GUI window alongside the stream " +
+      "(Simulator.app, or DeviceHub.app on Xcode 27+). " +
       "Default is headless (no GUI window).",
   )
   .option("-l, --list [device]", "List running streams")
