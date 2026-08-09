@@ -53,8 +53,7 @@ final class FrameCapture {
         self.onIdle = onIdle
         self.requiresIdleFrame = requiresIdleFrame
 
-        _ = dlopen("/Library/Developer/PrivateFrameworks/CoreSimulator.framework/CoreSimulator", RTLD_NOW)
-        _ = dlopen("/Applications/Xcode.app/Contents/Developer/Library/PrivateFrameworks/SimulatorKit.framework/SimulatorKit", RTLD_NOW)
+        Self.loadSimulatorFrameworks()
 
         guard let device = Self.findSimDevice(udid: deviceUDID) else {
             throw makeError(1, "Device \(deviceUDID) not found")
@@ -361,5 +360,12 @@ final class FrameCapture {
         process.waitUntilExit()
         return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? "/Applications/Xcode.app/Contents/Developer"
+    }
+
+    /// Xcode 27 moved SimulatorKit from `Developer/Library/PrivateFrameworks`
+    /// to `Contents/SharedFrameworks`; try both. CoreSimulator stays in the
+    /// shared system-wide location across versions.
+    static func loadSimulatorFrameworks() {
+        SimFrameworks.load()
     }
 }

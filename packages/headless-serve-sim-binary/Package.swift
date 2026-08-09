@@ -1,15 +1,14 @@
 // swift-tools-version: 5.9
 import PackageDescription
-import Foundation
 
-let developerDir = ProcessInfo.processInfo.environment["DEVELOPER_DIR"]
-    ?? "/Applications/Xcode.app/Contents/Developer"
-let privateFrameworks = "\(developerDir)/Library/PrivateFrameworks"
-// Xcode 26/27 relocated SimulatorKit & CoreSimulator from Developer/Library/
-// PrivateFrameworks to Contents/SharedFrameworks. Search both so the helper
-// links across toolchain layouts (older Xcode and the 27 beta).
-let sharedFrameworks = "\(developerDir)/../SharedFrameworks"
-
+// CoreSimulator and SimulatorKit are deliberately NOT linked here. They are
+// reached entirely through the Objective-C runtime and dlsym, and are loaded at
+// runtime by `SimFrameworks.load()`. Linking them would bake an
+// `@rpath/SimulatorKit.framework` load command pointing at the build machine's
+// Xcode, and that path is not stable across toolchains (Xcode 27 moved
+// SimulatorKit from `Developer/Library/PrivateFrameworks` to
+// `Contents/SharedFrameworks`), so a release binary would fail to launch on a
+// host with a different Xcode. Loading by path keeps the binary portable.
 let package = Package(
     name: "SimStreamHelper",
     platforms: [.macOS(.v14)],
@@ -23,24 +22,7 @@ let package = Package(
                 .product(name: "Swifter", package: "swifter"),
             ],
             path: "Sources/SimStreamHelper",
-            swiftSettings: [
-                .unsafeFlags([
-                    "-F/Library/Developer/PrivateFrameworks",
-                    "-F\(privateFrameworks)",
-                    "-F\(sharedFrameworks)",
-                ]),
-            ],
             linkerSettings: [
-                .unsafeFlags([
-                    "-F/Library/Developer/PrivateFrameworks",
-                    "-F\(privateFrameworks)",
-                    "-F\(sharedFrameworks)",
-                    "-Xlinker", "-rpath", "-Xlinker", "/Library/Developer/PrivateFrameworks",
-                    "-Xlinker", "-rpath", "-Xlinker", "\(privateFrameworks)",
-                    "-Xlinker", "-rpath", "-Xlinker", "\(sharedFrameworks)",
-                ]),
-                .linkedFramework("CoreSimulator"),
-                .linkedFramework("SimulatorKit"),
                 .linkedFramework("VideoToolbox"),
                 .linkedFramework("CoreMedia"),
                 .linkedFramework("CoreVideo"),

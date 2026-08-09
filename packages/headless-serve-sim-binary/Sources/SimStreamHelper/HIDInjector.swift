@@ -41,9 +41,14 @@ final class HIDInjector {
     private typealias IndigoDigitalCrownFunc = @convention(c) (Double) -> UnsafeMutableRawPointer?
     private var digitalCrownFunc: IndigoDigitalCrownFunc?
 
+    // IndigoHIDMessageForHIDArbitrary(target, usagePage, usage, direction) -> IndigoMessage*
+    // Arg order recovered from the builder's disassembly: it writes arg0 into the
+    // message's target slot (+0x38) and arg3 into the direction slot (+0x34).
+    private typealias IndigoHIDArbitraryFunc = @convention(c) (UInt32, UInt32, UInt32, UInt32) -> UnsafeMutableRawPointer?
+    private var hidArbitraryFunc: IndigoHIDArbitraryFunc?
+
     func setup(deviceUDID: String) throws {
-        _ = dlopen("/Library/Developer/PrivateFrameworks/CoreSimulator.framework/CoreSimulator", RTLD_NOW)
-        _ = dlopen("/Applications/Xcode.app/Contents/Developer/Library/PrivateFrameworks/SimulatorKit.framework/SimulatorKit", RTLD_NOW)
+        FrameCapture.loadSimulatorFrameworks()
 
         guard let device = FrameCapture.findSimDevice(udid: deviceUDID) else {
             throw NSError(domain: "HIDInjector", code: 1,
@@ -77,6 +82,14 @@ final class HIDInjector {
         } else {
             print("[hid] Warning: IndigoHIDMessageForDigitalCrownEvent not found")
         }
+
+        if let arbPtr = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "IndigoHIDMessageForHIDArbitrary") {
+            self.hidArbitraryFunc = unsafeBitCast(arbPtr, to: IndigoHIDArbitraryFunc.self)
+            print("[hid] IndigoHIDMessageForHIDArbitrary loaded (buttons + keys)")
+        } else {
+            print("[hid] Warning: IndigoHIDMessageForHIDArbitrary not found — falling back to legacy button/key messages")
+        }
+
 
         guard let hidClass = NSClassFromString("_TtC12SimulatorKit24SimDeviceLegacyHIDClient") else {
             throw NSError(domain: "HIDInjector", code: 2,
@@ -195,8 +208,49 @@ final class HIDInjector {
     // idb target constant (third arg)
     private static let buttonTargetHardware: Int32 = 0x33
 
+    /// Deliver a raw message to the guest, freeing it. Returns false when the
+    /// transport isn't available.
+    @discardableResult
+    private func rawSend(_ msg: UnsafeMutableRawPointer) -> Bool {
+        guard let client = hidClient, let sendSel = sendSel,
+              let sendIMP = class_getMethodImplementation(object_getClass(client)!, sendSel)
+        else {
+            free(msg)
+            return false
+        }
+        typealias SendFunc = @convention(c) (AnyObject, Selector, UnsafeMutableRawPointer, ObjCBool, AnyObject?, AnyObject?) -> Void
+        unsafeBitCast(sendIMP, to: SendFunc.self)(client, sendSel, msg, ObjCBool(true), nil, nil)
+        return true
+    }
+
+    /// Send one HID usage transition on the digitizer target. This is the single
+    /// primitive behind both hardware buttons and keyboard keys — see `HIDUsage`
+    /// for why the digitizer target is the portable one.
+    /// Returns false when the arbitrary-HID builder isn't available.
+    @discardableResult
+    private func sendHIDUsage(page: UInt32, usage: UInt32, direction: UInt32) -> Bool {
+        guard let arb = hidArbitraryFunc else { return false }
+        guard let msg = arb(Self.hidUsageTarget, page, usage, direction) else {
+            print("[hid] IndigoHIDMessageForHIDArbitrary returned nil (page=0x\(String(page, radix: 16)) usage=0x\(String(usage, radix: 16)))")
+            return false
+        }
+        return rawSend(msg)
+    }
+
+    /// Press and release a HID usage, optionally holding it (Siri needs a hold).
+    @discardableResult
+    private func pressHIDUsage(page: UInt32, usage: UInt32, hold: TimeInterval = 0) -> Bool {
+        guard sendHIDUsage(page: page, usage: usage, direction: HIDUsage.down) else { return false }
+        if hold > 0 { Thread.sleep(forTimeInterval: hold) }
+        return sendHIDUsage(page: page, usage: usage, direction: HIDUsage.up)
+    }
+
+    /// Target for arbitrary HID reports: the display digitizer, the one Indigo
+    /// target every supported Xcode still routes to the guest.
+    private static let hidUsageTarget: UInt32 = 0x32
+
     private func sendHIDButton(eventSource: Int32, direction: Int32) {
-        guard let client = hidClient, let sendSel = sendSel, let buttonFunc = buttonFunc else { return }
+        guard let buttonFunc = buttonFunc else { return }
 
         // IndigoHIDMessageForButton returns a ready-to-send message
         // idb uses it directly with malloc_size to determine length
@@ -204,16 +258,9 @@ final class HIDInjector {
             print("[hid] IndigoHIDMessageForButton returned nil")
             return
         }
-
-        // Send via SimDeviceLegacyHIDClient (freeWhenDone: true — runtime will free msg)
-        typealias SendFunc = @convention(c) (AnyObject, Selector, UnsafeMutableRawPointer, ObjCBool, AnyObject?, AnyObject?) -> Void
-        guard let sendIMP = class_getMethodImplementation(object_getClass(client)!, sendSel) else {
-            free(msg)
-            return
-        }
-        let sendFunc = unsafeBitCast(sendIMP, to: SendFunc.self)
-        sendFunc(client, sendSel, msg, ObjCBool(true), nil, nil)
+        rawSend(msg)
     }
+
 
     private let buttonQueue = DispatchQueue(label: "hid-button")
 
@@ -224,33 +271,30 @@ final class HIDInjector {
     ///   - type: "down" or "up"
     ///   - usage: HID usage code (e.g. 0x04 = 'A', 0x28 = Enter, 0xE1 = LeftShift)
     func sendKey(type: String, usage: UInt32) {
-        guard let client = hidClient, let sendSel = sendSel, let keyboardFunc = keyboardFunc else {
-            print("[hid] Keyboard injection unavailable")
-            return
-        }
-
         let direction: UInt32
         switch type {
-        case "down": direction = 1
-        case "up":   direction = 2
+        case "down": direction = HIDUsage.down
+        case "up":   direction = HIDUsage.up
         default: return
-        }
-
-        guard let msg = keyboardFunc(usage, direction) else {
-            print("[hid] IndigoHIDMessageForKeyboardArbitrary returned nil (usage=0x\(String(usage, radix: 16)))")
-            return
         }
 
         print("[hid] Key \(type) usage=0x\(String(usage, radix: 16))")
 
-        typealias SendFunc = @convention(c) (AnyObject, Selector, UnsafeMutableRawPointer, ObjCBool, AnyObject?, AnyObject?) -> Void
-        guard let sendIMP = class_getMethodImplementation(object_getClass(client)!, sendSel) else {
-            free(msg)
+        // Preferred path: a keyboard-page HID report on the digitizer target.
+        if sendHIDUsage(page: HIDUsage.keyboardPage, usage: usage, direction: direction) { return }
+
+        // Fallback for toolchains without the arbitrary-HID builder.
+        guard let keyboardFunc = keyboardFunc else {
+            print("[hid] Keyboard injection unavailable")
             return
         }
-        let sendFunc = unsafeBitCast(sendIMP, to: SendFunc.self)
-        sendFunc(client, sendSel, msg, ObjCBool(true), nil, nil)
+        guard let msg = keyboardFunc(usage, direction) else {
+            print("[hid] IndigoHIDMessageForKeyboardArbitrary returned nil (usage=0x\(String(usage, radix: 16)))")
+            return
+        }
+        rawSend(msg)
     }
+
 
     // MARK: - Digital Crown events
 
@@ -288,35 +332,62 @@ final class HIDInjector {
     func sendButton(button: String, deviceUDID: String) {
         print("[hid] Sending button: \(button)")
 
+        // `swipe_home` is a touch gesture, not a button, so it bypasses the HID
+        // usage table entirely.
+        if button == "swipe_home" {
+            buttonQueue.async { [self] in sendSwipeHome() }
+            return
+        }
+
+        // Preferred path for every real hardware button: a consumer-page HID
+        // usage on the digitizer target (see HIDUsage). Siri only registers on a
+        // hold, and the app switcher is a double home press.
+        if let usage = HIDUsage.consumerUsage(forButton: button) {
+            let hold: TimeInterval = button == "siri" ? 0.3 : 0
+            buttonQueue.async { [self] in
+                if pressHIDUsage(page: HIDUsage.consumerPage, usage: usage, hold: hold) { return }
+                sendLegacyButton(button, deviceUDID: deviceUDID)
+            }
+            return
+        }
+
+        if button == "app_switcher" {
+            buttonQueue.async { [self] in
+                if pressHIDUsage(page: HIDUsage.consumerPage, usage: HIDUsage.menu) {
+                    Thread.sleep(forTimeInterval: 0.15)
+                    _ = pressHIDUsage(page: HIDUsage.consumerPage, usage: HIDUsage.menu)
+                    return
+                }
+                sendLegacyButton(button, deviceUDID: deviceUDID)
+            }
+            return
+        }
+
+        print("[hid] Unknown button: \(button)")
+    }
+
+    /// Pre-arbitrary-HID fallback, for toolchains where
+    /// `IndigoHIDMessageForHIDArbitrary` isn't exported. Runs on `buttonQueue`.
+    private func sendLegacyButton(_ button: String, deviceUDID: String) {
         switch button {
         case "home":
             if buttonFunc != nil {
-                // Single home press via HID
                 sendHIDButton(eventSource: Self.buttonSourceHome, direction: Self.buttonDown)
                 sendHIDButton(eventSource: Self.buttonSourceHome, direction: Self.buttonUp)
             } else {
-                // Fallback: simctl
                 launchSpringBoard(deviceUDID: deviceUDID)
             }
 
-        case "swipe_home":
-            buttonQueue.async { [self] in
-                sendSwipeHome()
-            }
-
         case "app_switcher":
-            if buttonFunc != nil {
-                // Double home press with delay for app switcher
-                buttonQueue.async { [self] in
-                    sendHIDButton(eventSource: Self.buttonSourceHome, direction: Self.buttonDown)
-                    sendHIDButton(eventSource: Self.buttonSourceHome, direction: Self.buttonUp)
-                    Thread.sleep(forTimeInterval: 0.15)
-                    sendHIDButton(eventSource: Self.buttonSourceHome, direction: Self.buttonDown)
-                    sendHIDButton(eventSource: Self.buttonSourceHome, direction: Self.buttonUp)
-                }
-            } else {
+            guard buttonFunc != nil else {
                 print("[hid] App switcher not available (IndigoHIDMessageForButton not loaded)")
+                return
             }
+            sendHIDButton(eventSource: Self.buttonSourceHome, direction: Self.buttonDown)
+            sendHIDButton(eventSource: Self.buttonSourceHome, direction: Self.buttonUp)
+            Thread.sleep(forTimeInterval: 0.15)
+            sendHIDButton(eventSource: Self.buttonSourceHome, direction: Self.buttonDown)
+            sendHIDButton(eventSource: Self.buttonSourceHome, direction: Self.buttonUp)
 
         case "lock":
             sendHIDButton(eventSource: Self.buttonSourceLock, direction: Self.buttonDown)
@@ -325,11 +396,9 @@ final class HIDInjector {
         case "siri":
             // Holding Siri for ~300ms matches Simulator.app's "hold side button
             // to invoke Siri" gesture; a tap is ignored.
-            buttonQueue.async { [self] in
-                sendHIDButton(eventSource: Self.buttonSourceSiri, direction: Self.buttonDown)
-                Thread.sleep(forTimeInterval: 0.3)
-                sendHIDButton(eventSource: Self.buttonSourceSiri, direction: Self.buttonUp)
-            }
+            sendHIDButton(eventSource: Self.buttonSourceSiri, direction: Self.buttonDown)
+            Thread.sleep(forTimeInterval: 0.3)
+            sendHIDButton(eventSource: Self.buttonSourceSiri, direction: Self.buttonUp)
 
         case "side_button":
             sendHIDButton(eventSource: Self.buttonSourceSideButton, direction: Self.buttonDown)
@@ -339,6 +408,7 @@ final class HIDInjector {
             print("[hid] Unknown button: \(button)")
         }
     }
+
 
     // MARK: - SimDevice private control
 
