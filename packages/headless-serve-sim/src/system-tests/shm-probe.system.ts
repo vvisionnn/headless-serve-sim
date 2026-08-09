@@ -411,3 +411,68 @@ describeIf("SimCameraHelper shm probe", () => {
     helper = null;
   });
 });
+
+// SIGTERM is how the server reaps a helper, and it does not run the `shutdown`
+// command handler — it trips the run loop, so the only unlink is the one on the
+// teardown path. That unlink used to sit *after* every capture-source stop, so
+// a source that died during teardown left the shm name resolvable for the life
+// of the boot. It now runs first.
+describeIf("SimCameraHelper signal teardown", () => {
+  const TAG = `${process.pid.toString(36)}${Date.now().toString(36)}sig`.slice(-10);
+  const SHM_NAME = `/sscam-sig-${TAG}`;
+  const SOCKET_PATH = `/tmp/sscam-sig-${TAG}.sock`;
+
+  test("SIGTERM unlinks the shm name", async () => {
+    const helper = spawn(
+      HELPER_PATH,
+      ["--shm", SHM_NAME, "--socket", SOCKET_PATH, "--source", "placeholder"],
+      { stdio: ["ignore", "ignore", "pipe"] },
+    ) as unknown as ChildProcessByStdio<null, null, null>;
+    let stderrText = "";
+    (helper as unknown as { stderr: NodeJS.ReadableStream | null }).stderr?.on(
+      "data",
+      (chunk: Buffer) => {
+        stderrText += chunk.toString();
+      },
+    );
+    try {
+      const bound = await waitFor(() => existsSync(SOCKET_PATH), 5000);
+      expect(bound).toBe(true);
+
+      // Sanity: the segment exists before the signal, so its absence after
+      // proves the unlink ran rather than the name never having been published.
+      const live = await openExistingShm(SHM_NAME);
+      expect(live).not.toBeNull();
+      if (live) await closeShm(live);
+
+      const exited = new Promise<void>((resolve) => helper.once("exit", () => resolve()));
+      helper.kill("SIGTERM");
+      await exited;
+
+      const sys = await loadFfi();
+      const name = Buffer.from(`${SHM_NAME}\0`);
+      // Poll: the unlink lands during teardown, which can trail the exit event.
+      const gone = await waitFor(() => {
+        const fd = sys.shm_open(name, 0, 0);
+        if (fd >= 0) {
+          sys.close(fd);
+          return false;
+        }
+        return true;
+      }, 2000);
+      if (!gone) sys.shm_unlink(name);
+      expect(gone).toBe(true);
+    } finally {
+      if (!helper.killed) {
+        try {
+          helper.kill("SIGKILL");
+        } catch {}
+      }
+      try {
+        const sys = await loadFfi();
+        sys.shm_unlink(Buffer.from(`${SHM_NAME}\0`));
+      } catch {}
+      if (stderrText.includes("error")) console.error(stderrText.slice(0, 400));
+    }
+  }, 20_000);
+});

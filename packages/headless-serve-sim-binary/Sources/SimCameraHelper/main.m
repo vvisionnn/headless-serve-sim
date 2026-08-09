@@ -936,11 +936,18 @@ int main(int argc, const char *argv[]) {
         }
         if (gAcceptSource) dispatch_source_cancel(gAcceptSource);
         if (gControlListenFd >= 0) { close(gControlListenFd); if (socketPath) unlink(socketPath); }
+        // Unlink before stopping the sources. The `shutdown` command already
+        // unlinks in its handler, but this path is also reached on a signal —
+        // which is how the server reaps helpers — and source teardown takes
+        // seconds, so unlinking after it left the name resolvable long after
+        // the process was asked to die. Stopping a source can also fail
+        // outright, which would strand the name for the life of the boot.
+        // shm_unlink is idempotent, so the double unlink is harmless.
+        if (gShmName) shm_unlink(gShmName);
         StopPlaceholderSource();
         StopWebcamSource();
         StopVideoSource();
         ReleaseSurfaces();
-        if (gShmName) shm_unlink(gShmName);
         fprintf(stderr, "[headless-serve-sim-camera] stopped\n");
         return 0;
     }
