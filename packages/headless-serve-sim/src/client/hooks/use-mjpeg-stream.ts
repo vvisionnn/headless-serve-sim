@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef } from "react";
+import { createMjpegFrameParser } from "../utils/mjpeg-frame-parser";
 
 /**
  * Fetches an MJPEG stream and parses out individual JPEG frames as blob URLs.
  * Chrome doesn't support multipart/x-mixed-replace in <img> tags,
  * so we manually read the stream and extract JPEG boundaries.
+ *
+ * Framing lives in createMjpegFrameParser — see there for why it uses
+ * Content-Length in preference to scanning for an end marker.
  *
  * Screen config (dimensions / orientation) is no longer polled here — it
  * arrives over the input WebSocket — so this hook only deals with frame bytes.
@@ -47,46 +51,16 @@ export function useMjpegStream(streamUrl: string | null) {
           return;
         }
 
-        let buffer = new Uint8Array(0);
+        const parser = createMjpegFrameParser();
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          // Append new data
-          const newBuf = new Uint8Array(buffer.length + value.length);
-          newBuf.set(buffer);
-          newBuf.set(value, buffer.length);
-          buffer = newBuf;
-
-          // Look for JPEG frames: find Content-Length or JPEG markers (FFD8...FFD9)
-          // Simpler approach: split on boundary markers and extract JPEG data
-          while (true) {
-            // Find first JPEG start (FF D8)
-            let jpegStart = -1;
-            for (let i = 0; i < buffer.length - 1; i++) {
-              if (buffer[i] === 0xff && buffer[i + 1] === 0xd8) {
-                jpegStart = i;
-                break;
-              }
-            }
-            if (jpegStart === -1) break;
-
-            // Find JPEG end (FF D9) after the start
-            let jpegEnd = -1;
-            for (let i = jpegStart + 2; i < buffer.length - 1; i++) {
-              if (buffer[i] === 0xff && buffer[i + 1] === 0xd9) {
-                jpegEnd = i + 2;
-                break;
-              }
-            }
-            if (jpegEnd === -1) break;
-
-            // Extract the JPEG frame
-            const jpeg = buffer.slice(jpegStart, jpegEnd);
-            buffer = buffer.slice(jpegEnd);
-
-            const blob = new Blob([jpeg], { type: "image/jpeg" });
+          for (const jpeg of parser.push(value)) {
+            // Blob copies synchronously, so the parser's view can be reused
+            // for the next frame right after this.
+            const blob = new Blob([jpeg as BlobPart], { type: "image/jpeg" });
             const blobUrl = URL.createObjectURL(blob);
             if (subscribersRef.current.size === 0) {
               URL.revokeObjectURL(blobUrl);
