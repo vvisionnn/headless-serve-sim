@@ -95,7 +95,8 @@ Options:
   -d, --detach        Spawn helper and exit (daemon mode)
   -q, --quiet         JSON-only output
       --no-preview    Skip the web UI; stream in foreground only
-      --headed        Launch the Simulator.app window alongside the stream.
+      --headed        Launch the simulator GUI window alongside the stream
+                      (Simulator.app, or DeviceHub.app on Xcode 27+).
                       Default is headless (no GUI window).
       --list [device] List running streams
       --kill [device] Kill running stream(s)
@@ -115,8 +116,8 @@ Camera options (used with `headless-serve-sim camera <bundle-id>`):
 ### Examples
 
 ```sh
-headless-serve-sim                              # auto-detect booted sim, open preview (no Simulator.app window)
-headless-serve-sim --headed                     # also launch the Simulator.app window
+headless-serve-sim                              # auto-detect booted sim, open preview (no GUI window)
+headless-serve-sim --headed                     # also launch the simulator GUI window
 headless-serve-sim "iPhone 16 Pro"              # target a specific device
 headless-serve-sim --detach                     # start a background helper, return JSON
 headless-serve-sim --list                       # show running streams
