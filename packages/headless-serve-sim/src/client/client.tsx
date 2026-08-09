@@ -50,7 +50,7 @@ import { avccFallbackReducer, initialAvccFallback, AVCC_FRAME_TIMEOUT_MS } from 
 import { parseSimctlList, type SimDevice } from "./utils/devices";
 import { fileExtension } from "./utils/drop";
 import { execOnHost } from "./utils/exec";
-import { hidUsageForCode } from "./utils/hid";
+import { hidUsageForCode, reactNativeReloadKeys } from "./utils/hid";
 import {
   CONNECTION_STATS_PANEL_WIDTH,
   DEVTOOLS_PANEL_WIDTH,
@@ -695,17 +695,12 @@ function AppWithConfig({
     };
   }, [config.appStateEndpoint, config.device]);
 
-  // Cmd+R to reload the RN/Expo bundle.
+  // Reload the RN/Expo bundle. See reactNativeReloadKeys — plain R, no Cmd.
   const sendReactNativeReload = useCallback(async () => {
-    const META = 0xe3;
-    const R = 0x15;
-    sendKey("down", META);
-    await new Promise((r) => setTimeout(r, 30));
-    sendKey("down", R);
-    await new Promise((r) => setTimeout(r, 30));
-    sendKey("up", R);
-    await new Promise((r) => setTimeout(r, 30));
-    sendKey("up", META);
+    for (const [index, key] of reactNativeReloadKeys().entries()) {
+      if (index > 0) await new Promise((r) => setTimeout(r, 30));
+      sendKey(key.type, key.usage);
+    }
   }, [sendKey]);
 
   const simContainerRef = useRef<HTMLDivElement | null>(null);
@@ -961,7 +956,7 @@ function AppWithConfig({
                 {currentApp?.isReactNative && (
                   <SimulatorToolbar.Button
                     aria-label="Reload React Native bundle"
-                    title="Reload (Cmd+R)"
+                    title="Reload (R)"
                     onClick={() => void sendReactNativeReload()}
                   >
                     <ReloadIcon />

@@ -109,3 +109,21 @@ export const HID_USAGE_BY_CODE: Record<string, number> = {
 export function hidUsageForCode(code: string): number | null {
   return HID_USAGE_BY_CODE[code] ?? null;
 }
+
+/**
+ * Key events that reload a React Native / Expo bundle.
+ *
+ * RN registers reload *with* the Command modifier (RCTReloadCommand.m), but
+ * RCTKeyCommands matches on `_flags == flags || flags == 0` — an incoming
+ * event carrying no modifiers matches a command registered under any modifier.
+ * So a bare R fires reload regardless of how the app registered it, whereas
+ * Cmd+R only fires if our injected modifier state is reported back as exactly
+ * UIKeyModifierCommand. Send the plain key: it's the wildcard.
+ */
+export function reactNativeReloadKeys(): Array<{ type: "down" | "up"; usage: number }> {
+  const R = HID_USAGE_BY_CODE.KeyR!;
+  return [
+    { type: "down", usage: R },
+    { type: "up", usage: R },
+  ];
+}
