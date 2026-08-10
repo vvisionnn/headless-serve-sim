@@ -8,6 +8,7 @@ import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
 import { createAxStreamerCache } from "./ax";
 import { cameraStatus } from "./camera-helper";
 import type { PreviewInitialState } from "./preview-initial-state";
+import { createEventLog, type EventLogDraft, type EventLogEntry } from "./event-log";
 import { debugMw } from "./debug";
 import { resolveInstalledDeviceMetadata } from "./device-metadata";
 import { createExecUpgradeHandler, type UiRequestHandler } from "./exec-ws";
@@ -465,6 +466,7 @@ export function previewConfigForState(
   appStateEndpoint: string;
   metricsEndpoint: string;
   cameraStatusEndpoint: string;
+  eventLogEndpoint: string;
   axEndpoint: string;
   devtoolsEndpoint: string;
   serveSimBin: string;
@@ -494,6 +496,7 @@ export function previewConfigForState(
     appStateEndpoint: endpoint(base, "/appstate", state.device),
     metricsEndpoint: endpoint(base, "/api/metrics", state.device),
     cameraStatusEndpoint: endpoint(base, "/camera/status", state.device),
+    eventLogEndpoint: endpoint(base, "/events/log", state.device),
     axEndpoint: endpoint(base, "/ax", state.device),
     devtoolsEndpoint: endpoint(base, "/devtools", state.device),
     serveSimBin,
@@ -905,6 +908,8 @@ export interface SimMiddlewareOptions {
   now?: () => number;
   /** One-shot UI state applied when a preview page first loads. */
   initialState?: PreviewInitialState;
+  /** Override the input event buffer. Intended for tests. */
+  eventLog?: ReturnType<typeof createEventLog>;
 }
 
 function safeEqualString(a: string, b: string): boolean {
@@ -912,6 +917,25 @@ function safeEqualString(a: string, b: string): boolean {
   const bb = Buffer.from(b);
   if (ab.length !== bb.length) return false;
   return timingSafeEqual(ab, bb);
+}
+
+/**
+ * Whether a request came from this machine.
+ *
+ * The event log records key labels, so its history reveals typed text. Reads
+ * are allowed unauthenticated over loopback — a local caller is already the
+ * user's own shell — but require the token once the preview is bound to a
+ * routable interface via `--host`.
+ */
+function isLoopbackRequest(req: SimReq): boolean {
+  const address = (req.socket as { remoteAddress?: string } | undefined)?.remoteAddress;
+  if (!address) return false;
+  return (
+    address === "127.0.0.1" ||
+    address === "::1" ||
+    address === "::ffff:127.0.0.1" ||
+    address.startsWith("127.")
+  );
 }
 
 function isJsonContentType(value: string | undefined): boolean {
@@ -936,6 +960,14 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
   // can call /exec; cross-origin pages and LAN clients cannot, because they
   // can't read this value (it's only injected into the preview page's config).
   const execToken = options?.execToken ?? randomBytes(32).toString("base64url");
+  // One buffer per middleware instance, shared by the reporting route, the SSE
+  // stream, and the CLI's read route — so all three see the same history.
+  const eventLog = options?.eventLog ?? createEventLog();
+  const eventLogReadAllowed = (req: SimReq): boolean => {
+    if (isLoopbackRequest(req)) return true;
+    const match = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? "");
+    return !!match && safeEqualString(match[1]!.trim(), execToken);
+  };
   // Resolved once per process: the command the in-page tools shell out to.
   const serveSimBin = options?.serveSimBin ?? serveSimBinPath(hostCommands);
   const stateDir = options?.stateDir ?? STATE_DIR;
@@ -1642,6 +1674,103 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
     // Content-Type + Origin checks to block CORS-simple CSRF (a malicious
     // page POSTing `text/plain` JSON to a dev server bound to a public iface)
     // and LAN attackers who can reach the port but can't read the token.
+    // Input events are reported here by the preview page: this fork's input
+    // WebSocket goes browser → helper directly, so the server never sees the
+    // events itself. Token-gated like /exec, since anything that can write here
+    // can forge history the CLI will print.
+    if (url === base + "/events/log" && req.method === "POST") {
+      const authHeader = req.headers.authorization ?? "";
+      const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+      if (!match || !safeEqualString(match[1]!.trim(), execToken)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized" }));
+        return;
+      }
+      let body = "";
+      let aborted = false;
+      req.on("data", (chunk: Buffer | string) => {
+        body += typeof chunk === "string" ? chunk : chunk.toString();
+        if (body.length > 1024 * 1024) {
+          aborted = true;
+          res.writeHead(413, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Payload Too Large" }));
+          req.destroy();
+        }
+      });
+      req.on("end", () => {
+        if (aborted) return;
+        let drafts: EventLogDraft[] = [];
+        try {
+          const parsed = JSON.parse(body) as { events?: EventLogDraft[] };
+          drafts = Array.isArray(parsed.events) ? parsed.events : [];
+        } catch {}
+        let accepted = 0;
+        for (const draft of drafts) {
+          // Ignore malformed entries rather than failing the batch: one bad
+          // event must not drop the good ones reported alongside it.
+          if (!draft || typeof draft.kind !== "string") continue;
+          const source = draft.source === "exec" || draft.source === "ui" ? draft.source : "hid";
+          eventLog.append({ ...draft, source, kind: draft.kind });
+          accepted++;
+        }
+        res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        res.end(JSON.stringify({ ok: true, accepted }));
+      });
+      return;
+    }
+
+    // Read the buffer. `after` returns only newer entries so a poller doesn't
+    // re-transfer the window each time.
+    if (url === base + "/events/log" && (req.method ?? "GET") === "GET") {
+      if (!eventLogReadAllowed(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized" }));
+        return;
+      }
+      const rawAfter = new URL(req.url ?? "/", "http://localhost").searchParams.get("after");
+      const after = rawAfter && /^\d+$/.test(rawAfter) ? Number(rawAfter) : undefined;
+      const device = selectedDevice;
+      const entries = eventLog
+        .list(after)
+        .filter((entry) => !device || !entry.device || entry.device === device);
+      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      res.end(JSON.stringify({ events: entries }));
+      return;
+    }
+
+    if (url === base + "/events/log/stream") {
+      if (!eventLogReadAllowed(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized" }));
+        return;
+      }
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+      res.write(":\n\n");
+      const device = selectedDevice;
+      const send = (entry: EventLogEntry) => {
+        if (res.writableEnded) return;
+        if (device && entry.device && entry.device !== device) return;
+        res.write(`data: ${JSON.stringify(entry)}\n\n`);
+      };
+      for (const entry of eventLog.list()) send(entry);
+      const unsubscribe = eventLog.subscribe(send);
+      const keepAlive = setInterval(() => {
+        if (!res.writableEnded) res.write(":\n\n");
+      }, 15_000);
+      const stop = () => {
+        clearInterval(keepAlive);
+        unsubscribe();
+      };
+      req.on("close", stop);
+      res.on("close", stop);
+      return;
+    }
+
     if ((url === base + "/exec" || url === base + "/exec/") && req.method === "POST") {
       // 1. Reject anything that isn't a JSON request, killing the
       //    `enctype="text/plain"` CORS-simple form-POST path.

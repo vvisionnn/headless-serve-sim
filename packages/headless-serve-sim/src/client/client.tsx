@@ -40,6 +40,7 @@ import { ResizeHandle } from "./components/resize-handle";
 import { InspectorBar } from "./components/inspector-bar";
 import { LogsPanel } from "./components/logs-panel";
 import { WebKitDevtoolsPanel } from "./components/webkit-devtools-panel";
+import { useEventLogReporter } from "./hooks/use-event-log-reporter";
 import { useMediaDrop } from "./hooks/use-media-drop";
 import { useMjpegStream } from "./hooks/use-mjpeg-stream";
 import { useAvccStream } from "./hooks/use-avcc-stream";
@@ -545,9 +546,65 @@ function AppWithConfig({
     ws.send(msg);
   }, []);
 
-  const onStreamTouch = useCallback((data: any) => sendWs(0x03, data), [sendWs]);
-  const onStreamMultiTouch = useCallback((data: any) => sendWs(0x05, data), [sendWs]);
-  const onStreamButton = useCallback((button: string) => sendWs(0x04, { button }), [sendWs]);
+  // Input goes browser → helper directly, so the server can't observe it; the
+  // page reports what it sends. Batched — at frame rate a request per event
+  // would be a burst of traffic just to record history.
+  const logEvent = useEventLogReporter(config.execToken, config.device);
+
+  // A drag is one gesture, not hundreds of events: collapse the moves and log
+  // the whole thing once on release. Logging every move would bury every other
+  // event in the window and make the panel useless during a scroll.
+  const dragRef = useRef<{ x: number; y: number; moves: number } | null>(null);
+
+  const onStreamTouch = useCallback(
+    (data: any) => {
+      sendWs(0x03, data);
+      if (data?.type === "begin") {
+        dragRef.current = { x: data.x, y: data.y, moves: 0 };
+      } else if (data?.type === "move") {
+        if (dragRef.current) dragRef.current.moves++;
+      } else if (data?.type === "end") {
+        const start = dragRef.current;
+        dragRef.current = null;
+        if (!start || start.moves === 0) {
+          logEvent({ kind: "tap", details: { x: data?.x, y: data?.y } });
+          return;
+        }
+        const distance = Math.hypot((data?.x ?? start.x) - start.x, (data?.y ?? start.y) - start.y);
+        logEvent({
+          kind: "drag",
+          details: {
+            fromX: start.x,
+            fromY: start.y,
+            toX: data?.x,
+            toY: data?.y,
+            distance,
+            moves: start.moves,
+          },
+        });
+      }
+    },
+    [sendWs, logEvent],
+  );
+  const onStreamMultiTouch = useCallback(
+    (data: any) => {
+      sendWs(0x05, data);
+      if (data?.type === "begin") {
+        logEvent({
+          kind: "multi-touch",
+          details: { x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2 },
+        });
+      }
+    },
+    [sendWs, logEvent],
+  );
+  const onStreamButton = useCallback(
+    (button: string) => {
+      sendWs(0x04, { button });
+      logEvent({ kind: "button", details: { button } });
+    },
+    [sendWs, logEvent],
+  );
   const onStreamDigitalCrown = useCallback((delta: number) => sendWs(0x0a, { delta }), [sendWs]);
   const onStreamRequestKeyframe = useCallback(() => sendWs(0x0b, {}), [sendWs]);
   const onStreamScroll = useCallback(
@@ -558,7 +615,8 @@ function AppWithConfig({
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(new Uint8Array([0x0e]));
-  }, []);
+    logEvent({ kind: "software-keyboard" });
+  }, [logEvent]);
   const onModeChange = useCallback((mode: StreamMode) => {
     pendingStreamModeRef.current = { mode, mismatches: 0 };
     setStreamMode(mode);
@@ -823,6 +881,8 @@ function AppWithConfig({
       if (type === "down") pressedKeysRef.current.add(usage);
       else pressedKeysRef.current.delete(usage);
       sendWs(0x06, { type, usage });
+      // Only key-down: logging both halves doubles the window for no signal.
+      if (type === "down" && !e.repeat) logEvent({ kind: "key", details: { type, usage } });
     };
     const down = (e: KeyboardEvent) => onKey(e, "down");
     const up = (e: KeyboardEvent) => onKey(e, "up");
@@ -840,6 +900,7 @@ function AppWithConfig({
     captureAndDownloadScreenshot,
     goHome,
     toggleSoftwareKeyboard,
+    logEvent,
   ]);
 
   const switchToDevice = useCallback(

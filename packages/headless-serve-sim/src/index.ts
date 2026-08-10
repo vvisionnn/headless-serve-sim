@@ -33,6 +33,7 @@ import {
 import { appActions } from "./app-actions";
 import { screenshot } from "./screenshot";
 import { cameraShmNameForUdid } from "./camera-shm-name";
+import { formatEventLine, type EventLogEntry } from "./event-log";
 import {
   cameraStatus,
   helperBundlesFile,
@@ -2155,6 +2156,72 @@ async function serve(
   await new Promise(() => {});
 }
 
+/**
+ * Print the preview server's input event log.
+ *
+ * The buffer lives in the server because the browser talks straight to the
+ * helper; the CLI reads the same history the in-page panel shows.
+ */
+async function events(opts: {
+  port: number;
+  follow?: boolean;
+  lines?: number;
+  json?: boolean;
+}): Promise<void> {
+  const origin = `http://127.0.0.1:${opts.port}`;
+  const print = (entry: EventLogEntry) => {
+    console.log(opts.json ? JSON.stringify(entry) : formatEventLine(entry));
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(`${origin}/events/log`);
+  } catch {
+    console.error(`No preview server on ${origin}. Start one with \`headless-serve-sim\`.`);
+    process.exitCode = 1;
+    return;
+  }
+  if (!res.ok) {
+    console.error(`Event log unavailable: HTTP ${res.status}`);
+    process.exitCode = 1;
+    return;
+  }
+  const { events: history } = (await res.json()) as { events: EventLogEntry[] };
+  const shown = opts.lines && opts.lines > 0 ? history.slice(-opts.lines) : history;
+  for (const entry of shown) print(entry);
+
+  if (!opts.follow) return;
+
+  // Resume after the newest entry already printed, so --follow doesn't repeat
+  // the history it just showed.
+  const lastId = history.length > 0 ? history[history.length - 1]!.id : 0;
+  const stream = await fetch(`${origin}/events/log/stream`);
+  if (!stream.ok || !stream.body) {
+    console.error(`Event stream unavailable: HTTP ${stream.status}`);
+    process.exitCode = 1;
+    return;
+  }
+  const reader = stream.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let split: number;
+    while ((split = buffer.indexOf("\n\n")) >= 0) {
+      const frame = buffer.slice(0, split);
+      buffer = buffer.slice(split + 2);
+      const line = frame.split("\n").find((l) => l.startsWith("data: "));
+      if (!line) continue;
+      try {
+        const entry = JSON.parse(line.slice(6)) as EventLogEntry;
+        if (entry.id > lastId) print(entry);
+      } catch {}
+    }
+  }
+}
+
 function bindPreviewServer(
   port: number,
   middleware: ReturnType<typeof import("./middleware").simMiddleware>,
@@ -2404,5 +2471,14 @@ program
   .helpOption(false)
   .argument("[args...]")
   .action((args: string[]) => uiSettings(args));
+
+program
+  .command("events")
+  .description("Print the preview server's simulator input event log")
+  .option("-p, --port <port>", "Preview server port", (v) => parseInt(v, 10), 3200)
+  .option("-f, --follow", "Stream new events as they happen")
+  .option("-n, --lines <count>", "Print only the last N entries", (v) => parseInt(v, 10))
+  .option("--json", "Emit raw JSON entries, one per line")
+  .action((opts) => events(opts));
 
 await program.parseAsync(process.argv);

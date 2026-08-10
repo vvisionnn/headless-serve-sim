@@ -16,6 +16,7 @@ declare global {
       appStateEndpoint?: string;
       metricsEndpoint?: string;
       cameraStatusEndpoint?: string;
+      eventLogEndpoint?: string;
       /** One-shot UI state from the CLI launch flags (--panes / --fit). */
       initialState?: PreviewInitialState;
       devtoolsEndpoint?: string;
