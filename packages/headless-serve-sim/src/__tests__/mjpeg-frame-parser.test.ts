@@ -123,10 +123,11 @@ describe("createMjpegFrameParser framing", () => {
   });
 });
 
-describe("createMjpegFrameParser correctness against entropy-coded data", () => {
-  // FFD9 is only an end-of-image marker in the marker stream; the same pair
-  // occurs naturally inside compressed scan data. A blind scan cuts the frame
-  // there and yields a truncated JPEG. A declared length is authoritative.
+describe("createMjpegFrameParser correctness against embedded JPEG data", () => {
+  // Byte stuffing keeps FFD9 out of entropy-coded scan data, but not out of a
+  // JPEG as a whole: a thumbnail embedded in an APP segment is a complete
+  // nested JPEG with its own FFD9. A blind scan stops at the thumbnail's end
+  // and truncates the frame. A declared length can't be fooled that way.
   test("a declared length wins over an FFD9 inside the payload", () => {
     const frame = jpeg([0x11, 0xff, 0xd9, 0x22, 0x33]);
     const out = feed(partWithLength(frame), 64);

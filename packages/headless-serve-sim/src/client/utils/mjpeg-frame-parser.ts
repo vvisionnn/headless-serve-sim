@@ -14,11 +14,18 @@
  *   - `Content-Length`, when the server sends it, which turns framing into
  *     arithmetic and skips scanning altogether.
  *
- * That last one is also a correctness fix, not just speed: `FFD9` is only the
- * end-of-image marker when it appears in the marker stream. The same two bytes
- * occur naturally inside entropy-coded scan data, so a blind search for them
- * can cut a frame short and hand a decoder a truncated JPEG. A declared length
- * is authoritative.
+ * That last one is also more robust, not just faster. Byte stuffing means
+ * `FFD9` cannot appear inside entropy-coded scan data — an encoder writes a
+ * literal 0xFF as `FF 00` (ITU-T T.81 B.1.1.5) — so scanning is safe for a
+ * bare JPEG. It is not safe in general: a file carrying an embedded thumbnail
+ * in an APP segment contains a whole nested JPEG, `FFD9` and all, and a blind
+ * search stops at the thumbnail's end and hands the decoder a truncated frame.
+ * A declared length can't be fooled that way.
+ *
+ * Our helper emits no thumbnails, so scanning happens to work on its output
+ * (measured: 0 spurious `FFD9` across 34 live frames). The length path is used
+ * because it is correct by construction and skips the scan entirely, not
+ * because a bug was observed in this stream.
  */
 export interface MjpegFrameParser {
   /**
