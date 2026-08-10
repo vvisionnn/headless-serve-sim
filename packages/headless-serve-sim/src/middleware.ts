@@ -315,10 +315,35 @@ export function selectServeSimState(
   return states.find((state) => state.device === device) ?? null;
 }
 
+/** Upper bound on a single grid page, so a huge `limit` can't be used to force
+ * the server to annotate the entire catalog in one response. */
+const GRID_MAX_PAGE_SIZE = 1000;
+
 function queryDevice(rawUrl: string): string | null {
   const qIndex = rawUrl.indexOf("?");
   if (qIndex === -1) return null;
   return new URLSearchParams(rawUrl.slice(qIndex + 1)).get("device");
+}
+
+/**
+ * Parse `/grid/api` pagination params.
+ *
+ * `limit` absent means "the whole list", which keeps embedded mounts that
+ * expect every device in one response working unchanged. Bad input is ignored
+ * rather than rejected: a malformed page request should still render devices.
+ */
+export function parseGridPaging(rawUrl: string): { limit: number | null; offset: number } {
+  const qIndex = rawUrl.indexOf("?");
+  if (qIndex === -1) return { limit: null, offset: 0 };
+  const params = new URLSearchParams(rawUrl.slice(qIndex + 1));
+  const rawLimit = params.get("limit");
+  const rawOffset = params.get("offset");
+  const limit =
+    rawLimit == null || !/^\d+$/.test(rawLimit)
+      ? null
+      : Math.min(Math.max(Number(rawLimit), 1), GRID_MAX_PAGE_SIZE);
+  const offset = rawOffset == null || !/^\d+$/.test(rawOffset) ? 0 : Math.max(Number(rawOffset), 0);
+  return { limit, offset };
 }
 
 function endpoint(base: string, path: string, device: string): string {
@@ -1131,17 +1156,28 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
       };
       const stateRank = (x: (typeof devices)[number]) =>
         x.helper ? 0 : x.state === "Booted" ? 1 : 2;
+      // The actively selected device ranks first regardless of family, so it
+      // stays on the first page and the preview never paginates away from the
+      // device it is currently streaming.
+      const selectedRank = (x: (typeof devices)[number]) => (x.device === selectedDevice ? 0 : 1);
       devices.sort(
         (a, b) =>
+          selectedRank(a) - selectedRank(b) ||
           familyRank(a.name) - familyRank(b.name) ||
           stateRank(a) - stateRank(b) ||
           a.name.localeCompare(b.name),
       );
+      const { limit, offset } = parseGridPaging(rawUrl);
+      const total = devices.length;
+      const page = limit == null ? devices : devices.slice(offset, offset + limit);
       res.writeHead(200, {
         "Content-Type": "application/json",
         "Cache-Control": "no-store",
       });
-      res.end(JSON.stringify({ devices }));
+      // `limit` absent keeps the original bare `{devices}` shape.
+      res.end(
+        JSON.stringify(limit == null ? { devices: page } : { devices: page, total, limit, offset }),
+      );
       return;
     }
 
