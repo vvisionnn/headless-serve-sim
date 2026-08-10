@@ -98,6 +98,11 @@ Options:
       --headed        Launch the simulator GUI window alongside the stream
                       (Simulator.app, or DeviceHub.app on Xcode 27+).
                       Default is headless (no GUI window).
+      --panes <panes> Panels open when the preview loads: 'none', or a
+                      comma-separated list of devices, inspector, devtools,
+                      logs, metrics
+      --theme <theme> Simulator appearance to set before opening the preview:
+                      light or dark (needs an explicit simulator)
       --list [device] List running streams
       --kill [device] Kill running stream(s)
 
@@ -122,6 +127,9 @@ headless-serve-sim "iPhone 16 Pro"              # target a specific device
 headless-serve-sim --detach                     # start a background helper, return JSON
 headless-serve-sim --list                       # show running streams
 headless-serve-sim --kill                       # stop all helpers
+headless-serve-sim --panes devices,logs         # open with those panels showing
+headless-serve-sim --panes none                 # open with every panel closed
+headless-serve-sim --theme dark "iPhone 16 Pro" # start the simulator in Dark Mode
 
 # Type text into the focused field
 headless-serve-sim type "Hello, world!"

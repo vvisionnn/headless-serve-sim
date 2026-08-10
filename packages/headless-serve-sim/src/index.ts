@@ -22,7 +22,14 @@ import { document } from "./document-import";
 import { permissions } from "./permissions";
 import { statusBar } from "./status-bar";
 import { userDefaults } from "./user-defaults";
-import { uiSettings } from "./ui-settings";
+import { uiSettings, setUiOption } from "./ui-settings";
+import {
+  parsePreviewPanes,
+  parseSimulatorTheme,
+  PREVIEW_PANES,
+  type PreviewPane,
+  type SimulatorTheme,
+} from "./preview-initial-state";
 import { appActions } from "./app-actions";
 import { screenshot } from "./screenshot";
 import { cameraShmNameForUdid } from "./camera-shm-name";
@@ -2069,6 +2076,7 @@ async function serve(
   portExplicit: boolean,
   host: string,
   headed: boolean,
+  launch?: { panes?: PreviewPane[]; theme?: SimulatorTheme },
 ) {
   let targetDevice: string | undefined;
 
@@ -2077,8 +2085,22 @@ async function serve(
     targetDevice = states[0]?.device;
   }
 
+  // Apply the appearance before the page opens, so the first frame the user
+  // sees is already in the requested theme rather than flipping a moment later.
+  if (launch?.theme && targetDevice) {
+    try {
+      await setUiOption(targetDevice, "appearance", launch.theme);
+    } catch (e: any) {
+      console.error(`[headless-serve-sim] could not set theme: ${e?.message ?? e}`);
+    }
+  }
+
   const { simMiddleware } = await import("./middleware");
-  const middleware = simMiddleware({ basePath: "/", device: targetDevice });
+  const middleware = simMiddleware({
+    basePath: "/",
+    device: targetDevice,
+    ...(launch?.panes ? { initialState: { panes: launch.panes } } : {}),
+  });
 
   // Try requested port; if busy and the user didn't pin it, scan forward.
   const maxScan = portExplicit ? 1 : 50;
@@ -2171,6 +2193,11 @@ program
       "(Simulator.app, or DeviceHub.app on Xcode 27+). " +
       "Default is headless (no GUI window).",
   )
+  .option(
+    "--panes <panes>",
+    `Panels open when the preview loads: 'none', or a comma-separated list of ${PREVIEW_PANES.join(", ")}`,
+  )
+  .option("--theme <theme>", "Simulator appearance to set before opening the preview: light | dark")
   .option("-l, --list [device]", "List running streams")
   .option("-k, --kill [device]", "Kill running stream(s)")
   .addHelpText(
@@ -2182,7 +2209,10 @@ Examples:
   headless-serve-sim --no-preview "iPhone 16 Pro" Stream a specific device (no preview)
   headless-serve-sim --detach "iPhone 16 Pro"     Start a selected simulator stream in background
   headless-serve-sim --list                       Show all running streams
-  headless-serve-sim --kill                       Stop all streams`,
+  headless-serve-sim --kill                       Stop all streams
+  headless-serve-sim --panes devices,logs         Open with the devices and logs panels showing
+  headless-serve-sim --panes none                 Open with every panel closed
+  headless-serve-sim --theme dark "iPhone 16 Pro" Start the simulator in Dark Mode`,
   )
   .action(async (devices: string[], opts) => {
     if (opts.list !== undefined) {
@@ -2195,6 +2225,23 @@ Examples:
     }
     const startPort: number | undefined = opts.port;
     const headed: boolean = !!opts.headed;
+    // Parse launch flags before anything starts, so a typo fails immediately
+    // instead of after a simulator has booted.
+    let launchPanes: PreviewPane[] | undefined;
+    let launchTheme: SimulatorTheme | undefined;
+    try {
+      if (typeof opts.panes === "string") launchPanes = parsePreviewPanes(opts.panes);
+      if (typeof opts.theme === "string") launchTheme = parseSimulatorTheme(opts.theme);
+    } catch (e: any) {
+      console.error(e?.message ?? String(e));
+      process.exitCode = 1;
+      return;
+    }
+    if (launchTheme && devices.length === 0) {
+      console.error("--theme needs an explicit simulator; pass one as an argument.");
+      process.exitCode = 1;
+      return;
+    }
     if (devices.length === 0 && (opts.detach || opts.preview === false)) {
       console.error("Select a simulator explicitly when starting a stream.");
       process.exitCode = 1;
@@ -2206,7 +2253,10 @@ Examples:
     } else if (opts.preview === false) {
       await follow(devices, startPort ?? 3100, !!opts.quiet, headed);
     } else {
-      await serve(startPort ?? 3200, devices, startPort !== undefined, opts.host, headed);
+      await serve(startPort ?? 3200, devices, startPort !== undefined, opts.host, headed, {
+        panes: launchPanes,
+        theme: launchTheme,
+      });
     }
   });
 

@@ -7,6 +7,7 @@ import type { IncomingMessage, ServerResponse } from "http";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
 import { createAxStreamerCache } from "./ax";
 import { cameraStatus } from "./camera-helper";
+import type { PreviewInitialState } from "./preview-initial-state";
 import { debugMw } from "./debug";
 import { resolveInstalledDeviceMetadata } from "./device-metadata";
 import { createExecUpgradeHandler, type UiRequestHandler } from "./exec-ws";
@@ -457,6 +458,7 @@ export function previewConfigForState(
     deviceTypeIdentifier?: string;
     deviceFrameSpec?: DeviceFrameSpec;
   } | null,
+  initialState?: PreviewInitialState | null,
 ): ServeSimState & {
   basePath: string;
   logsEndpoint: string;
@@ -472,6 +474,7 @@ export function previewConfigForState(
   gridMemoryEndpoint: string;
   previewEndpoint: string;
   execToken: string;
+  initialState?: PreviewInitialState;
   screenConfig?: HelperScreenConfig;
   deviceName?: string;
   deviceTypeIdentifier?: string;
@@ -500,6 +503,7 @@ export function previewConfigForState(
     gridMemoryEndpoint: gridApiBase + "/memory",
     previewEndpoint: base === "" ? "/" : base,
     execToken,
+    ...(initialState ? { initialState } : {}),
   };
 }
 
@@ -899,6 +903,8 @@ export interface SimMiddlewareOptions {
   stateDir?: string;
   /** Override the clock used by the short-lived simulator snapshot cache. */
   now?: () => number;
+  /** One-shot UI state applied when a preview page first loads. */
+  initialState?: PreviewInitialState;
 }
 
 function safeEqualString(a: string, b: string): boolean {
@@ -1046,6 +1052,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
             execToken,
             screenConfig,
             deviceMetadata,
+            options?.initialState,
           ),
         );
         sendHtml(

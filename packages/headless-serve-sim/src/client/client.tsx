@@ -65,6 +65,7 @@ import { toggleSimulatorAppearance } from "./utils/simulator-appearance";
 import { fitDeviceFrame } from "./utils/frame-geometry";
 import { resolveActiveScreenConfig } from "./utils/screen-config";
 import { readPersistedFlag, writePersistedFlag } from "./utils/persisted-flag";
+import { paneInitiallyOpen } from "../preview-initial-state";
 import { resolveEventsDevice } from "./utils/events-device";
 import { previewConfigKey, selectedPreviewConfig } from "./utils/preview-config";
 import {
@@ -103,11 +104,19 @@ const ROTATE_RIGHT_CYCLE: Record<SimulatorOrientation, SimulatorOrientation> = {
 
 // Boolean UI flag persisted to localStorage, so a rail's expanded/collapsed
 // state survives a reload. Reads once on mount; writes on every change.
+//
+// `override` wins over the stored value for the initial render only — that's
+// how `--panes` seeds the layout. It is deliberately one-shot: the user's own
+// toggles after load still persist, so a launch flag configures the start
+// state without permanently overriding the preference.
 function usePersistedFlag(
   key: string,
   fallback: boolean,
+  override?: boolean,
 ): [boolean, (next: boolean | ((prev: boolean) => boolean)) => void] {
-  const [value, setValue] = useState<boolean>(() => readPersistedFlag(key, fallback));
+  const [value, setValue] = useState<boolean>(() =>
+    override === undefined ? readPersistedFlag(key, fallback) : override,
+  );
   const set = useCallback(
     (next: boolean | ((prev: boolean) => boolean)) => {
       setValue((prev) => {
@@ -141,8 +150,14 @@ function App() {
   const [stoppingUdids, setStoppingUdids] = useState<Set<string>>(new Set());
   const [switching, setSwitching] = useState(false);
   const [axOverlayEnabled, setAxOverlayEnabled] = useState(false);
-  const [devtoolsOpen, setDevtoolsOpen] = useState(false);
-  const [gridOpen, setGridOpen] = useState(false);
+  // One-shot launch layout from `--panes` / `--fit`. Absent means "no launch
+  // preference"; an explicit empty pane list (`--panes none`) means "start with
+  // everything closed", so the two must not collapse together.
+  const initialState = window.__SIM_PREVIEW__?.initialState;
+  const [devtoolsOpen, setDevtoolsOpen] = useState(() =>
+    paneInitiallyOpen(initialState, "devtools", false),
+  );
+  const [gridOpen, setGridOpen] = useState(() => paneInitiallyOpen(initialState, "devices", false));
   const [selectedDevtoolsTargetId, setSelectedDevtoolsTargetId] = useState<string | null>(null);
 
   const [showPicker, setShowPicker] = useState(false);
@@ -630,7 +645,9 @@ function AppWithConfig({
   }, [config.device, onStreamButton]);
   const [statsOpen, setStatsOpen] = useState(false);
   const [uiSettingsRevision, refreshUiSettings] = useReducer((revision: number) => revision + 1, 0);
-  const [logsOpen, setLogsOpen] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(() =>
+    paneInitiallyOpen(window.__SIM_PREVIEW__?.initialState, "logs", false),
+  );
   useEffect(() => {
     pendingStreamModeRef.current = null;
     setStreamMode("perf");
@@ -896,10 +913,16 @@ function AppWithConfig({
   // Both side rails — the left Activity gauges and the right inspector — share
   // the same collapsed/expanded geometry, default collapsed, and persist their
   // state across reloads.
-  const [metricsOpen, setMetricsOpen] = usePersistedFlag("headless-serve-sim:metrics-open", false);
+  const launchState = window.__SIM_PREVIEW__?.initialState;
+  const [metricsOpen, setMetricsOpen] = usePersistedFlag(
+    "headless-serve-sim:metrics-open",
+    false,
+    launchState?.panes ? launchState.panes.includes("metrics") : undefined,
+  );
   const [inspectorOpen, setInspectorOpen] = usePersistedFlag(
     "headless-serve-sim:inspector-open",
     false,
+    launchState?.panes ? launchState.panes.includes("inspector") : undefined,
   );
   const TOP_BAR_HEIGHT = 44;
   const RAIL_COLLAPSED_WIDTH = 44;

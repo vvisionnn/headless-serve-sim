@@ -1,4 +1,5 @@
 import type { DeviceFrameSpec, SimulatorOrientation } from "headless-serve-sim-client/simulator";
+import type { PreviewInitialState } from "../../preview-initial-state";
 
 declare global {
   interface Window {
@@ -15,6 +16,8 @@ declare global {
       appStateEndpoint?: string;
       metricsEndpoint?: string;
       cameraStatusEndpoint?: string;
+      /** One-shot UI state from the CLI launch flags (--panes / --fit). */
+      initialState?: PreviewInitialState;
       devtoolsEndpoint?: string;
       gridApiEndpoint?: string;
       gridStartEndpoint?: string;
