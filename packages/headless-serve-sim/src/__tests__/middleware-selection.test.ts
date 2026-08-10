@@ -53,6 +53,7 @@ describe("previewConfigForState", () => {
       basePath: "/preview",
       logsEndpoint: "/preview/logs?device=DEVICE-B&token=token-xyz",
       appStateEndpoint: "/preview/appstate?device=DEVICE-B",
+      cameraStatusEndpoint: "/preview/camera/status?device=DEVICE-B",
       metricsEndpoint: "/preview/api/metrics?device=DEVICE-B",
       axEndpoint: "/preview/ax?device=DEVICE-B",
       devtoolsEndpoint: "/preview/devtools?device=DEVICE-B",

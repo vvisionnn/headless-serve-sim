@@ -6,6 +6,7 @@ import { randomBytes, timingSafeEqual } from "crypto";
 import type { IncomingMessage, ServerResponse } from "http";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
 import { createAxStreamerCache } from "./ax";
+import { cameraStatus } from "./camera-helper";
 import { debugMw } from "./debug";
 import { resolveInstalledDeviceMetadata } from "./device-metadata";
 import { createExecUpgradeHandler, type UiRequestHandler } from "./exec-ws";
@@ -436,6 +437,7 @@ export function previewConfigForState(
   logsEndpoint: string;
   appStateEndpoint: string;
   metricsEndpoint: string;
+  cameraStatusEndpoint: string;
   axEndpoint: string;
   devtoolsEndpoint: string;
   serveSimBin: string;
@@ -463,6 +465,7 @@ export function previewConfigForState(
     logsEndpoint: `${endpoint(base, "/logs", state.device)}&token=${encodeURIComponent(execToken)}`,
     appStateEndpoint: endpoint(base, "/appstate", state.device),
     metricsEndpoint: endpoint(base, "/api/metrics", state.device),
+    cameraStatusEndpoint: endpoint(base, "/camera/status", state.device),
     axEndpoint: endpoint(base, "/ax", state.device),
     devtoolsEndpoint: endpoint(base, "/devtools", state.device),
     serveSimBin,
@@ -1037,6 +1040,23 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
         "Cache-Control": "no-store",
       });
       res.end(JSON.stringify(buildMemoryReport(hostCommands)));
+      return;
+    }
+
+    // Camera-helper status, read straight off the helper's control socket.
+    // The in-page Camera tool polls this on a timer; routing it through /exec
+    // meant spawning a runtime + CLI per tick to read one line of JSON.
+    if (url === base + "/camera/status") {
+      const device = new URL(req.url ?? "/", "http://localhost").searchParams.get("device");
+      const udid = device || selectServeSimState(readStates(), selectedDevice)?.device;
+      void (async () => {
+        res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        if (!udid) {
+          res.end(JSON.stringify({ alive: false, error: "no device" }));
+          return;
+        }
+        res.end(JSON.stringify(await cameraStatus(udid, hostCommands)));
+      })();
       return;
     }
 

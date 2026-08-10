@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 import { Chevron, PlayGlyph, StopGlyph, ReloadIcon } from "../icons";
 import { execOnHost, shellEscape } from "../utils/exec";
 import { fileExtension, uploadFileToTmp } from "../utils/drop";
+import { simEndpoint } from "../utils/sim-endpoint";
 
 export type CamSource = "placeholder" | "image" | "video" | "webcam";
 type CamMirror = "on" | "off";
@@ -255,11 +256,18 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
     return shellEscape(bin);
   }, []);
 
+  // Read the helper's status straight off the preview server, which talks to
+  // the camera helper's control socket. This is polled on a timer, and the old
+  // route through /exec spawned a runtime plus the whole CLI on every tick to
+  // fetch one line of JSON.
   const fetchCameraStatus = useCallback(async () => {
-    const res = await execOnHost(`${cliPrefix} camera status -d ${udid}`);
-    if (res.exitCode !== 0) return null;
     try {
-      return JSON.parse(res.stdout.trim()) as {
+      const res = await fetch(
+        `${simEndpoint("camera/status")}?device=${encodeURIComponent(udid)}`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) return null;
+      return (await res.json()) as {
         alive?: boolean;
         source?: string;
         arg?: string;
@@ -270,7 +278,7 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
     } catch {
       return null;
     }
-  }, [cliPrefix, udid]);
+  }, [udid]);
 
   const refreshWebcamsRef = useRef<() => Promise<void>>(async () => {});
   const bundleIdRef = useRef<string | null>(bundleId);

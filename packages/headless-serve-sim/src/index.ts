@@ -26,6 +26,17 @@ import { uiSettings } from "./ui-settings";
 import { appActions } from "./app-actions";
 import { screenshot } from "./screenshot";
 import { cameraShmNameForUdid } from "./camera-shm-name";
+import {
+  cameraStatus,
+  helperBundlesFile,
+  helperPidFile,
+  helperSocketFile,
+  isHelperAlive,
+  readInjectedBundles,
+  sendHelperCommand,
+  SIMCAM_STATE_DIR,
+  type InjectedBundlesState,
+} from "./camera-helper";
 import { debugCli, debugHelper, debugState } from "./debug";
 import type { CommandRequest, CommandResult, CommandTask } from "./runtime/host-commands";
 import { createNodeHostCommands } from "./runtime/node-host-commands";
@@ -1435,102 +1446,6 @@ function buildCameraHelper(): string {
   return out;
 }
 
-const SIMCAM_STATE_DIR = join(STATE_DIR, "simcam");
-
-function helperPidFile(udid: string): string {
-  return join(SIMCAM_STATE_DIR, `${udid}.pid`);
-}
-
-function helperBundlesFile(udid: string): string {
-  return join(SIMCAM_STATE_DIR, `${udid}.bundles.json`);
-}
-
-interface InjectedBundlesState {
-  helperPid: number;
-  bundleIds: string[];
-}
-
-function helperSocketFile(udid: string): string {
-  // POSIX sun_path is 104 chars on macOS — keep this short.
-  const short = createHash("sha1").update(udid).digest("hex").slice(0, 12);
-  return `/tmp/headless-serve-sim-cam-${short}.sock`;
-}
-
-interface HelperReply {
-  ok?: boolean;
-  source?: string;
-  arg?: string;
-  error?: string;
-}
-
-async function sendHelperCommand(udid: string, cmd: object): Promise<HelperReply> {
-  const sockPath = helperSocketFile(udid);
-  if (!existsSync(sockPath)) throw new Error("camera helper socket not found");
-  const net = await import("net");
-  return await new Promise((resolve, reject) => {
-    const c = net.createConnection(sockPath);
-    let buf = "";
-    let settled = false;
-    c.on("data", (d) => {
-      buf += d.toString();
-      const nl = buf.indexOf("\n");
-      if (nl >= 0 && !settled) {
-        settled = true;
-        try {
-          resolve(JSON.parse(buf.slice(0, nl)));
-        } catch (e) {
-          reject(e);
-        }
-        c.end();
-      }
-    });
-    c.on("error", (e) => {
-      if (!settled) {
-        settled = true;
-        reject(e);
-      }
-    });
-    c.on("close", () => {
-      if (!settled) {
-        settled = true;
-        reject(new Error("socket closed"));
-      }
-    });
-    c.write(JSON.stringify(cmd) + "\n");
-    setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        c.destroy();
-        reject(new Error("helper timeout"));
-      }
-    }, 3000);
-  });
-}
-
-function isHelperAlive(udid: string): boolean {
-  const pf = helperPidFile(udid);
-  if (!existsSync(pf)) return false;
-  const pid = Number(readFileSync(pf, "utf-8").trim());
-  return Number.isFinite(pid) && isProcessAlive(pid) && existsSync(helperSocketFile(udid));
-}
-
-function readInjectedBundles(udid: string): string[] {
-  const path = helperBundlesFile(udid);
-  if (!existsSync(path)) return [];
-  let state: InjectedBundlesState;
-  try {
-    state = JSON.parse(readFileSync(path, "utf-8")) as InjectedBundlesState;
-  } catch {
-    return [];
-  }
-  let currentHelperPid: number | null = null;
-  try {
-    currentHelperPid = Number(readFileSync(helperPidFile(udid), "utf-8").trim()) || null;
-  } catch {}
-  if (currentHelperPid == null || state.helperPid !== currentHelperPid) return [];
-  return Array.isArray(state.bundleIds) ? state.bundleIds : [];
-}
-
 function recordInjectedBundle(udid: string, bundleId: string, helperPid: number): void {
   const existing = readInjectedBundles(udid);
   const bundleIds = existing.includes(bundleId) ? existing : [...existing, bundleId];
@@ -1708,7 +1623,7 @@ async function ensureHelperWithSource(opts: {
 }): Promise<{ helperPid: number | null; shmName: string; relaunched: boolean }> {
   const shmName = cameraShmNameForUdid(opts.udid);
   const sockPath = helperSocketFile(opts.udid);
-  if (isHelperAlive(opts.udid)) {
+  if (isHelperAlive(opts.udid, hostCommands)) {
     // Hot-swap source via control socket — no relaunch needed.
     const reply = await sendHelperCommand(opts.udid, {
       action: "switch",
@@ -1908,7 +1823,7 @@ Examples:
       console.error("Usage: headless-serve-sim camera mirror <auto|on|off> [-d udid]");
       process.exit(1);
     }
-    if (!isHelperAlive(udid)) {
+    if (!isHelperAlive(udid, hostCommands)) {
       console.error(
         "camera helper not running for this device — run `headless-serve-sim camera <bundle-id>` first.",
       );
@@ -1977,7 +1892,7 @@ Examples:
       process.exit(1);
     }
     if ((wanted === "image" || wanted === "video") && arg) arg = resolve(arg);
-    if (!isHelperAlive(udid)) {
+    if (!isHelperAlive(udid, hostCommands)) {
       console.error(
         "camera helper not running for this device — run `headless-serve-sim camera <bundle-id>` first.",
       );
@@ -2009,26 +1924,7 @@ Examples:
       console.log(JSON.stringify({ alive: false, error: "no booted simulator" }));
       return;
     }
-    if (!isHelperAlive(udid)) {
-      console.log(JSON.stringify({ udid, alive: false }));
-      return;
-    }
-    let helperPid: number | null = null;
-    try {
-      helperPid = Number(readFileSync(helperPidFile(udid), "utf-8").trim()) || null;
-    } catch {}
-    const bundleIds = readInjectedBundles(udid);
-    try {
-      const reply = await sendHelperCommand(udid, { action: "status" });
-      console.log(JSON.stringify({ udid, alive: true, helperPid, bundleIds, ...reply }));
-    } catch (e: any) {
-      // pid file + socket exist but the helper didn't reply — surface
-      // alive:true so the UI can still skip "Inject + relaunch", and
-      // include the error for diagnosis.
-      console.log(
-        JSON.stringify({ udid, alive: true, helperPid, bundleIds, error: e?.message ?? String(e) }),
-      );
-    }
+    console.log(JSON.stringify(await cameraStatus(udid, hostCommands)));
     return;
   }
 
