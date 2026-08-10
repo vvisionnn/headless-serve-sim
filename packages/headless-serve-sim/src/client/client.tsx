@@ -1081,6 +1081,18 @@ function AppWithConfig({
                     goHome();
                   }}
                 />
+                <DeviceHardwareButtons
+                  frame={config.deviceFrameSpec ?? null}
+                  onPress={(press) => {
+                    sendWs(0x04, press);
+                    logEvent({
+                      kind: "button",
+                      details: {
+                        button: press.button ?? `usage:0x${(press.usage ?? 0).toString(16)}`,
+                      },
+                    });
+                  }}
+                />
                 <SimulatorToolbar.Button
                   aria-label="Toggle light / dark appearance"
                   title="Toggle light / dark (⇧⌘A)"
@@ -1127,18 +1139,6 @@ function AppWithConfig({
                 onConnectionStats={handleConnectionStats}
                 recordingSourceRef={recordingSourceRef}
                 onStreamScroll={onStreamScroll}
-              />
-              <DeviceHardwareButtons
-                frame={config.deviceFrameSpec ?? null}
-                onPress={(press) => {
-                  sendWs(0x04, press);
-                  logEvent({
-                    kind: "button",
-                    details: {
-                      button: press.button ?? `usage:0x${(press.usage ?? 0).toString(16)}`,
-                    },
-                  });
-                }}
               />
               {axOverlayEnabled && <AxDomOverlay />}
               {mediaDrop.isDragOver && (

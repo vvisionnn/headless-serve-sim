@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
-import { hardwareButtonPlacements } from "../client/components/device-hardware-buttons";
+import { hardwareButtonEntries } from "../client/components/device-hardware-buttons";
 import { hardwareButtonAction, isPressableControl } from "../client/utils/hardware-buttons";
 import { HIDUsage } from "../client/utils/hid-usage";
 
@@ -106,30 +106,34 @@ describe("hardwareButtonAction", () => {
   });
 });
 
-describe("hardwareButtonPlacements", () => {
+describe("hardwareButtonEntries", () => {
   test("no frame or no artwork yields nothing", () => {
-    expect(hardwareButtonPlacements(null)).toEqual([]);
-    expect(hardwareButtonPlacements({ artwork: undefined } as DeviceFrameSpec)).toEqual([]);
+    expect(hardwareButtonEntries(null)).toEqual([]);
+    expect(hardwareButtonEntries({ artwork: undefined } as DeviceFrameSpec)).toEqual([]);
   });
 
-  test("places a left control as a fraction down the left edge", () => {
+  test("reports the edge a control sits on", () => {
     const frame = frameWith([
       { name: "volume-up", anchor: "left", width: 10, height: 80, offset: { x: 0, y: 200 } },
     ]);
-    const [placement] = hardwareButtonPlacements(frame);
-    expect(placement?.edge).toBe("left");
-    // y offset 200 of an 800-tall opening.
-    expect(placement?.start).toBeCloseTo(0.25);
-    expect(placement?.length).toBeCloseTo(0.1);
+    const [entry] = hardwareButtonEntries(frame);
+    expect(entry?.edge).toBe("left");
+    // y offset 200 of an 800-tall opening — used only to order the row.
+    expect(entry?.position).toBeCloseTo(0.25);
   });
 
-  test("places a right control on the right edge", () => {
+  test("orders left-edge controls before right-edge ones, each top to bottom", () => {
+    // The row should read like the hardware does, not like plist order.
     const frame = frameWith([
-      { name: "power", anchor: "right", width: 10, height: 160, offset: { x: 0, y: 400 } },
+      { name: "power", anchor: "right", width: 10, height: 40, offset: { x: 0, y: 300 } },
+      { name: "volume-down", anchor: "left", width: 10, height: 40, offset: { x: 0, y: 400 } },
+      { name: "volume-up", anchor: "left", width: 10, height: 40, offset: { x: 0, y: 200 } },
     ]);
-    const [placement] = hardwareButtonPlacements(frame);
-    expect(placement?.edge).toBe("right");
-    expect(placement?.start).toBeCloseTo(0.5);
+    expect(hardwareButtonEntries(frame).map((e) => e.name)).toEqual([
+      "volume-up",
+      "volume-down",
+      "power",
+    ]);
   });
 
   test("skips controls with no button mapping", () => {
@@ -137,25 +141,18 @@ describe("hardwareButtonPlacements", () => {
       { name: "digital-crown", anchor: "right", width: 10, height: 40, offset: { x: 0, y: 100 } },
       { name: "power", anchor: "right", width: 10, height: 40, offset: { x: 0, y: 300 } },
     ]);
-    expect(hardwareButtonPlacements(frame).map((p) => p.name)).toEqual(["power"]);
+    expect(hardwareButtonEntries(frame).map((e) => e.name)).toEqual(["power"]);
   });
 
-  // A control whose artwork starts above the screen opening produces a
-  // negative offset; left unclamped it would render off the frame entirely.
-  test("clamps a control that extends past the opening", () => {
+  // A control whose artwork starts above the screen opening gives a negative
+  // offset; unclamped it would sort ahead of everything for no real reason.
+  test("clamps the ordering position into range", () => {
     const frame = frameWith([
       { name: "mute", anchor: "left", width: 10, height: 40, offset: { x: 0, y: -500 } },
     ]);
-    const [placement] = hardwareButtonPlacements(frame);
-    expect(placement!.start).toBeGreaterThanOrEqual(0);
-    expect(placement!.start).toBeLessThanOrEqual(1);
-  });
-
-  test("gives every control a non-zero length so it stays clickable", () => {
-    const frame = frameWith([
-      { name: "mute", anchor: "left", width: 10, height: 0, offset: { x: 0, y: 100 } },
-    ]);
-    expect(hardwareButtonPlacements(frame)[0]!.length).toBeGreaterThan(0);
+    const [entry] = hardwareButtonEntries(frame);
+    expect(entry!.position).toBeGreaterThanOrEqual(0);
+    expect(entry!.position).toBeLessThanOrEqual(1);
   });
 
   test("a degenerate chrome rect yields nothing rather than dividing by zero", () => {
@@ -163,7 +160,7 @@ describe("hardwareButtonPlacements", () => {
       { name: "power", anchor: "left", width: 10, height: 40, offset: { x: 0, y: 10 } },
     ]);
     frame.artwork!.chromeRectPx = { x: 0, y: 0, width: 0, height: 0 };
-    expect(hardwareButtonPlacements(frame)).toEqual([]);
+    expect(hardwareButtonEntries(frame)).toEqual([]);
   });
 });
 

@@ -1,4 +1,3 @@
-import type { CSSProperties } from "react";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
 import { deviceFrameControlRect } from "../device-frame-artwork";
 import { hardwareButtonAction, type HardwareButtonAction } from "../utils/hardware-buttons";
@@ -10,33 +9,30 @@ export interface HardwareButtonPress {
   phase?: "down" | "up" | "press";
 }
 
-/** Where a control sits, as a fraction along the edge it's anchored to. */
-export interface HardwareButtonPlacement {
+export interface HardwareButtonEntry {
   name: string;
   action: HardwareButtonAction;
+  /** Edge of the physical device this control sits on. */
   edge: "left" | "right" | "top" | "bottom";
-  /** Fraction (0–1) along the edge of the control's leading corner. */
-  start: number;
-  /** Fraction (0–1) of the edge the control spans. */
-  length: number;
+  /** Fraction (0–1) along that edge, used only to order the list naturally. */
+  position: number;
 }
 
 /**
- * Positions for a device's hardware buttons, derived from DeviceKit artwork.
+ * The hardware buttons a device actually has, read from its DeviceKit artwork.
  *
- * The same control rects the recording chrome is painted from decide which
- * buttons exist and where they sit, so a new device body gets correct buttons
- * without a hand-maintained per-device table.
- *
- * Exported separately from the component so the geometry is testable.
+ * Using the same control data the recording chrome is painted from means a new
+ * device body gets the right buttons with no hand-maintained per-device table.
+ * Ordered the way they sit on the hardware — left edge top-to-bottom, then
+ * right — so the row reads like the device does.
  */
-export function hardwareButtonPlacements(frame: DeviceFrameSpec | null): HardwareButtonPlacement[] {
+export function hardwareButtonEntries(frame: DeviceFrameSpec | null): HardwareButtonEntry[] {
   const artwork = frame?.artwork;
   if (!artwork) return [];
   const chrome = artwork.chromeRectPx;
   if (chrome.width <= 0 || chrome.height <= 0) return [];
 
-  const placements: HardwareButtonPlacement[] = [];
+  const entries: HardwareButtonEntry[] = [];
   for (const control of artwork.controls) {
     const action = hardwareButtonAction(control.name);
     if (!action) continue;
@@ -45,26 +41,25 @@ export function hardwareButtonPlacements(frame: DeviceFrameSpec | null): Hardwar
     const span = vertical ? chrome.height : chrome.width;
     if (span <= 0) continue;
     const offset = vertical ? rect.y - chrome.y : rect.x - chrome.x;
-    const size = vertical ? rect.height : rect.width;
-    placements.push({
+    entries.push({
       name: control.name,
       action,
       edge: control.anchor,
-      // Clamp so a control whose artwork extends past the screen opening still
-      // lands on the edge rather than off-screen.
-      start: Math.min(Math.max(offset / span, 0), 1),
-      length: Math.min(Math.max(size / span, 0.02), 1),
+      position: Math.min(Math.max(offset / span, 0), 1),
     });
   }
-  return placements;
+
+  const edgeOrder = { left: 0, right: 1, top: 2, bottom: 3 } as const;
+  return entries.sort((a, b) => edgeOrder[a.edge] - edgeOrder[b.edge] || a.position - b.position);
 }
 
 /**
- * Interactive hardware buttons along the edges of the live stream.
+ * Hardware buttons as labelled controls in the simulator toolbar.
  *
- * The preview draws the stream edge-to-edge rather than inside a rendered
- * bezel, so these sit as tabs on the frame's edges at the position DeviceKit
- * gives for the physical control, instead of on top of a drawn button.
+ * These used to be transparent hit areas pinned to the frame's edges. That put
+ * unlabelled slivers on the device border, which read as visual noise and gave
+ * no hint what they did; the toolbar is where the rest of the device controls
+ * already live.
  */
 export function DeviceHardwareButtons({
   frame,
@@ -73,55 +68,53 @@ export function DeviceHardwareButtons({
   frame: DeviceFrameSpec | null;
   onPress: (press: HardwareButtonPress) => void;
 }) {
-  const placements = hardwareButtonPlacements(frame);
-  if (placements.length === 0) return null;
+  const entries = hardwareButtonEntries(frame);
+  if (entries.length === 0) return null;
 
   return (
-    <>
-      {placements.map((placement) => {
-        const vertical = placement.edge === "left" || placement.edge === "right";
-        const thickness = 5;
-        const style: CSSProperties = {
-          position: "absolute",
-          ...(vertical
-            ? {
-                top: `${placement.start * 100}%`,
-                height: `${placement.length * 100}%`,
-                width: thickness,
-                [placement.edge]: 0,
-              }
-            : {
-                left: `${placement.start * 100}%`,
-                width: `${placement.length * 100}%`,
-                height: thickness,
-                [placement.edge]: 0,
-              }),
-          borderRadius: thickness,
-          border: "none",
-          padding: 0,
-          cursor: "pointer",
-          background: "var(--color-divider)",
-        };
-        return (
-          <button
-            key={placement.name}
-            type="button"
-            aria-label={placement.action.label}
-            title={placement.action.label}
-            style={style}
-            className="z-10 opacity-70 hover:opacity-100 hover:bg-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
-            onClick={() =>
-              onPress({
-                ...(placement.action.button ? { button: placement.action.button } : {}),
-                ...(placement.action.usagePage !== undefined
-                  ? { usagePage: placement.action.usagePage }
-                  : {}),
-                ...(placement.action.usage !== undefined ? { usage: placement.action.usage } : {}),
-              })
-            }
-          />
-        );
-      })}
-    </>
+    <div
+      className="flex items-center gap-0.5 rounded-pill border border-divider bg-surface-2 p-0.5"
+      role="group"
+      aria-label="Hardware buttons"
+    >
+      {entries.map((entry) => (
+        <button
+          key={entry.name}
+          type="button"
+          aria-label={entry.action.label}
+          title={entry.action.label}
+          onClick={() =>
+            onPress({
+              ...(entry.action.button ? { button: entry.action.button } : {}),
+              ...(entry.action.usagePage !== undefined
+                ? { usagePage: entry.action.usagePage }
+                : {}),
+              ...(entry.action.usage !== undefined ? { usage: entry.action.usage } : {}),
+            })
+          }
+          className="min-h-6 cursor-pointer rounded-pill border-none bg-transparent px-2 text-[11px] font-semibold text-fg-3 hover:bg-hover hover:text-fg-1 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+        >
+          {shortLabel(entry.action.label)}
+        </button>
+      ))}
+    </div>
   );
+}
+
+/** Compact label so a full button row fits beside the other toolbar actions. */
+function shortLabel(label: string): string {
+  switch (label) {
+    case "Volume up":
+      return "Vol +";
+    case "Volume down":
+      return "Vol −";
+    case "Ring/Silent":
+      return "Ring";
+    case "Left side button":
+      return "Left";
+    case "Side button":
+      return "Side";
+    default:
+      return label;
+  }
 }
