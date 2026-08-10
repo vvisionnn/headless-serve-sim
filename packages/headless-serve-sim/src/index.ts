@@ -2077,12 +2077,7 @@ async function serve(
   portExplicit: boolean,
   host: string,
   headed: boolean,
-  launch?: {
-    panes?: PreviewPane[];
-    theme?: SimulatorTheme;
-    codec?: "auto" | "mjpeg";
-    proxyHelpers?: boolean;
-  },
+  launch?: { panes?: PreviewPane[]; theme?: SimulatorTheme; codec?: "auto" | "mjpeg" },
 ) {
   let targetDevice: string | undefined;
 
@@ -2105,10 +2100,9 @@ async function serve(
   const middleware = simMiddleware({
     basePath: "/",
     device: targetDevice,
-    // Opt-in. Proxying costs ~5% of MJPEG throughput (measured 56.1 → 53.4 fps
-    // under load) because every frame is copied through the server, so it is
-    // only worth paying when a viewer genuinely can't reach the helper port.
-    ...(launch?.proxyHelpers ? { proxyHelpers: true } : {}),
+    // The standalone server owns its upgrade handling, so it can proxy the
+    // helpers and keep a remote viewer down to one reachable port.
+    proxyHelpers: true,
     ...(launch?.codec ? { codec: launch.codec } : {}),
     ...(launch?.panes ? { initialState: { panes: launch.panes } } : {}),
   });
@@ -2284,12 +2278,6 @@ program
     "Preview stream codec: 'auto' (H.264 when the browser can decode it) or " +
       "'mjpeg' (force software JPEG — e.g. on a VM that can't encode H.264)",
   )
-  .option(
-    "--proxy-helpers",
-    "Serve the device stream through the preview port instead of the helper's " +
-      "own port, so a remote viewer needs only one port reachable. Costs some " +
-      "MJPEG throughput, since every frame is copied through the server.",
-  )
   .option("-l, --list [device]", "List running streams")
   .option("-k, --kill [device]", "Kill running stream(s)")
   .addHelpText(
@@ -2358,7 +2346,6 @@ Examples:
         panes: launchPanes,
         theme: launchTheme,
         codec: launchCodec,
-        proxyHelpers: !!opts.proxyHelpers,
       });
     }
   });

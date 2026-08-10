@@ -38,6 +38,10 @@ export interface UseAvccStreamOptions {
   onFrame?: (info: AvccFrameInfo) => void;
   /** Called with a human-readable message when the decode pipeline fails. */
   onError?: (message: string) => void;
+  /** Called on each fatal decoder fault, after recovery has been attempted.
+   * Distinct from `onError`, which is diagnostic text for the UI: this one
+   * counts, so a caller can give up on H.264 when recovery keeps failing. */
+  onDecoderError?: () => void;
   /** Called (debounced) when the decoder needs a fresh IDR to recover — wire to
    * a client→server keyframe request so the server emits one promptly. */
   onRequestKeyframe?: () => void;
@@ -69,6 +73,7 @@ export function useAvccStream({
   onFirstFrame,
   onFrame,
   onError,
+  onDecoderError,
   onRequestKeyframe,
   onProgress,
 }: UseAvccStreamOptions): void {
@@ -194,6 +199,7 @@ export function useAvccStream({
         error: (err) => {
           if (stopped || generation !== decoderGeneration) return;
           onError?.(`decoder: ${err.message}`);
+          onDecoderError?.();
           // A WebCodecs decoder can't be reconfigured after an error — it must be
           // recreated. Reconnect so the server re-primes config + a fresh IDR.
           reconnect();
@@ -227,6 +233,7 @@ export function useAvccStream({
         });
       } catch (e) {
         onError?.(`config: ${(e as Error).message}`);
+        onDecoderError?.();
         closeDecoder();
       }
     };
@@ -246,6 +253,7 @@ export function useAvccStream({
           });
         } catch (e) {
           onError?.(`config: ${(e as Error).message}`);
+          onDecoderError?.();
           closeDecoder();
         }
       }
@@ -416,5 +424,15 @@ export function useAvccStream({
       closeDecoder();
       presenter.close();
     };
-  }, [url, enabled, canvasRef, onFirstFrame, onFrame, onError, onRequestKeyframe, onProgress]);
+  }, [
+    url,
+    enabled,
+    canvasRef,
+    onFirstFrame,
+    onFrame,
+    onError,
+    onDecoderError,
+    onRequestKeyframe,
+    onProgress,
+  ]);
 }
