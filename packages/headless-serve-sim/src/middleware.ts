@@ -4,11 +4,19 @@ import { join } from "path";
 import { createServer as createNetServer } from "net";
 import { randomBytes, timingSafeEqual } from "crypto";
 import type { IncomingMessage, ServerResponse } from "http";
+import type { Duplex } from "stream";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
 import { createAxStreamerCache } from "./ax";
 import { cameraStatus } from "./camera-helper";
 import type { PreviewInitialState } from "./preview-initial-state";
 import { createEventLog, type EventLogDraft, type EventLogEntry } from "./event-log";
+import {
+  parseHelperProxyPath,
+  proxiedHelperUrls,
+  proxyHelperRequest,
+  requestIsSecure,
+  createHelperSocketProxy,
+} from "./helper-proxy";
 import { debugMw } from "./debug";
 import { resolveInstalledDeviceMetadata } from "./device-metadata";
 import { createExecUpgradeHandler, type UiRequestHandler } from "./exec-ws";
@@ -460,6 +468,8 @@ export function previewConfigForState(
     deviceFrameSpec?: DeviceFrameSpec;
   } | null,
   initialState?: PreviewInitialState | null,
+  proxy?: { base: string; host: string; secure: boolean } | null,
+  codec?: "auto" | "mjpeg",
 ): ServeSimState & {
   basePath: string;
   logsEndpoint: string;
@@ -477,14 +487,19 @@ export function previewConfigForState(
   previewEndpoint: string;
   execToken: string;
   initialState?: PreviewInitialState;
+  codec?: "auto" | "mjpeg";
   screenConfig?: HelperScreenConfig;
   deviceName?: string;
   deviceTypeIdentifier?: string;
   deviceFrameSpec?: DeviceFrameSpec;
 } {
   const gridApiBase = (base === "" ? "" : base) + "/grid/api";
+  const routed = proxy
+    ? proxiedHelperUrls(proxy.base, state.device, { host: proxy.host, secure: proxy.secure })
+    : null;
   return {
     ...state,
+    ...(routed ?? {}),
     ...(screenConfig ? { screenConfig } : {}),
     ...(deviceMetadata?.deviceName ? { deviceName: deviceMetadata.deviceName } : {}),
     ...(deviceMetadata?.deviceTypeIdentifier
@@ -507,6 +522,7 @@ export function previewConfigForState(
     previewEndpoint: base === "" ? "/" : base,
     execToken,
     ...(initialState ? { initialState } : {}),
+    ...(codec && codec !== "auto" ? { codec } : {}),
   };
 }
 
@@ -910,6 +926,19 @@ export interface SimMiddlewareOptions {
   initialState?: PreviewInitialState;
   /** Override the input event buffer. Intended for tests. */
   eventLog?: ReturnType<typeof createEventLog>;
+  /**
+   * Serve the device helpers through this origin at `<base>/helper/<udid>`,
+   * so a remote viewer only needs the preview port reachable. Opt-in: a plain
+   * `app.use(simMiddleware())` mount keeps the direct helper URLs, since the
+   * host app owns its own upgrade handling.
+   */
+  proxyHelpers?: boolean;
+  /**
+   * Preview stream codec. "mjpeg" pins software JPEG for hosts that can't
+   * encode H.264 (VMs, some CI runners); "auto" lets the page use H.264 when
+   * the browser can decode it.
+   */
+  codec?: "auto" | "mjpeg";
 }
 
 function safeEqualString(a: string, b: string): boolean {
@@ -963,6 +992,15 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
   // One buffer per middleware instance, shared by the reporting route, the SSE
   // stream, and the CLI's read route — so all three see the same history.
   const eventLog = options?.eventLog ?? createEventLog();
+  const proxyHelpers = options?.proxyHelpers ?? false;
+  const codec = options?.codec ?? "auto";
+  /** Per-request proxy descriptor, or null when proxying is off. */
+  const proxyFor = (req: SimReq): { base: string; host: string; secure: boolean } | null => {
+    if (!proxyHelpers) return null;
+    const host = req.headers?.host;
+    if (!host) return null;
+    return { base, host, secure: requestIsSecure(req.headers as Record<string, unknown>) };
+  };
   const eventLogReadAllowed = (req: SimReq): boolean => {
     if (isLoopbackRequest(req)) return true;
     const match = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? "");
@@ -1085,6 +1123,8 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
             screenConfig,
             deviceMetadata,
             options?.initialState,
+            proxyFor(req),
+            codec,
           ),
         );
         sendHtml(
@@ -1521,6 +1561,9 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
                   execToken,
                   null,
                   deviceMetadata,
+                  null,
+                  proxyFor(req),
+                  codec,
                 )
               : null,
           ),
@@ -1543,7 +1586,17 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
           : undefined;
         return JSON.stringify(
           remoteState
-            ? previewConfigForState(remoteState, base, serveSimBin, execToken, null, deviceMetadata)
+            ? previewConfigForState(
+                remoteState,
+                base,
+                serveSimBin,
+                execToken,
+                null,
+                deviceMetadata,
+                null,
+                proxyFor(req),
+                codec,
+              )
             : null,
         );
       };
@@ -2050,6 +2103,22 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
       return;
     }
 
+    // Same-origin helper proxy, so a remote viewer needs only this port open.
+    if (proxyHelpers) {
+      const target = parseHelperProxyPath(base, url);
+      if (target) {
+        const helper = readStates().find((state) => state.device === target.device);
+        if (!helper) {
+          res.writeHead(404, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+          res.end(JSON.stringify({ error: "No helper for device" }));
+          return;
+        }
+        const query = qIndex === -1 ? "" : rawUrl.slice(qIndex);
+        void proxyHelperRequest(helper.url, `${target.path}${query}`, req, res);
+        return;
+      }
+    }
+
     // Not ours — pass through
     if (next) next();
   };
@@ -2059,13 +2128,38 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
   // (each holding MJPEG + SSE streams) can't starve actions. The built-in
   // preview server forwards `upgrade` events here. Existing in-page tools keep
   // using POST /exec; only the simulator-settings panel rides this channel.
+  const tunnelHelperSocket = createHelperSocketProxy();
+  const handleExecUpgrade = createExecUpgradeHandler({
+    path: `${base}/exec-ws`,
+    execToken,
+    hostCommands,
+    onUiRequest: handleUiRequest,
+  });
+
   return Object.assign(middleware, {
-    handleUpgrade: createExecUpgradeHandler({
-      path: `${base}/exec-ws`,
-      execToken,
-      hostCommands,
-      onUiRequest: handleUiRequest,
-    }),
+    handleUpgrade: (req: IncomingMessage, socket: Duplex, head: Buffer): boolean => {
+      if (handleExecUpgrade(req, socket, head)) return true;
+      if (!proxyHelpers) return false;
+      const rawUrl = req.url ?? "";
+      const qIndex = rawUrl.indexOf("?");
+      const path = qIndex === -1 ? rawUrl : rawUrl.slice(0, qIndex);
+      const target = parseHelperProxyPath(base, path);
+      if (!target) return false;
+      const helper = readStates().find((state) => state.device === target.device);
+      if (!helper) {
+        socket.destroy();
+        return true;
+      }
+      const helperOrigin = new URL(helper.wsUrl);
+      const suffix = qIndex === -1 ? "" : rawUrl.slice(qIndex);
+      tunnelHelperSocket(
+        `${helperOrigin.protocol}//${helperOrigin.host}${target.path}${suffix}`,
+        req,
+        socket,
+        head,
+      );
+      return true;
+    },
   });
 }
 

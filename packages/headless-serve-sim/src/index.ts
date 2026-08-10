@@ -2077,7 +2077,7 @@ async function serve(
   portExplicit: boolean,
   host: string,
   headed: boolean,
-  launch?: { panes?: PreviewPane[]; theme?: SimulatorTheme },
+  launch?: { panes?: PreviewPane[]; theme?: SimulatorTheme; codec?: "auto" | "mjpeg" },
 ) {
   let targetDevice: string | undefined;
 
@@ -2100,6 +2100,10 @@ async function serve(
   const middleware = simMiddleware({
     basePath: "/",
     device: targetDevice,
+    // The standalone server owns its upgrade handling, so it can proxy the
+    // helpers and keep a remote viewer down to one reachable port.
+    proxyHelpers: true,
+    ...(launch?.codec ? { codec: launch.codec } : {}),
     ...(launch?.panes ? { initialState: { panes: launch.panes } } : {}),
   });
 
@@ -2265,6 +2269,11 @@ program
     `Panels open when the preview loads: 'none', or a comma-separated list of ${PREVIEW_PANES.join(", ")}`,
   )
   .option("--theme <theme>", "Simulator appearance to set before opening the preview: light | dark")
+  .option(
+    "--codec <codec>",
+    "Preview stream codec: 'auto' (H.264 when the browser can decode it) or " +
+      "'mjpeg' (force software JPEG — e.g. on a VM that can't encode H.264)",
+  )
   .option("-l, --list [device]", "List running streams")
   .option("-k, --kill [device]", "Kill running stream(s)")
   .addHelpText(
@@ -2296,6 +2305,15 @@ Examples:
     // instead of after a simulator has booted.
     let launchPanes: PreviewPane[] | undefined;
     let launchTheme: SimulatorTheme | undefined;
+    let launchCodec: "auto" | "mjpeg" | undefined;
+    if (typeof opts.codec === "string") {
+      if (opts.codec !== "auto" && opts.codec !== "mjpeg") {
+        console.error("Expected codec: auto or mjpeg.");
+        process.exitCode = 1;
+        return;
+      }
+      launchCodec = opts.codec;
+    }
     try {
       if (typeof opts.panes === "string") launchPanes = parsePreviewPanes(opts.panes);
       if (typeof opts.theme === "string") launchTheme = parseSimulatorTheme(opts.theme);
@@ -2323,6 +2341,7 @@ Examples:
       await serve(startPort ?? 3200, devices, startPort !== undefined, opts.host, headed, {
         panes: launchPanes,
         theme: launchTheme,
+        codec: launchCodec,
       });
     }
   });

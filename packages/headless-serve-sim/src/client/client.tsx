@@ -407,7 +407,9 @@ function AppWithConfig({
   // drop to MJPEG, which every helper serves. See avcc-fallback.ts.
   const avcc = useAvccStream();
   const [avccFallback, dispatchAvccFallback] = useReducer(avccFallbackReducer, initialAvccFallback);
-  const useAvccVideo = avcc.supported && !avccFallback.fellBack;
+  // A server-pinned "mjpeg" codec wins over browser capability: the host may
+  // be unable to *encode* H.264 even where the browser could decode it.
+  const useAvccVideo = avcc.supported && !avccFallback.fellBack && config.codec !== "mjpeg";
   const mjpeg = useMjpegStream(useAvccVideo ? null : config.streamUrl);
 
   // Re-arm AVCC whenever the target stream changes (device switch / reconnect).

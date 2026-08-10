@@ -103,6 +103,9 @@ Options:
                       logs, metrics
       --theme <theme> Simulator appearance to set before opening the preview:
                       light or dark (needs an explicit simulator)
+      --codec <codec> Preview stream codec: 'auto' (H.264 when the browser can
+                      decode it) or 'mjpeg' (force software JPEG — e.g. on a VM
+                      that can't encode H.264)
       --list [device] List running streams
       --kill [device] Kill running stream(s)
 
@@ -130,6 +133,7 @@ headless-serve-sim --kill                       # stop all helpers
 headless-serve-sim --panes devices,logs         # open with those panels showing
 headless-serve-sim --panes none                 # open with every panel closed
 headless-serve-sim --theme dark "iPhone 16 Pro" # start the simulator in Dark Mode
+headless-serve-sim --codec mjpeg                # force software JPEG streaming
 
 # Type text into the focused field
 headless-serve-sim type "Hello, world!"
