@@ -2239,6 +2239,10 @@ function bindPreviewServer(
 const program = new Command();
 
 program
+  // Options after a subcommand name belong to that subcommand. Without this,
+  // the root's `-p, --port` swallows `events --port`, which silently reported
+  // the default port instead of the one asked for.
+  .enablePositionalOptions()
   .name("headless-serve-sim")
   .description("Stream iOS Simulator to the browser")
   .helpOption("-h, --help", "Show this help")
