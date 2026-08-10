@@ -32,6 +32,7 @@ import { AxStateProvider } from "./components/ax-state-provider";
 import { AxToolbarButton } from "./components/ax-toolbar-button";
 import { BootEmptyState } from "./components/boot-empty-state";
 import { SimulatorDisconnected } from "./components/simulator-disconnected";
+import { DeviceHardwareButtons } from "./components/device-hardware-buttons";
 import { DevicePicker } from "./components/device-picker";
 import { GridPanel } from "./components/grid-panel";
 import { MetricsBar } from "./components/metrics-bar";
@@ -1132,6 +1133,18 @@ function AppWithConfig({
                 recordingSourceRef={recordingSourceRef}
                 onDecoderError={onDecoderError}
                 onStreamScroll={onStreamScroll}
+              />
+              <DeviceHardwareButtons
+                frame={config.deviceFrameSpec ?? null}
+                onPress={(press) => {
+                  sendWs(0x04, press);
+                  logEvent({
+                    kind: "button",
+                    details: {
+                      button: press.button ?? `usage:0x${(press.usage ?? 0).toString(16)}`,
+                    },
+                  });
+                }}
               />
               {axOverlayEnabled && <AxDomOverlay />}
               {mediaDrop.isDragOver && (

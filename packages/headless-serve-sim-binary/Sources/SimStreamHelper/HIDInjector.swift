@@ -435,6 +435,19 @@ final class HIDInjector {
         }
     }
 
+    /// Press an arbitrary USB HID usage, for controls with no name mapping.
+    /// `phase` is "down", "up", or "press" for a full press-and-release.
+    func sendHIDControl(page: UInt32, usage: UInt32, phase: String) {
+        print("[hid] HID control page=0x\(String(page, radix: 16)) usage=0x\(String(usage, radix: 16)) phase=\(phase)")
+        inputQueue.async { [self] in
+            switch phase {
+            case "down": sendHIDUsage(page: page, usage: usage, direction: HIDUsage.down)
+            case "up":   sendHIDUsage(page: page, usage: usage, direction: HIDUsage.up)
+            default:     pressHIDUsage(page: page, usage: usage)
+            }
+        }
+    }
+
     func sendButton(button: String, deviceUDID: String) {
         print("[hid] Sending button: \(button)")
 

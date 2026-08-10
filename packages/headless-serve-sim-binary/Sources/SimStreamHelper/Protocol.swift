@@ -28,7 +28,15 @@ struct TouchEventPayload: Codable {
 }
 
 struct ButtonEventPayload: Codable {
-    let button: String  // "home"
+    /// Named button ("home", "lock", …). Optional when a raw usage is given.
+    let button: String?
+    /// Raw USB HID usage page + usage, for controls with no name mapping (the
+    /// bezel's hardware buttons send these so new controls don't need a helper
+    /// release to work).
+    let usagePage: UInt32?
+    let usage: UInt32?
+    /// "down", "up", or "press" (default) for a full press-and-release.
+    let phase: String?
 }
 
 struct MultiTouchEventPayload: Codable {

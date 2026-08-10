@@ -37,7 +37,7 @@ final class ClientManager {
     var avccHighWaterBytes = 512 * 1024
 
     var onTouch: ((TouchEventPayload) -> Void)?
-    var onButton: ((String) -> Void)?
+    var onButton: ((ButtonEventPayload) -> Void)?
     var onMultiTouch: ((MultiTouchEventPayload) -> Void)?
     var onKey: ((KeyEventPayload) -> Void)?
     var onOrientation: ((UInt32) -> Bool)?
@@ -294,7 +294,7 @@ final class ClientManager {
             onTouch?(json)
         } else if type == 0x04 { // WS_MSG_BUTTON
             guard let json = try? JSONDecoder().decode(ButtonEventPayload.self, from: data[1...]) else { return }
-            onButton?(json.button)
+            onButton?(json)
         } else if type == 0x05 { // WS_MSG_MULTI_TOUCH
             guard let json = try? JSONDecoder().decode(MultiTouchEventPayload.self, from: data[1...]) else { return }
             onMultiTouch?(json)

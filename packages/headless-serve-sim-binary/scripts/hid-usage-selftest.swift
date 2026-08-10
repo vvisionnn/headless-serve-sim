@@ -21,6 +21,10 @@ private enum HIDUsageSelftest {
 
         // Usage pages and directions are USB HID spec values, not Apple's — they
         // must not drift.
+        // Mirrored by the client's hid-usage.ts; the bezel buttons send these
+        // raw, so a drift between the two sends the wrong control.
+        precondition(HIDUsage.mute == 0xE2)
+
         precondition(HIDUsage.consumerPage == 0x0C)
         precondition(HIDUsage.keyboardPage == 0x07)
         precondition(HIDUsage.down == 1 && HIDUsage.up == 2)

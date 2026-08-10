@@ -20,6 +20,7 @@ enum HIDUsage {
     static let voiceCommand: UInt32 = 0xCF // siri
     static let volumeUp: UInt32 = 0xE9
     static let volumeDown: UInt32 = 0xEA
+    static let mute: UInt32 = 0xE2
 
     /// Direction values shared by every Indigo HID message builder.
     static let down: UInt32 = 1

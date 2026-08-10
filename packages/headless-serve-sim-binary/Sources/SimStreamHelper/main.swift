@@ -150,7 +150,15 @@ httpServer.clientManager.onTouch = { touch in
                           screenWidth: screenWidth, screenHeight: screenHeight,
                           edge: touch.edge ?? 0)
 }
-httpServer.clientManager.onButton = { button in
+httpServer.clientManager.onButton = { payload in
+    // A raw usage takes precedence: the bezel's hardware buttons send page +
+    // usage so a control DeviceKit knows about doesn't need a helper release
+    // to become pressable.
+    if let page = payload.usagePage, let usage = payload.usage {
+        hidInjector.sendHIDControl(page: page, usage: usage, phase: payload.phase ?? "press")
+        return
+    }
+    guard let button = payload.button else { return }
     hidInjector.sendButton(button: button, deviceUDID: deviceUDID)
 }
 httpServer.clientManager.onMultiTouch = { multiTouch in
