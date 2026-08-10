@@ -106,6 +106,9 @@ Options:
       --codec <codec> Preview stream codec: 'auto' (H.264 when the browser can
                       decode it) or 'mjpeg' (force software JPEG — e.g. on a VM
                       that can't encode H.264)
+      --proxy-helpers Serve the stream through the preview port instead of the
+                      helper's own port, so a remote viewer needs only one port
+                      reachable. Costs some MJPEG throughput.
       --list [device] List running streams
       --kill [device] Kill running stream(s)
 
@@ -134,6 +137,7 @@ headless-serve-sim --panes devices,logs         # open with those panels showing
 headless-serve-sim --panes none                 # open with every panel closed
 headless-serve-sim --theme dark "iPhone 16 Pro" # start the simulator in Dark Mode
 headless-serve-sim --codec mjpeg                # force software JPEG streaming
+headless-serve-sim --proxy-helpers              # single-port mode for a remote viewer
 
 # Type text into the focused field
 headless-serve-sim type "Hello, world!"
