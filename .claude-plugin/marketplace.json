@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "headless-serve-sim",
+  "description": "Stream and control Apple Simulators headlessly from Claude Code",
+  "owner": {
+    "name": "vvisionnn"
+  },
+  "plugins": [
+    {
+      "name": "headless-serve-sim",
+      "source": "./",
+      "description": "Control and stream a running iOS, iPad, or Apple Watch Simulator with headless-serve-sim — taps, gestures, scrolling, hardware buttons, rotation, camera injection, permissions, accessibility, and the live preview.",
+      "category": "development"
+    }
+  ]
+}

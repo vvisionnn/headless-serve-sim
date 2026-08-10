@@ -1,0 +1,11 @@
+{
+  "name": "headless-serve-sim",
+  "version": "0.0.27",
+  "description": "Control and stream a running iOS, iPad, or Apple Watch Simulator with headless-serve-sim.",
+  "author": {
+    "name": "vvisionnn"
+  },
+  "homepage": "https://github.com/vvisionnn/headless-serve-sim",
+  "repository": "https://github.com/vvisionnn/headless-serve-sim",
+  "license": "Apache-2.0"
+}
