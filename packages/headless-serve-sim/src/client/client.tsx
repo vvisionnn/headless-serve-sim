@@ -51,6 +51,7 @@ import { parseSimctlList, type SimDevice } from "./utils/devices";
 import { fileExtension } from "./utils/drop";
 import { execOnHost } from "./utils/exec";
 import { hidUsageForCode, reactNativeReloadKeys } from "./utils/hid";
+import { isSoftwareKeyboardShortcut, isTextEntryTarget } from "./utils/shortcuts";
 import {
   CONNECTION_STATS_PANEL_WIDTH,
   DEVTOOLS_PANEL_WIDTH,
@@ -775,16 +776,10 @@ function AppWithConfig({
       // ⌘K toggles the on-screen software keyboard, matching Simulator.app's
       // I/O → Keyboard → Toggle Software Keyboard. Global like ⇧⌘A / ⌘S, and
       // intercepting it stops the browser hijacking it (Safari focuses search).
-      if (e.code === "KeyK" && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
-        const target = e.target as HTMLElement | null;
-        const typing =
-          !!target &&
-          (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
-        if (!typing) {
-          e.preventDefault();
-          if (type === "down" && !e.repeat) toggleSoftwareKeyboard();
-          return;
-        }
+      if (isSoftwareKeyboardShortcut(e) && !isTextEntryTarget(e.target)) {
+        e.preventDefault();
+        if (type === "down" && !e.repeat) toggleSoftwareKeyboard();
+        return;
       }
       if (!simFocusedRef.current) return;
       if (e.code === "KeyH" && e.metaKey && e.shiftKey) {
