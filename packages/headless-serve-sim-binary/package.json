@@ -14,6 +14,7 @@
     "test:avcc-send-queue": "swiftc Sources/SimStreamHelper/AVCCSendQueue.swift scripts/avcc-send-queue-selftest.swift -o /tmp/avcc-send-queue-selftest && /tmp/avcc-send-queue-selftest",
     "test:hid-usage": "swiftc Sources/SimStreamHelper/HIDUsage.swift scripts/hid-usage-selftest.swift -o /tmp/hid-usage-selftest && /tmp/hid-usage-selftest",
     "test:developer-dir": "swiftc Sources/SimStreamHelper/DeveloperDir.swift scripts/developer-dir-selftest.swift -o /tmp/developer-dir-selftest && /tmp/developer-dir-selftest",
-    "test:swift": "for t in adaptive metrics snapshot frame-admission stream-format keyframe-request avcc-send-queue hid-usage developer-dir; do echo \"--- $t\"; bun run \"test:$t\" || exit 1; done"
+    "test:swift": "for t in adaptive metrics snapshot frame-admission stream-format keyframe-request avcc-send-queue hid-usage developer-dir scroll-drag; do echo \"--- $t\"; bun run \"test:$t\" || exit 1; done",
+    "test:scroll-drag": "swiftc Sources/SimStreamHelper/ScrollDrag.swift scripts/scroll-drag-selftest.swift -o /tmp/scroll-drag-selftest && /tmp/scroll-drag-selftest"
   }
 }

@@ -12,11 +12,13 @@ import type { StreamConfig } from "../types.js";
 import {
   HID_EDGE_BOTTOM,
   homeIndicatorEdge,
+  rawDeltaForDisplayDelta,
   rawEdgeForDisplayEdge,
   rawPointForDisplayPoint,
   streamDisplayGeometry,
 } from "./orientation.js";
 import { digitalCrownDeltaFromWheel } from "./digitalCrown.js";
+import { wheelDeltaToPixels } from "./scroll-wheel.js";
 import { normalizedPoint } from "./touch-geometry.js";
 import { useAvccStream, type AvccFrameInfo } from "./use-avcc-stream.js";
 import { isAvccSupported } from "../avcc-codec.js";
@@ -40,6 +42,7 @@ const WS_MSG_TOUCH = 0x03;
 const WS_MSG_BUTTON = 0x04;
 const WS_MSG_MULTI_TOUCH = 0x05;
 const WS_MSG_DIGITAL_CROWN = 0x0a;
+const WS_MSG_SCROLL = 0x0d;
 const WS_MSG_REQUEST_KEYFRAME = 0x0b; // client → server: force a fresh IDR (recovery)
 const WS_MSG_SET_MODE = 0x0c; // client → server: {mode:"perf"|"quality"}
 const WS_MSG_STREAM_STATS = 0x83; // server → client: adaptive stream-stats push
@@ -114,6 +117,8 @@ export interface SimulatorViewProps {
   /** Perf/quality streaming mode. When set (direct mode), pushed to the server
    * over /ws so it switches adaptive bounds live. */
   streamMode?: "perf" | "quality";
+  /** Relay mode: callback for wheel/trackpad pans (bypasses direct WS). */
+  onStreamScroll?: (data: { dx: number; dy: number; x: number; y: number }) => void;
   /** Provides fresh screen and touch snapshots to a browser-side recorder. */
   recordingSourceRef?: MutableRefObject<SimulatorRecordingSource | null>;
   /**
@@ -178,6 +183,7 @@ export function SimulatorView({
   streamMode,
   recordingSourceRef,
   onDecoderError,
+  onStreamScroll,
 }: SimulatorViewProps) {
   const relayMode = !!onStreamTouch;
   // AVCC decode is independent of input relay: the H.264 pipeline only needs
@@ -519,6 +525,34 @@ export function SimulatorView({
     [relayMode, onStreamDigitalCrown],
   );
 
+  /**
+   * Forward a wheel/trackpad pan. The helper turns this into a touch drag —
+   * iOS has no scroll wheel — so the anchor matters: it decides which view the
+   * synthetic finger lands on and therefore what actually scrolls.
+   */
+  const sendScroll = useCallback(
+    (dx: number, dy: number, anchorX: number, anchorY: number) => {
+      if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return;
+      const orientation = streamDisplayGeometry(screenSizeRef.current).inputOrientation;
+      const delta = rawDeltaForDisplayDelta(orientation, dx, dy);
+      const anchor = rawPointForDisplayPoint(orientation, anchorX, anchorY);
+      if (relayMode) {
+        onStreamScroll?.({ dx: delta.dx, dy: delta.dy, x: anchor.x, y: anchor.y });
+        return;
+      }
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const json = new TextEncoder().encode(
+        JSON.stringify({ dx: delta.dx, dy: delta.dy, x: anchor.x, y: anchor.y }),
+      );
+      const msg = new Uint8Array(1 + json.length);
+      msg[0] = WS_MSG_SCROLL;
+      msg.set(json, 1);
+      ws.send(msg);
+    },
+    [relayMode, onStreamScroll],
+  );
+
   const sendMultiTouch = useCallback(
     (touch: { type: "begin" | "move" | "end"; x1: number; y1: number; x2: number; y2: number }) => {
       const orientation = streamDisplayGeometry(screenSizeRef.current).inputOrientation;
@@ -805,13 +839,33 @@ export function SimulatorView({
     [getInputRect, sendDigitalCrown],
   );
 
+  /**
+   * Wheel over the screen scrolls the guest. On a watch the crown is the real
+   * scroll affordance, so that keeps taking the wheel; everywhere else the
+   * wheel becomes a cursor-anchored drag.
+   */
+  const handleScrollWheel = useCallback(
+    (event: globalThis.WheelEvent) => {
+      const rect = getInputRect();
+      if (!rect) return false;
+      const dx = wheelDeltaToPixels(event.deltaX, event.deltaMode, rect.width);
+      const dy = wheelDeltaToPixels(event.deltaY, event.deltaMode, rect.height);
+      if (dx === 0 && dy === 0) return false;
+      const { x, y } = normalizedPoint(event.clientX, event.clientY, rect);
+      sendScroll(dx, dy, x, y);
+      return true;
+    },
+    [getInputRect, sendScroll],
+  );
+
   useEffect(() => {
-    if (!enableDigitalCrown) return;
     const el = inputLayerRef.current;
     if (!el) return;
 
     const onWheel = (event: globalThis.WheelEvent) => {
-      const handled = handleDigitalCrownWheelDelta(event.deltaY, event.deltaMode);
+      const handled = enableDigitalCrown
+        ? handleDigitalCrownWheelDelta(event.deltaY, event.deltaMode)
+        : handleScrollWheel(event);
       if (!handled) return;
       event.preventDefault();
       event.stopPropagation();
@@ -819,7 +873,7 @@ export function SimulatorView({
 
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [enableDigitalCrown, handleDigitalCrownWheelDelta]);
+  }, [enableDigitalCrown, handleDigitalCrownWheelDelta, handleScrollWheel]);
 
   // Bottom-edge gesture: forward touches with edge=3 (bottom) so iOS
   // handles the interactive home indicator animation natively.

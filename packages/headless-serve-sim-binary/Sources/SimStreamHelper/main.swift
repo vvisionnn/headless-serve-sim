@@ -174,6 +174,14 @@ httpServer.clientManager.onMemoryWarning = {
 httpServer.clientManager.onDigitalCrown = { payload in
     hidInjector.sendDigitalCrown(delta: payload.delta)
 }
+httpServer.clientManager.onScroll = { payload in
+    hidInjector.sendScroll(dx: payload.dx, dy: payload.dy,
+                           anchorX: payload.x, anchorY: payload.y,
+                           screenWidth: screenWidth, screenHeight: screenHeight)
+}
+httpServer.clientManager.onSoftwareKeyboard = {
+    hidInjector.toggleSoftwareKeyboard()
+}
 
 // Start HTTP + WebSocket server
 do {

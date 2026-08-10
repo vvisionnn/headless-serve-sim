@@ -534,6 +534,15 @@ function AppWithConfig({
   const onStreamButton = useCallback((button: string) => sendWs(0x04, { button }), [sendWs]);
   const onStreamDigitalCrown = useCallback((delta: number) => sendWs(0x0a, { delta }), [sendWs]);
   const onStreamRequestKeyframe = useCallback(() => sendWs(0x0b, {}), [sendWs]);
+  const onStreamScroll = useCallback(
+    (data: { dx: number; dy: number; x: number; y: number }) => sendWs(0x0d, data),
+    [sendWs],
+  );
+  const toggleSoftwareKeyboard = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(new Uint8Array([0x0e]));
+  }, []);
   const onModeChange = useCallback((mode: StreamMode) => {
     pendingStreamModeRef.current = { mode, mismatches: 0 };
     setStreamMode(mode);
@@ -763,6 +772,20 @@ function AppWithConfig({
           return;
         }
       }
+      // ⌘K toggles the on-screen software keyboard, matching Simulator.app's
+      // I/O → Keyboard → Toggle Software Keyboard. Global like ⇧⌘A / ⌘S, and
+      // intercepting it stops the browser hijacking it (Safari focuses search).
+      if (e.code === "KeyK" && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
+        const target = e.target as HTMLElement | null;
+        const typing =
+          !!target &&
+          (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+        if (!typing) {
+          e.preventDefault();
+          if (type === "down" && !e.repeat) toggleSoftwareKeyboard();
+          return;
+        }
+      }
       if (!simFocusedRef.current) return;
       if (e.code === "KeyH" && e.metaKey && e.shiftKey) {
         e.preventDefault();
@@ -797,7 +820,15 @@ function AppWithConfig({
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [sendWs, config.device, rotateBy, toggleAppearance, captureAndDownloadScreenshot, goHome]);
+  }, [
+    sendWs,
+    config.device,
+    rotateBy,
+    toggleAppearance,
+    captureAndDownloadScreenshot,
+    goHome,
+    toggleSoftwareKeyboard,
+  ]);
 
   const switchToDevice = useCallback(
     async (d: SimDevice) => {
@@ -1019,6 +1050,7 @@ function AppWithConfig({
                 onConnectionStats={handleConnectionStats}
                 recordingSourceRef={recordingSourceRef}
                 onDecoderError={onDecoderError}
+                onStreamScroll={onStreamScroll}
               />
               {axOverlayEnabled && <AxDomOverlay />}
               {mediaDrop.isDragOver && (

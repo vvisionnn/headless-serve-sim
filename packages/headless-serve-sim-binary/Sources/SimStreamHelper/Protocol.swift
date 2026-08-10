@@ -12,6 +12,8 @@ enum WSMessageType: UInt8 {
     case digitalCrown = 0x0A   // client → server: JSON Digital Crown rotation event
     case requestKeyframe = 0x0B // client → server: empty body, forces an H.264 IDR (decode recovery)
     case setMode = 0x0C        // client → server: JSON {mode:"perf"|"quality"} streaming-mode switch
+    case scroll = 0x0D         // client → server: JSON wheel/trackpad pan, emulated as a touch drag
+    case softwareKeyboard = 0x0E // client → server: empty body, toggles the on-screen keyboard
 }
 
 struct SetModePayload: Codable {
@@ -50,6 +52,19 @@ struct OrientationEventPayload: Codable {
 struct DigitalCrownEventPayload: Codable {
     /// Raw scroll delta to feed through SimulatorKit's Digital Crown HID event.
     let delta: Double
+}
+
+struct ScrollEventPayload: Codable {
+    /// Horizontal wheel delta in device pixels (positive = content moves right).
+    let dx: Double
+    /// Vertical wheel delta in device pixels (positive = content moves down).
+    let dy: Double
+    /// Normalized cursor position to anchor a fresh gesture under, already
+    /// rotated into raw device orientation by the client. Absent = screen
+    /// center. Anchoring is what makes iOS scroll the view under the pointer
+    /// rather than whatever happens to be in the middle.
+    let x: Double?
+    let y: Double?
 }
 
 // Simulator.app's Debug menu toggles map to `-[SimDevice setCADebugOption:enabled:]`

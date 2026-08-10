@@ -44,6 +44,8 @@ final class ClientManager {
     var onCADebug: ((CADebugEventPayload) -> Void)?
     var onMemoryWarning: (() -> Void)?
     var onDigitalCrown: ((DigitalCrownEventPayload) -> Void)?
+    var onScroll: ((ScrollEventPayload) -> Void)?
+    var onSoftwareKeyboard: (() -> Void)?
 
     // MARK: - Configuration
 
@@ -329,6 +331,11 @@ final class ClientManager {
         } else if type == 0x0C { // WS_MSG_SET_MODE
             guard let json = try? JSONDecoder().decode(SetModePayload.self, from: data[1...]) else { return }
             onSetMode?(json.mode)
+        } else if type == 0x0D { // WS_MSG_SCROLL
+            guard let json = try? JSONDecoder().decode(ScrollEventPayload.self, from: data[1...]) else { return }
+            onScroll?(json)
+        } else if type == 0x0E { // WS_MSG_SOFTWARE_KEYBOARD
+            onSoftwareKeyboard?()
         }
     }
 

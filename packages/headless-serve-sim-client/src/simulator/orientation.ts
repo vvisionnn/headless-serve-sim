@@ -156,3 +156,25 @@ export function rawEdgeForDisplayEdge(
       return edge;
   }
 }
+
+/**
+ * Rotate a *delta* vector (no translation) from display space into the raw
+ * device orientation — the linear part of {@link rawPointForDisplayPoint}. Used
+ * for scroll/pan deltas so they travel the right direction on rotated devices.
+ */
+export function rawDeltaForDisplayDelta(
+  orientation: SimulatorOrientation | null | undefined,
+  dx: number,
+  dy: number,
+): { dx: number; dy: number } {
+  switch (orientation) {
+    case "landscape_left":
+      return { dx: dy, dy: -dx };
+    case "landscape_right":
+      return { dx: -dy, dy: dx };
+    case "portrait_upside_down":
+      return { dx: -dx, dy: -dy };
+    default:
+      return { dx, dy };
+  }
+}
