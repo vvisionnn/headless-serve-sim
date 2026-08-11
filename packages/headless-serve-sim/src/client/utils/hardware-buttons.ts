@@ -51,6 +51,11 @@ export function hardwareButtonAction(controlName: string): HardwareButtonAction 
   return ACTIONS[controlName.toLowerCase()] ?? null;
 }
 
+/** Every DeviceKit control name that maps to a press. */
+export function pressableControlNames(): string[] {
+  return Object.keys(ACTIONS);
+}
+
 /** Whether a DeviceKit control should be rendered as a pressable button. */
 export function isPressableControl(controlName: string): boolean {
   return hardwareButtonAction(controlName) !== null;

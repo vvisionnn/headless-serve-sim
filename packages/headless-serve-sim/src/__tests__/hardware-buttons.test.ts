@@ -2,8 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
-import { hardwareButtonEntries } from "../client/components/device-hardware-buttons";
-import { hardwareButtonAction, isPressableControl } from "../client/utils/hardware-buttons";
+import {
+  hardwareButtonAction,
+  isPressableControl,
+  pressableControlNames,
+} from "../client/utils/hardware-buttons";
+import {
+  HARDWARE_BUTTON_GLYPHS,
+  hardwareButtonEntries,
+} from "../client/components/device-hardware-buttons";
 import { HIDUsage } from "../client/utils/hid-usage";
 
 function asset(width: number, height: number) {
@@ -188,5 +195,22 @@ describe("HID usage tables stay in sync with the helper", () => {
     ["mute", HIDUsage.mute],
   ])("%s matches the Swift value", (name, value) => {
     expect(swiftUsage(name)).toBe(value);
+  });
+});
+
+describe("hardware button glyphs", () => {
+  // The controls render icon-only so five of them fit one line in the setting
+  // row. A control with no glyph falls back to "?", which is worse than the
+  // text it replaced — so every pressable name must have one.
+  test("every pressable control has a glyph", () => {
+    for (const name of pressableControlNames()) {
+      expect(HARDWARE_BUTTON_GLYPHS[name]).toBeTruthy();
+    }
+  });
+
+  test("no glyph is defined for a control that can't be pressed", () => {
+    for (const name of Object.keys(HARDWARE_BUTTON_GLYPHS)) {
+      expect(isPressableControl(name)).toBe(true);
+    }
   });
 });

@@ -214,6 +214,23 @@ function SettingSelect({
 
 // Inline 14px glyphs, stroked at full opacity (no dimmed icons).
 const I = {
+  hardware: (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="6" y="2" width="12" height="20" rx="3" />
+      <path d="M20 8v3" />
+      <path d="M4 8v2" />
+      <path d="M4 12v2" />
+    </svg>
+  ),
   appearance: (
     <svg
       width="14"
@@ -333,10 +350,14 @@ export function SimulatorSettingsTool({
   udid,
   execToken,
   refreshKey,
+  hardware,
 }: {
   udid: string;
   execToken?: string;
   refreshKey?: unknown;
+  /** Hardware-button controls, rendered as the section's first row. Passed in
+   *  rather than built here so this component stays free of the input socket. */
+  hardware?: ReactNode;
 }) {
   const [open, setOpen] = useState(true);
   const [state, setState] = useState<SettingsState | null>(null);
@@ -451,6 +472,11 @@ export function SimulatorSettingsTool({
       )}
 
       <div className="flex flex-col gap-2">
+        {hardware && (
+          <SettingRow icon={I.hardware} label="Buttons">
+            {hardware}
+          </SettingRow>
+        )}
         <SettingRow icon={I.appearance} label="Appearance">
           <SettingSelect
             label="Appearance"

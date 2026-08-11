@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
 import { deviceFrameControlRect } from "../device-frame-artwork";
 import { hardwareButtonAction, type HardwareButtonAction } from "../utils/hardware-buttons";
@@ -54,12 +55,127 @@ export function hardwareButtonEntries(frame: DeviceFrameSpec | null): HardwareBu
 }
 
 /**
- * Hardware buttons as labelled controls in the simulator toolbar.
+ * Glyphs for the physical controls, keyed by DeviceKit control name.
  *
- * These used to be transparent hit areas pinned to the frame's edges. That put
- * unlabelled slivers on the device border, which read as visual noise and gave
- * no hint what they did; the toolbar is where the rest of the device controls
- * already live.
+ * Icons rather than text: at most five controls share the right-hand side of a
+ * setting row (~200px in the expanded rail), and full labels like "Volume down"
+ * wrap to a second line there. A 28px square each keeps every device on one
+ * line — five is the worst case, on the classic phone body — and the name still
+ * reaches assistive tech and the tooltip.
+ */
+export const HARDWARE_BUTTON_GLYPHS: Record<string, ReactNode> = {
+  "volume-up": (
+    <svg
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  ),
+  "volume-down": (
+    <svg
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+    >
+      <path d="M5 12h14" />
+    </svg>
+  ),
+  power: (
+    <svg
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M12 3v9" />
+      <path d="M18.4 6.6a9 9 0 1 1-12.8 0" />
+    </svg>
+  ),
+  mute: (
+    <svg
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9" />
+      <path d="M10.3 21a2 2 0 0 0 3.4 0" />
+    </svg>
+  ),
+  home: (
+    <svg
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <rect x="4" y="4" width="16" height="16" rx="5" />
+    </svg>
+  ),
+  "side-button": (
+    <svg
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <rect x="9" y="3" width="6" height="18" rx="3" />
+    </svg>
+  ),
+  "left-side-button": (
+    <svg
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <rect x="9" y="3" width="6" height="18" rx="3" />
+    </svg>
+  ),
+  action: (
+    <svg
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
+    </svg>
+  ),
+};
+
+/**
+ * The device's physical buttons, in the inspector's Simulator section.
+ *
+ * They began as transparent hit areas pinned to the frame's edges — unlabelled
+ * slivers on the device border — then moved to the toolbar, which crowded it.
+ * This is where the other device-level controls already live.
  */
 export function DeviceHardwareButtons({
   frame,
@@ -73,7 +189,7 @@ export function DeviceHardwareButtons({
 
   return (
     <div
-      className="flex items-center gap-0.5 rounded-pill border border-divider bg-surface-2 p-0.5"
+      className="flex items-center gap-1 rounded-pill border border-divider bg-surface-2 p-0.5"
       role="group"
       aria-label="Hardware buttons"
     >
@@ -92,29 +208,13 @@ export function DeviceHardwareButtons({
               ...(entry.action.usage !== undefined ? { usage: entry.action.usage } : {}),
             })
           }
-          className="min-h-6 cursor-pointer rounded-pill border-none bg-transparent px-2 text-[11px] font-semibold text-fg-3 hover:bg-hover hover:text-fg-1 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-transparent text-fg-3 [transition:background_0.2s,color_0.2s] hover:bg-panel hover:text-fg-1 active:bg-hover focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
         >
-          {shortLabel(entry.action.label)}
+          {HARDWARE_BUTTON_GLYPHS[entry.name] ?? (
+            <span className="text-[11px] font-semibold">?</span>
+          )}
         </button>
       ))}
     </div>
   );
-}
-
-/** Compact label so a full button row fits beside the other toolbar actions. */
-function shortLabel(label: string): string {
-  switch (label) {
-    case "Volume up":
-      return "Vol +";
-    case "Volume down":
-      return "Vol −";
-    case "Ring/Silent":
-      return "Ring";
-    case "Left side button":
-      return "Left";
-    case "Side button":
-      return "Side";
-    default:
-      return label;
-  }
 }

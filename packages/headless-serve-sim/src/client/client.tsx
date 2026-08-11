@@ -1086,18 +1086,6 @@ function AppWithConfig({
                     goHome();
                   }}
                 />
-                <DeviceHardwareButtons
-                  frame={config.deviceFrameSpec ?? null}
-                  onPress={(press) => {
-                    sendWs(0x04, press);
-                    logEvent({
-                      kind: "button",
-                      details: {
-                        button: press.button ?? `usage:0x${(press.usage ?? 0).toString(16)}`,
-                      },
-                    });
-                  }}
-                />
                 <SimulatorToolbar.Button
                   aria-label="Toggle light / dark appearance"
                   title="Toggle light / dark (⇧⌘A)"
@@ -1227,6 +1215,20 @@ function AppWithConfig({
           {/* Inspector */}
           <InspectorBar
             open={inspectorOpen}
+            hardwareButtons={
+              <DeviceHardwareButtons
+                frame={config.deviceFrameSpec ?? null}
+                onPress={(press) => {
+                  sendWs(0x04, press);
+                  logEvent({
+                    kind: "button",
+                    details: {
+                      button: press.button ?? `usage:0x${(press.usage ?? 0).toString(16)}`,
+                    },
+                  });
+                }}
+              />
+            }
             onToggle={() => setInspectorOpen((o) => !o)}
             collapsedWidth={RAIL_COLLAPSED_WIDTH}
             expandedWidth={RAIL_EXPANDED_WIDTH}

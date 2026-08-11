@@ -1,4 +1,4 @@
-import type { MutableRefObject } from "react";
+import type { MutableRefObject, ReactNode } from "react";
 import type {
   DeviceType,
   DeviceFrameSpec,
@@ -35,6 +35,8 @@ export interface InspectorBarProps {
   openOverlay: "stats" | "logs" | "grid" | "devtools" | null;
   udid: string;
   deviceFrameSpec: DeviceFrameSpec | DeviceType | null;
+  /** Hardware-button controls for the Simulator section. */
+  hardwareButtons?: ReactNode;
   streaming: boolean;
   streamMode: StreamMode;
   streamModeAvailable: boolean;
@@ -66,6 +68,7 @@ export function InspectorBar({
   openOverlay,
   udid,
   deviceFrameSpec,
+  hardwareButtons,
   streaming,
   streamMode,
   streamModeAvailable,
@@ -171,6 +174,7 @@ export function InspectorBar({
             udid={udid}
             execToken={execToken}
             refreshKey={uiSettingsRevision}
+            hardware={hardwareButtons}
           />
           <AxTreeTool overlayEnabled={axOverlayEnabled} onToggleOverlay={onToggleAxOverlay} />
           <CameraTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
