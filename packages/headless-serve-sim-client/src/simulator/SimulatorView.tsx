@@ -128,6 +128,13 @@ export interface SimulatorViewProps {
    * this host, and the caller should stop retrying it.
    */
   onDecoderError?: () => void;
+  /**
+   * Fired on the first *decoded* frame after an `onDecoderError` — the fault was
+   * transient and recovery worked, so the caller's error run ends here. The JPEG
+   * seed doesn't count: every reconnect repaints one whether or not the decoder
+   * came back.
+   */
+  onDecoderRecover?: () => void;
 }
 
 export type SimulatorRecordingTouch = RecordingTouchPoint;
@@ -183,6 +190,7 @@ export function SimulatorView({
   streamMode,
   recordingSourceRef,
   onDecoderError,
+  onDecoderRecover,
   onStreamScroll,
 }: SimulatorViewProps) {
   const relayMode = !!onStreamTouch;
@@ -361,6 +369,15 @@ export function SimulatorView({
 
   // AVCC (H.264) decode → canvas. Inert unless `useAvcc`. Works in both
   // direct and relay mode (it only needs `url`).
+  const onDecoderRecoverRef = useRef(onDecoderRecover);
+  onDecoderRecoverRef.current = onDecoderRecover;
+  // Set on each decoder fault, cleared by the next decoded frame — that frame is
+  // what proves recovery worked.
+  const decoderErroredRef = useRef(false);
+  const handleDecoderError = useCallback(() => {
+    decoderErroredRef.current = true;
+    onDecoderError?.();
+  }, [onDecoderError]);
   const onAvccFirstFrame = useCallback(() => {
     lastFrameAtRef.current = Date.now();
     setConnected(true);
@@ -370,6 +387,10 @@ export function SimulatorView({
     (info: AvccFrameInfo) => {
       frameCountRef.current++;
       lastFrameAtRef.current = Date.now();
+      if (decoderErroredRef.current && info.decodeMs != null) {
+        decoderErroredRef.current = false;
+        onDecoderRecoverRef.current?.();
+      }
       const acc = statsAccRef.current;
       if (acc) {
         acc.recordFrame({ tMs: performance.now(), bytes: info.bytes, decodeMs: info.decodeMs });
@@ -420,7 +441,7 @@ export function SimulatorView({
     onFirstFrame: onAvccFirstFrame,
     onFrame: onAvccFrame,
     onError: setError,
-    onDecoderError,
+    onDecoderError: handleDecoderError,
     onRequestKeyframe: requestKeyframe,
     onProgress: onAvccProgress,
   });

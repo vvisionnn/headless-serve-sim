@@ -434,6 +434,10 @@ function AppWithConfig({
   // of them with no frame in between means recovery isn't working — then the
   // reducer drops us to MJPEG rather than looping on H.264.
   const onDecoderError = useCallback(() => dispatchAvccFallback("error"), []);
+  // A decoded frame after a fault ends the run — `streaming` alone can't do this
+  // job: it only flips on the view's staleness watchdog, which a fast recovery
+  // never trips, so transient errors would otherwise accumulate forever.
+  const onDecoderRecover = useCallback(() => dispatchAvccFallback("frame"), []);
   const [liveStreamConfig, setLiveStreamConfig] = useState<StreamConfig | null>(null);
   // Screen config now arrives over the input WebSocket (pushed by the helper on
   // connect + on every dimension/orientation change) instead of a 1s /config poll.
@@ -1132,6 +1136,7 @@ function AppWithConfig({
                 onConnectionStats={handleConnectionStats}
                 recordingSourceRef={recordingSourceRef}
                 onDecoderError={onDecoderError}
+                onDecoderRecover={onDecoderRecover}
                 onStreamScroll={onStreamScroll}
               />
               {axOverlayEnabled && <AxDomOverlay />}

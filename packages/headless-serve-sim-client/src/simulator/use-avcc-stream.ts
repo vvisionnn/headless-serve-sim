@@ -235,6 +235,10 @@ export function useAvccStream({
         onError?.(`config: ${(e as Error).message}`);
         onDecoderError?.();
         closeDecoder();
+        // Without a decoder every later chunk is ignored and the canvas freezes
+        // on the JPEG seed. Reconnect so the config is retried (and the caller's
+        // decoder-error fallback keeps advancing towards MJPEG).
+        reconnect();
       }
     };
 
@@ -255,6 +259,7 @@ export function useAvccStream({
           onError?.(`config: ${(e as Error).message}`);
           onDecoderError?.();
           closeDecoder();
+          reconnect();
         }
       }
       requestKeyframe();
