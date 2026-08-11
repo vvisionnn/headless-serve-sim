@@ -1,4 +1,5 @@
-import type { Duplex } from "stream";
+import { Readable, type Duplex } from "stream";
+import { pipeline } from "stream/promises";
 import type { IncomingMessage, ServerResponse } from "http";
 import { WebSocket, WebSocketServer } from "ws";
 
@@ -31,7 +32,15 @@ export function parseHelperProxyPath(
   const device = slash === -1 ? rest : rest.slice(0, slash);
   if (!device) return null;
   const path = slash === -1 ? "/" : rest.slice(slash);
-  return { device: decodeURIComponent(device), path: path || "/" };
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(device);
+  } catch {
+    // A malformed escape (`/helper/%/ws`) must not throw out of the request or
+    // upgrade handler and take the process with it.
+    return null;
+  }
+  return { device: decoded, path: path || "/" };
 }
 
 /** Same-origin base URL the page should use for a proxied helper. */
@@ -95,14 +104,10 @@ export async function proxyHelperRequest(
       res.end();
       return;
     }
-    const reader = upstream.body.getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (res.writableEnded) break;
-      res.write(Buffer.from(value));
-    }
-    res.end();
+    // Piping honors backpressure: a viewer reading slower than the helper
+    // encodes (a tunnel, a remote browser) must throttle the upstream read
+    // instead of letting Node buffer video without bound.
+    await pipeline(Readable.from(upstream.body), res);
   } catch {
     if (!res.headersSent) {
       res.writeHead(502, { "Content-Type": "application/json", "Cache-Control": "no-store" });
