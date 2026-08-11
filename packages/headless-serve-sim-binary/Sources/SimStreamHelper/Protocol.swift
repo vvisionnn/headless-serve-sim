@@ -63,11 +63,9 @@ struct DigitalCrownEventPayload: Codable {
 }
 
 struct ScrollEventPayload: Codable {
-    /// Horizontal wheel delta as a fraction of the displayed stream (positive =
-    /// content moves right). The browser normalizes because only it knows how
-    /// big the stream is drawn; pixels here would be in the wrong unit.
+    /// Horizontal wheel delta in device pixels (positive = content moves right).
     let dx: Double
-    /// Vertical wheel delta as a fraction of the display (positive = down).
+    /// Vertical wheel delta in device pixels (positive = content moves down).
     let dy: Double
     /// Normalized cursor position to anchor a fresh gesture under, already
     /// rotated into raw device orientation by the client. Absent = screen

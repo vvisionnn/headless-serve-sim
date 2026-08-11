@@ -526,18 +526,13 @@ export function SimulatorView({
   );
 
   /**
-   * Forward a wheel/trackpad pan, as a fraction of the displayed stream.
-   *
-   * The helper turns this into a touch drag — iOS has no scroll wheel — so the
-   * anchor matters: it decides which view the synthetic finger lands on and
-   * therefore what actually scrolls. Deltas are fractions rather than pixels so
-   * one screen of pointer travel is one screen of content at any window size.
+   * Forward a wheel/trackpad pan. The helper turns this into a touch drag —
+   * iOS has no scroll wheel — so the anchor matters: it decides which view the
+   * synthetic finger lands on and therefore what actually scrolls.
    */
   const sendScroll = useCallback(
     (dx: number, dy: number, anchorX: number, anchorY: number) => {
       if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return;
-      // Rotation is scale-free, so normalized deltas rotate exactly like points:
-      // in landscape the display axes swap together with the raw ones.
       const orientation = streamDisplayGeometry(screenSizeRef.current).inputOrientation;
       const delta = rawDeltaForDisplayDelta(orientation, dx, dy);
       const anchor = rawPointForDisplayPoint(orientation, anchorX, anchorY);
@@ -857,12 +852,7 @@ export function SimulatorView({
       const dy = wheelDeltaToPixels(event.deltaY, event.deltaMode, rect.height);
       if (dx === 0 && dy === 0) return false;
       const { x, y } = normalizedPoint(event.clientX, event.clientY, rect);
-      // Normalize against the size the stream is *drawn* at, which is the only
-      // place that size is known. Sending raw CSS pixels made the helper divide
-      // them by the capture resolution instead — a different unit — so content
-      // travelled a fraction of the pointer, and the fraction changed whenever
-      // the window was resized.
-      sendScroll(dx / rect.width, dy / rect.height, x, y);
+      sendScroll(dx, dy, x, y);
       return true;
     },
     [getInputRect, sendScroll],
