@@ -12,11 +12,16 @@ export function EventLogPanel({ open }: { open: boolean }) {
 
   useEffect(() => {
     if (!open) return;
-    const source = new EventSource(simEndpoint("events/log/stream"));
+    const source = new EventSource(
+      window.__SIM_PREVIEW__?.eventLogStreamEndpoint ?? simEndpoint("events/log/stream"),
+    );
     source.onmessage = (event) => {
       try {
         const entry = JSON.parse(event.data) as EventLogEntry;
         setEntries((prev) => {
+          // Every subscription replays the server's retained history, so a
+          // reopened panel or a reconnect would otherwise re-append it all.
+          if (prev.some((row) => row.id === entry.id)) return prev;
           const next = [...prev, entry];
           return next.length > MAX_ROWS ? next.slice(next.length - MAX_ROWS) : next;
         });

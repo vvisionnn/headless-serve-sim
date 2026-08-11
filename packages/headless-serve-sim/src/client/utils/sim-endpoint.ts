@@ -17,6 +17,8 @@ declare global {
       metricsEndpoint?: string;
       cameraStatusEndpoint?: string;
       eventLogEndpoint?: string;
+      /** Device-scoped SSE URL for the input event log, token included. */
+      eventLogStreamEndpoint?: string;
       /** Server-pinned stream codec. "mjpeg" forbids the H.264 path. */
       codec?: "auto" | "mjpeg";
       /** One-shot UI state from the CLI launch flags (--panes / --fit). */

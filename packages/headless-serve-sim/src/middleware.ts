@@ -477,6 +477,7 @@ export function previewConfigForState(
   metricsEndpoint: string;
   cameraStatusEndpoint: string;
   eventLogEndpoint: string;
+  eventLogStreamEndpoint: string;
   axEndpoint: string;
   devtoolsEndpoint: string;
   serveSimBin: string;
@@ -512,6 +513,9 @@ export function previewConfigForState(
     metricsEndpoint: endpoint(base, "/api/metrics", state.device),
     cameraStatusEndpoint: endpoint(base, "/camera/status", state.device),
     eventLogEndpoint: endpoint(base, "/events/log", state.device),
+    // EventSource can't set an Authorization header, so the SSE URL carries the
+    // token inline (same shape as logsEndpoint).
+    eventLogStreamEndpoint: `${endpoint(base, "/events/log/stream", state.device)}&token=${encodeURIComponent(execToken)}`,
     axEndpoint: endpoint(base, "/ax", state.device),
     devtoolsEndpoint: endpoint(base, "/devtools", state.device),
     serveSimBin,
@@ -1004,7 +1008,11 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
   const eventLogReadAllowed = (req: SimReq): boolean => {
     if (isLoopbackRequest(req)) return true;
     const match = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? "");
-    return !!match && safeEqualString(match[1]!.trim(), execToken);
+    if (match) return safeEqualString(match[1]!.trim(), execToken);
+    // EventSource can't send headers, so the SSE stream authenticates with a
+    // query token like /logs does.
+    const token = new URL(req.url ?? "/", "http://localhost").searchParams.get("token");
+    return !!token && safeEqualString(token, execToken);
   };
   // Resolved once per process: the command the in-page tools shell out to.
   const serveSimBin = options?.serveSimBin ?? serveSimBinPath(hostCommands);
