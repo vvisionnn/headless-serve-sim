@@ -34,9 +34,6 @@ const ACTIONS: Record<string, HardwareButtonAction> = {
   mute: { usagePage: CONSUMER, usage: HIDUsage.mute, label: "Ring/Silent" },
   "volume-up": { button: "volume_up", label: "Volume up" },
   "volume-down": { button: "volume_down", label: "Volume down" },
-  // The Action button has no standard consumer usage; Apple routes it as a
-  // programmable control, and the simulator accepts the menu usage for it.
-  action: { usagePage: CONSUMER, usage: HIDUsage.menu, label: "Action" },
 };
 
 /**
@@ -46,6 +43,10 @@ const ACTIONS: Record<string, HardwareButtonAction> = {
  * `digital-crown` is deliberately excluded: it rotates rather than presses, and
  * is already driven by the wheel handler. Treating it as a button here would
  * put a dead control on the bezel.
+ *
+ * `action` is excluded too: the Action button has no consumer usage of its own,
+ * and the only usage it could ride (menu) is Home — pressing it would leave the
+ * app under test rather than do anything Action-specific.
  */
 export function hardwareButtonAction(controlName: string): HardwareButtonAction | null {
   return ACTIONS[controlName.toLowerCase()] ?? null;

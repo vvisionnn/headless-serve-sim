@@ -77,7 +77,6 @@ describe("hardwareButtonAction", () => {
       "mute",
       "volume-up",
       "volume-down",
-      "action",
     ]) {
       expect(hardwareButtonAction(name)).not.toBeNull();
     }
@@ -94,12 +93,19 @@ describe("hardwareButtonAction", () => {
     expect(isPressableControl("digital-crown")).toBe(false);
   });
 
+  // The Action button has no consumer usage of its own; the only one it could
+  // ride (menu) is Home, so mapping it would background the app under test.
+  test("does not map the Action button", () => {
+    expect(hardwareButtonAction("action")).toBeNull();
+    expect(isPressableControl("action")).toBe(false);
+  });
+
   test("returns null for an unknown control", () => {
     expect(hardwareButtonAction("nonsense")).toBeNull();
   });
 
   test("every action carries either a named button or a HID usage", () => {
-    for (const name of ["home", "power", "mute", "action", "volume-up"]) {
+    for (const name of ["home", "power", "mute", "volume-up"]) {
       const action = hardwareButtonAction(name)!;
       const hasUsage = action.usagePage !== undefined && action.usage !== undefined;
       expect(!!action.button || hasUsage).toBe(true);
