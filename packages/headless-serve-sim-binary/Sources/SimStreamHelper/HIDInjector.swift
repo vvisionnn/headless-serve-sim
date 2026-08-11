@@ -157,8 +157,12 @@ final class HIDInjector {
         }
         print("[hid] Sending \(type) at (\(String(format:"%.3f",x)),\(String(format:"%.3f",y)))\(edge > 0 ? " edge=\(edge)" : "")")
         // A direct touch interleaved with an in-flight scroll drag would corrupt
-        // both gestures, so every send goes through the one input queue.
-        inputQueue.async { [self] in rawSend(msg) }
+        // both gestures, so every send goes through the one input queue — and
+        // the scroll finger has to come up first, ordering alone isn't enough.
+        inputQueue.async { [self] in
+            finishScrollDrag()
+            rawSend(msg)
+        }
     }
 
     func sendMultiTouch(type: String, x1: Double, y1: Double, x2: Double, y2: Double, screenWidth: Int, screenHeight: Int) {
@@ -184,7 +188,10 @@ final class HIDInjector {
         }
 
         print("[hid] Multi-touch \(type) f1=(\(String(format:"%.3f",x1)),\(String(format:"%.3f",y1))) f2=(\(String(format:"%.3f",x2)),\(String(format:"%.3f",y2)))")
-        inputQueue.async { [self] in rawSend(rawMsg) }
+        inputQueue.async { [self] in
+            finishScrollDrag()
+            rawSend(rawMsg)
+        }
     }
 
     // MARK: - Button events
@@ -281,19 +288,21 @@ final class HIDInjector {
 
         print("[hid] Key \(type) usage=0x\(String(usage, radix: 16))")
 
-        // Preferred path: a keyboard-page HID report on the digitizer target.
-        if sendHIDUsage(page: HIDUsage.keyboardPage, usage: usage, direction: direction) { return }
+        inputQueue.async { [self] in
+            // Preferred path: a keyboard-page HID report on the digitizer target.
+            if sendHIDUsage(page: HIDUsage.keyboardPage, usage: usage, direction: direction) { return }
 
-        // Fallback for toolchains without the arbitrary-HID builder.
-        guard let keyboardFunc = keyboardFunc else {
-            print("[hid] Keyboard injection unavailable")
-            return
+            // Fallback for toolchains without the arbitrary-HID builder.
+            guard let keyboardFunc = keyboardFunc else {
+                print("[hid] Keyboard injection unavailable")
+                return
+            }
+            guard let msg = keyboardFunc(usage, direction) else {
+                print("[hid] IndigoHIDMessageForKeyboardArbitrary returned nil (usage=0x\(String(usage, radix: 16)))")
+                return
+            }
+            rawSend(msg)
         }
-        guard let msg = keyboardFunc(usage, direction) else {
-            print("[hid] IndigoHIDMessageForKeyboardArbitrary returned nil (usage=0x\(String(usage, radix: 16)))")
-            return
-        }
-        rawSend(msg)
     }
 
 
@@ -412,6 +421,17 @@ final class HIDInjector {
             scrollEndWork = work
             inputQueue.asyncAfter(deadline: .now() + Self.scrollGestureIdle, execute: work)
         }
+    }
+
+    /// Lift the synthetic scroll finger now instead of at the end of the idle
+    /// window, so a tap arriving mid-momentum doesn't overlap the drag.
+    /// Runs on `inputQueue`.
+    private func finishScrollDrag() {
+        scrollEndWork?.cancel()
+        scrollEndWork = nil
+        guard scrollDragActive else { return }
+        rawSendTouch(type: "end", x: scrollFingerX, y: scrollFingerY)
+        scrollDragActive = false
     }
 
     /// Toggle the on-screen software keyboard, matching Simulator.app's
@@ -574,6 +594,10 @@ final class HIDInjector {
     /// Synthesize a swipe-up-from-bottom gesture (Face ID "go home" gesture).
     /// Uses IndigoHIDEdge.bottom to flag touches as system edge gestures,
     /// which iOS interprets as the home indicator swipe.
+    /// Runs on `inputQueue`, so it sends raw touches synchronously — routing
+    /// through `sendTouch` would re-enqueue each step behind this block, firing
+    /// the whole gesture at once after the sleeps and letting unrelated input
+    /// interleave with it.
     private func sendSwipeHome() {
         let xPos = 0.5
         let yStart = 0.95
@@ -583,19 +607,19 @@ final class HIDInjector {
         let edge = Self.edgeBottom
 
         // Touch down at bottom edge
-        sendTouch(type: "begin", x: xPos, y: yStart, screenWidth: 0, screenHeight: 0, edge: edge)
+        rawSendTouch(type: "begin", x: xPos, y: yStart, edge: edge)
         Thread.sleep(forTimeInterval: stepDelay)
 
         // Interpolated moves upward
         for i in 1...steps {
             let t = Double(i) / Double(steps)
             let y = yStart + (yEnd - yStart) * t
-            sendTouch(type: "move", x: xPos, y: y, screenWidth: 0, screenHeight: 0, edge: edge)
+            rawSendTouch(type: "move", x: xPos, y: y, edge: edge)
             Thread.sleep(forTimeInterval: stepDelay)
         }
 
         // Touch up
-        sendTouch(type: "end", x: xPos, y: yEnd, screenWidth: 0, screenHeight: 0, edge: edge)
+        rawSendTouch(type: "end", x: xPos, y: yEnd, edge: edge)
     }
 
     private func launchSpringBoard(deviceUDID: String) {
