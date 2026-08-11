@@ -184,8 +184,7 @@ httpServer.clientManager.onDigitalCrown = { payload in
 }
 httpServer.clientManager.onScroll = { payload in
     hidInjector.sendScroll(dx: payload.dx, dy: payload.dy,
-                           anchorX: payload.x, anchorY: payload.y,
-                           screenWidth: screenWidth, screenHeight: screenHeight)
+                           anchorX: payload.x, anchorY: payload.y)
 }
 httpServer.clientManager.onSoftwareKeyboard = {
     hidInjector.toggleSoftwareKeyboard()

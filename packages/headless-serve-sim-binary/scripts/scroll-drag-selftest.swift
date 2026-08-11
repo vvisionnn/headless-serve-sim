@@ -38,6 +38,50 @@ private enum ScrollDragSelftest {
         // The track has to be wide enough to actually drag through.
         precondition(margin > 0 && margin < 0.25)
 
+        // ── segmentStart ──
+        // A continuation must begin at the wall the finger is travelling away
+        // from, so the whole track is runway. Restarting at the cursor gave
+        // about half of it, and every extra lift is a visible seam.
+        precondition(ScrollDrag.segmentStart(anchor: 0.5, step: -0.1) == 1 - margin)
+        precondition(ScrollDrag.segmentStart(anchor: 0.5, step: 0.1) == margin)
+        // A zero or non-finite step has no direction; fall back to the anchor.
+        precondition(ScrollDrag.segmentStart(anchor: 0.3, step: 0) == 0.3)
+        precondition(ScrollDrag.segmentStart(anchor: 0.3, step: .nan) == 0.3)
+        precondition(ScrollDrag.segmentStart(anchor: 9, step: 0) == 1 - margin)
+
+        // ── fractionBeforeWall ──
+        // A step that fits is spent whole.
+        precondition(ScrollDrag.fractionBeforeWall(from: 0.5, step: 0.1) == 1)
+        precondition(ScrollDrag.fractionBeforeWall(from: 0.5, step: -0.1) == 1)
+        // No step, no limit.
+        precondition(ScrollDrag.fractionBeforeWall(from: 0.5, step: 0) == 1)
+        precondition(ScrollDrag.fractionBeforeWall(from: 0.5, step: .nan) == 1)
+        // Half of an oversized step fits: from the top wall, a downward step of
+        // twice the track spends exactly half before hitting the bottom.
+        let track = 1 - 2 * margin
+        let half = ScrollDrag.fractionBeforeWall(from: margin, step: track * 2)
+        precondition(abs(half - 0.5) < 1e-9)
+        // Sitting on the wall already, travelling into it, yields nothing.
+        precondition(ScrollDrag.fractionBeforeWall(from: 1 - margin, step: 0.1) == 0)
+        precondition(ScrollDrag.fractionBeforeWall(from: margin, step: -0.1) == 0)
+        // Always a usable fraction — a value outside 0...1 would either stall
+        // the drag or push the finger off the display.
+        for position in [0.0, margin, 0.25, 0.5, 0.9, 1.0] {
+            for step in [-5.0, -0.3, -0.01, 0.01, 0.3, 5.0] {
+                let f = ScrollDrag.fractionBeforeWall(from: position, step: step)
+                precondition(f >= 0 && f <= 1)
+            }
+        }
+
+        // ── runway ──
+        // The whole point: a continuation gets the full track, which is twice
+        // what restarting at a mid-screen cursor gave.
+        let fromCursor = 0.5 - margin
+        let fromWall = ScrollDrag.fractionBeforeWall(
+            from: ScrollDrag.segmentStart(anchor: 0.5, step: -1), step: -1
+        )
+        precondition(fromWall > fromCursor * 1.9)
+
         print("ScrollDrag self-test passed")
     }
 }

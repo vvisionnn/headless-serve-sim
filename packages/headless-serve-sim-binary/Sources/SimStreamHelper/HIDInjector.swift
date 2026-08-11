@@ -333,85 +333,139 @@ final class HIDInjector {
     // wheel goes idle — re-anchoring when the finger nears an edge so a long
     // scroll isn't capped by the screen bounds.
 
-    /// Fraction of the display the finger travels per pixel of wheel delta.
-    /// Wheel deltas are coarse (~120 per notch), so 1.0 maps one notch to about
-    /// a full-screen drag, which reads like a wheel "page".
+    /// Finger travel per unit of scroll delta, both fractions of the display.
+    /// 1.0 keeps the guest's content tracking the pointer 1:1, which is what a
+    /// real finger does — anything else makes the content lag or outrun the
+    /// trackpad.
     private static let scrollDragGain: Double = 1.0
-    /// Idle gap after which the drag lifts and the gesture ends.
-    private static let scrollGestureIdle: TimeInterval = 0.1
-    /// Pause after touch-down so iOS registers the finger before it moves.
+    /// Idle gap after which the drag lifts and the gesture ends. Long enough to
+    /// span the widening gaps in a trackpad's momentum tail: at 0.1s the tail
+    /// split into several gestures, each getting its own iOS deceleration.
+    private static let scrollGestureIdle: TimeInterval = 0.18
+    /// Deltas are accumulated for this long and applied as one move. A trackpad
+    /// reports up to 120 times a second; one IPC round-trip per report backs the
+    /// input queue up, and the extra moves buy no additional precision.
+    private static let scrollFlushInterval: TimeInterval = 0.008
+    /// Pause after the first touch-down so iOS registers the finger before it
+    /// moves. Only the opening touch pays it — inside a gesture it would stall
+    /// the serial queue mid-scroll.
     private static let scrollTouchSettleUs: UInt32 = 8000
+    /// Bound on segments spent from one flush, so a malformed delta can't spin.
+    private static let scrollMaxSegmentsPerFlush = 8
 
     private var scrollDragActive = false
     private var scrollFingerX = 0.5
     private var scrollFingerY = 0.5
     private var scrollAnchorX = 0.5
     private var scrollAnchorY = 0.5
+    private var scrollPendingX = 0.0
+    private var scrollPendingY = 0.0
+    private var scrollFlushScheduled = false
     private var scrollEndWork: DispatchWorkItem?
 
-    /// Touch down to (re)start the drag, then let iOS see the finger land.
-    /// Runs on `inputQueue`.
-    private func beginScrollDrag(x: Double, y: Double) {
-        rawSendTouch(type: "begin", x: x, y: y)
-        usleep(Self.scrollTouchSettleUs)
-    }
 
     /// Inject a wheel / trackpad pan as a touch drag on the digitizer.
+    ///
+    /// iOS scrolls 1:1 with the finger, so a scroll longer than the display has
+    /// to be spent across several touch-down…touch-up segments. Each seam is
+    /// visible — iOS starts decelerating on the lift — so the aim is to need as
+    /// few as possible: continuations start at the far wall for a full track of
+    /// runway, and deltas are coalesced so the queue is never the bottleneck.
+    ///
     /// - Parameters:
-    ///   - dx: Horizontal delta in device pixels (positive = content moves right).
-    ///   - dy: Vertical delta in device pixels (positive = content moves down).
-    ///   - anchorX: Normalized cursor x to anchor a fresh gesture under, or nil
-    ///     for screen center. Anchoring makes iOS hit-test the view actually
-    ///     under the pointer (a sheet rather than the map behind it).
+    ///   - dx: Horizontal delta as a fraction of the display (positive = content
+    ///     moves right). A fraction, not pixels: only the browser knows how big
+    ///     the stream is drawn, and normalizing here against the capture
+    ///     resolution made content travel a fraction of the pointer.
+    ///   - dy: Vertical delta as a fraction of the display (positive = down).
+    ///   - anchorX: Normalized cursor x for the opening touch, or nil for centre.
+    ///     Anchoring is what makes iOS hit-test the view under the pointer.
     ///   - anchorY: Normalized cursor y, as above.
-    func sendScroll(dx: Double, dy: Double, anchorX: Double?, anchorY: Double?, screenWidth: Int, screenHeight: Int) {
-        guard dx.isFinite, dy.isFinite, dx != 0 || dy != 0, screenWidth > 0, screenHeight > 0 else { return }
+    func sendScroll(dx: Double, dy: Double, anchorX: Double?, anchorY: Double?) {
+        guard dx.isFinite, dy.isFinite, dx != 0 || dy != 0 else { return }
 
         // The finger travels opposite the content: scrolling content down is a
         // swipe up.
-        let stepX = -(dx / Double(screenWidth)) * Self.scrollDragGain
-        let stepY = -(dy / Double(screenHeight)) * Self.scrollDragGain
+        let stepX = -dx * Self.scrollDragGain
+        let stepY = -dy * Self.scrollDragGain
         let aX = ScrollDrag.clampToTrack(anchorX ?? 0.5)
         let aY = ScrollDrag.clampToTrack(anchorY ?? 0.5)
 
         inputQueue.async { [self] in
-            if !scrollDragActive {
+            if !scrollDragActive && !scrollFlushScheduled {
+                // Latch the anchor from the event that opens the gesture; later
+                // pointer drift must not move where iOS hit-tested.
                 scrollAnchorX = aX
                 scrollAnchorY = aY
-                scrollFingerX = aX
-                scrollFingerY = aY
-                beginScrollDrag(x: scrollFingerX, y: scrollFingerY)
-                scrollDragActive = true
             }
-
-            var nextX = scrollFingerX + stepX
-            var nextY = scrollFingerY + stepY
-
-            if ScrollDrag.needsReanchor(x: nextX, y: nextY) {
-                // Lift and put the finger back on the anchor so the gesture keeps
-                // hit-testing the same view, then continue the same delta.
-                rawSendTouch(type: "end", x: scrollFingerX, y: scrollFingerY)
-                scrollFingerX = scrollAnchorX
-                scrollFingerY = scrollAnchorY
-                beginScrollDrag(x: scrollFingerX, y: scrollFingerY)
-                nextX = scrollFingerX + stepX
-                nextY = scrollFingerY + stepY
+            scrollPendingX += stepX
+            scrollPendingY += stepY
+            guard !scrollFlushScheduled else { return }
+            scrollFlushScheduled = true
+            inputQueue.asyncAfter(deadline: .now() + Self.scrollFlushInterval) { [self] in
+                scrollFlushScheduled = false
+                flushScroll()
             }
-
-            scrollFingerX = ScrollDrag.clampToTrack(nextX)
-            scrollFingerY = ScrollDrag.clampToTrack(nextY)
-            rawSendTouch(type: "move", x: scrollFingerX, y: scrollFingerY)
-
-            // Lift shortly after the wheel stops, so a burst is one gesture.
-            scrollEndWork?.cancel()
-            let work = DispatchWorkItem { [self] in
-                guard scrollDragActive else { return }
-                rawSendTouch(type: "end", x: scrollFingerX, y: scrollFingerY)
-                scrollDragActive = false
-            }
-            scrollEndWork = work
-            inputQueue.asyncAfter(deadline: .now() + Self.scrollGestureIdle, execute: work)
         }
+    }
+
+    /// Spend the accumulated delta, opening or continuing the drag as needed.
+    /// Runs on `inputQueue`.
+    private func flushScroll() {
+        var remainingX = scrollPendingX
+        var remainingY = scrollPendingY
+        scrollPendingX = 0
+        scrollPendingY = 0
+        guard remainingX != 0 || remainingY != 0 else { return }
+
+        if !scrollDragActive {
+            scrollFingerX = scrollAnchorX
+            scrollFingerY = scrollAnchorY
+            rawSendTouch(type: "begin", x: scrollFingerX, y: scrollFingerY)
+            usleep(Self.scrollTouchSettleUs)
+            scrollDragActive = true
+        }
+
+        var segments = 0
+        while segments < Self.scrollMaxSegmentsPerFlush {
+            segments += 1
+            // The axis that runs out of track first bounds this segment.
+            let usable = min(
+                ScrollDrag.fractionBeforeWall(from: scrollFingerX, step: remainingX),
+                ScrollDrag.fractionBeforeWall(from: scrollFingerY, step: remainingY),
+            )
+            if usable >= 1 {
+                scrollFingerX = ScrollDrag.clampToTrack(scrollFingerX + remainingX)
+                scrollFingerY = ScrollDrag.clampToTrack(scrollFingerY + remainingY)
+                rawSendTouch(type: "move", x: scrollFingerX, y: scrollFingerY)
+                break
+            }
+
+            // Travel what is left of the track, then lift and restart at the far
+            // wall so the next segment gets the whole display to work with.
+            scrollFingerX = ScrollDrag.clampToTrack(scrollFingerX + remainingX * usable)
+            scrollFingerY = ScrollDrag.clampToTrack(scrollFingerY + remainingY * usable)
+            rawSendTouch(type: "move", x: scrollFingerX, y: scrollFingerY)
+            rawSendTouch(type: "end", x: scrollFingerX, y: scrollFingerY)
+
+            remainingX *= 1 - usable
+            remainingY *= 1 - usable
+            scrollFingerX = ScrollDrag.segmentStart(anchor: scrollAnchorX, step: remainingX)
+            scrollFingerY = ScrollDrag.segmentStart(anchor: scrollAnchorY, step: remainingY)
+            rawSendTouch(type: "begin", x: scrollFingerX, y: scrollFingerY)
+        }
+
+        // Lift once the scroll goes quiet. The idle window is also a period of
+        // stillness, so iOS reads a near-zero release velocity and adds no
+        // momentum of its own — macOS already delivered the trackpad's.
+        scrollEndWork?.cancel()
+        let work = DispatchWorkItem { [self] in
+            guard scrollDragActive else { return }
+            rawSendTouch(type: "end", x: scrollFingerX, y: scrollFingerY)
+            scrollDragActive = false
+        }
+        scrollEndWork = work
+        inputQueue.asyncAfter(deadline: .now() + Self.scrollGestureIdle, execute: work)
     }
 
     /// Toggle the on-screen software keyboard, matching Simulator.app's

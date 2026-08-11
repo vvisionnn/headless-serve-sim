@@ -33,4 +33,34 @@ enum ScrollDrag {
         guard value.isFinite else { return false }
         return value > edgeMargin && value < 1 - edgeMargin
     }
+
+    /// Where to put the finger when starting a *continuation* segment, given the
+    /// direction it is about to travel.
+    ///
+    /// Restarting at the cursor gives only the distance from the cursor to the
+    /// near wall — about half the track when the pointer sits mid-screen.
+    /// Starting at the far wall instead gives the whole track, which halves the
+    /// number of lifts a long scroll needs. Each lift costs real smoothness:
+    /// iOS begins its own deceleration on touch-up and then has to abandon it on
+    /// the next touch-down.
+    ///
+    /// Only continuations use this. The first touch-down of a gesture stays on
+    /// the cursor, because that is what decides which view iOS hit-tests.
+    static func segmentStart(anchor: Double, step: Double) -> Double {
+        guard step.isFinite, step != 0 else { return clampToTrack(anchor) }
+        return step < 0 ? 1 - edgeMargin : edgeMargin
+    }
+
+    /// Fraction of `step` that can be applied from `position` before the finger
+    /// leaves the track — 1 when the whole step fits.
+    ///
+    /// Lets a large coalesced delta be spent across several segments instead of
+    /// being clamped away, which would silently swallow scroll distance.
+    static func fractionBeforeWall(from position: Double, step: Double) -> Double {
+        guard step.isFinite, step != 0, position.isFinite else { return 1 }
+        let wall = step < 0 ? edgeMargin : 1 - edgeMargin
+        let fraction = (wall - position) / step
+        guard fraction.isFinite else { return 1 }
+        return min(max(fraction, 0), 1)
+    }
 }
