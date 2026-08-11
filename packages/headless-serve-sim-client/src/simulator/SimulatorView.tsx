@@ -867,6 +867,9 @@ export function SimulatorView({
    */
   const handleScrollWheel = useCallback(
     (event: globalThis.WheelEvent) => {
+      // A relay without a scroll callback can't deliver the gesture, so leave
+      // the wheel to the page rather than swallowing it.
+      if (relayMode && !onStreamScroll) return false;
       const rect = getInputRect();
       if (!rect) return false;
       const dx = wheelDeltaToPixels(event.deltaX, event.deltaMode, rect.width);
@@ -876,7 +879,7 @@ export function SimulatorView({
       sendScroll(dx, dy, x, y);
       return true;
     },
-    [getInputRect, sendScroll],
+    [getInputRect, sendScroll, relayMode, onStreamScroll],
   );
 
   useEffect(() => {
