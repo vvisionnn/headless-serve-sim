@@ -18,7 +18,12 @@ export function GridPanel({
   width: number;
 }) {
   const config = window.__SIM_PREVIEW__;
-  const apiEndpoint = config?.gridApiEndpoint;
+  // Carry the streamed device so the server ranks it first — otherwise a large
+  // catalog can paginate the active tile off the first page.
+  const apiEndpoint =
+    config?.gridApiEndpoint && currentUdid
+      ? `${config.gridApiEndpoint}?device=${encodeURIComponent(currentUdid)}`
+      : config?.gridApiEndpoint;
   const startEndpoint = config?.gridStartEndpoint;
   const shutdownEndpoint = config?.gridShutdownEndpoint;
   const memoryEndpoint = config?.gridMemoryEndpoint;
