@@ -3,81 +3,263 @@
 @source "./";
 
 @theme {
-  /* Surfaces — apple.com light, layered by fill shift (not shadow) */
-  --color-page: #ffffff; /* canvas */
-  --color-panel: #ffffff; /* bars / inspector base (frost via backdrop) */
+  /* Surfaces — panels FLOAT as white cards on a dotted gray canvas. Depth comes
+     from the canvas/card contrast plus one soft shadow, never from borders. */
+  --color-page: #f0f0f0; /* the dotted canvas everything floats on */
+  --color-canvas-dot: #d7d7d7; /* the grid dot itself */
+  --color-panel: #ffffff; /* every floating card */
   --color-panel-bg: #ffffff;
-  --color-panel-overlay: rgba(255, 255, 255, 0.8);
-  --color-panel-deep: #f5f5f7; /* cards / tool blocks */
-  --color-surface-2: #f5f5f7;
-  --color-surface-3: #fafafc;
-  --color-hover: #e8e8ed; /* row / control hover on white */
-  --color-divider: #d2d2d7; /* EVERY hairline */
-  --color-inset: #f5f5f7; /* recessed canvas behind grouped cards (inspector) */
+  --color-panel-overlay: rgba(255, 255, 255, 0.92);
+  --color-panel-deep: #f7f7f7; /* unselected segment / recessed control fill */
+  --color-surface-2: #f7f7f7;
+  --color-surface-3: #fbfbfb; /* inputs */
+  --color-hover: #f0f0f0;
+  --color-divider: #ededed; /* EVERY hairline — inside cards only */
+  --color-control-border: #e6e6e6; /* control outlines: chips, icon buttons */
+  --color-inset: #ffffff; /* card body: sections separate by rule, not gutter */
+  --color-track: #efefef; /* slider track, unfilled */
+  --color-track-fill: #d9d9d9; /* slider track, filled */
+  --color-thumb: #ffffff; /* slider knob */
 
-  /* Text — weight/size ranks, never color */
-  --color-fg: #1d1d1f;
-  --color-fg-2: #6e6e73;
-  --color-fg-3: #86868b;
+  /* Text — three ranks by weight and size; color never carries meaning */
+  --color-fg: #1a1a1a;
+  --color-fg-2: #6e6e6e;
+  --color-fg-3: #9a9a9a;
 
-  /* One blue */
-  --color-accent: #0066cc; /* interactive text / links */
-  --color-accent-solid: #0071e3; /* single filled primary + focus ring */
-  --color-accent-tint: rgba(0, 113, 227, 0.1);
+  /* No hue anywhere. Selection and emphasis are near-black on white. */
+  --color-accent: #1a1a1a; /* interactive text */
+  --color-accent-solid: #1c1c1c; /* selected fill + focus ring */
+  --color-on-accent: #ffffff; /* label ON an accent fill — flips in dark */
+  --color-accent-tint: rgba(0, 0, 0, 0.05);
 
-  /* Status — small accents only */
-  --color-success: #03a10e;
-  --color-success-emerald: #03a10e;
-  --color-danger: #e30000;
-  --color-danger-soft: #ff3b30;
-  --color-warning: #f56300;
-  --color-warning-soft: #f56300;
+  /* Status — small dots and badges only, never a large fill */
+  --color-success: #178a3f;
+  --color-success-emerald: #178a3f;
+  --color-danger: #cf3b30;
+  --color-danger-soft: #cf3b30;
+  --color-warning: #c26a1a;
+  --color-warning-soft: #c26a1a;
 
-  /* Radius — rounding lives on controls, not structure */
-  --radius-pill: 980px; /* buttons, badges, segmented */
-  --radius-card: 12px; /* cards, inputs, menus, blocks */
+  /* Radius — every control is a soft-cornered rectangle. There are no stadium
+     shapes in this system; radius scales with the control's height. */
+  --radius-panel: 18px; /* floating cards */
+  --radius-card: 12px; /* segments, blocks, inputs, sliders, buttons */
   --radius-sm: 8px; /* compact controls, rows */
+  --radius-chip: 7px; /* numeric value chips, small badges */
 
-  /* Font families */
-  --font-mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-system: "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-display: "SF Pro Display", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  /* Elevation — only floating things cast one */
+  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.07);
+  --shadow-device: 0 2px 6px rgba(0, 0, 0, 0.08), 0 14px 40px rgba(0, 0, 0, 0.16);
+  --shadow-overlay: 0 12px 40px rgba(0, 0, 0, 0.14);
+
+  /* ── Type scale ──────────────────────────────────────────────────────
+     Six levels, each a clear step from the next. Sizes live here as tokens
+     (`text-body`, `text-value`, …) rather than as `text-[15px]` at call sites,
+     because a scale that isn't named doesn't survive contact with editing:
+     this tree had drifted to FOURTEEN sizes, five of them inside a 4px band,
+     which is noise rather than hierarchy.
+
+     WEIGHT is the primary lever, not size. A 15px/400 label on white reads
+     thin and unresolved; 14px/500 reads solid at a smaller size. And a section
+     title must out-rank the rows beneath it: it does that with CAPS + 700
+     weight + TIGHT 0.06em tracking, which packs the letters into a block. Wide
+     tracking (this was 0.18em) disperses a title and makes it read weaker than
+     the body it introduces — the exact inversion to avoid. */
+  --text-eyebrow: 12px; /* SECTION / CARD TITLES — uppercase, tight, heavy */
+  --text-eyebrow--line-height: 1;
+  --text-eyebrow--letter-spacing: 0.06em;
+  --text-eyebrow--font-weight: 700;
+
+  --text-micro: 11px; /* stat rows, tick captions, the smallest asides */
+  --text-micro--line-height: 1.4;
+  --text-micro--font-weight: 500;
+
+  --text-value: 13px; /* every number and mono readout, secondary text */
+  --text-value--line-height: 1.3;
+  --text-value--font-weight: 500;
+
+  --text-body: 14px; /* field labels, list rows, segment and button labels */
+  --text-body--line-height: 1.4;
+  --text-body--letter-spacing: -0.003em;
+  --text-body--font-weight: 500;
+
+  --text-heading: 18px; /* empty-state and disconnected titles */
+  --text-heading--line-height: 1.25;
+  --text-heading--letter-spacing: -0.012em;
+  --text-heading--font-weight: 650;
+
+  --text-display: 28px; /* the one big number on a gauge */
+  --text-display--line-height: 1;
+  --text-display--letter-spacing: -0.02em;
+  --text-display--font-weight: 600;
+
+  /* Type. `system-ui` FIRST and by name: "SF Pro Text" is not a resolvable
+     family in a browser, so naming it first silently dropped the whole UI to
+     Arial. `system-ui` is what actually gets San Francisco on macOS — measured,
+     not assumed (Arial 312px vs system-ui 300px for the same string). */
+  --font-system: system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-display: system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", Menlo, ui-monospace, SFMono-Regular, monospace;
 }
 
-/* Apple dark — the same roles, mapped to Apple's canonical dark system colors.
+/* Dark — the same roles inverted. The accent flips to near-white, so
+   `text-on-accent` (not `text-white`) is what keeps a selected segment legible.
    Tailwind v4 utilities read these vars, so overriding them here re-themes the
    whole tree without touching a single utility class. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-page: #000000;
-    --color-panel: #1d1d1f;
-    --color-panel-bg: #1d1d1f;
-    --color-panel-overlay: rgba(29, 29, 31, 0.8);
-    --color-panel-deep: #161617;
-    --color-surface-2: #161617;
-    --color-surface-3: #1d1d1f;
-    --color-hover: #2c2c2e;
-    --color-divider: #424245;
-    --color-inset: #000000;
-    --color-fg: #f5f5f7;
-    --color-fg-2: #a1a1a6;
-    --color-fg-3: #86868b;
-    --color-accent: #2997ff;
-    --color-accent-solid: #0071e3;
-    --color-accent-tint: rgba(41, 151, 255, 0.12);
-    --color-success: #30d158;
-    --color-success-emerald: #30d158;
-    --color-danger: #ff453a;
+    --color-page: #141414;
+    --color-canvas-dot: #262626;
+    --color-panel: #1c1c1c;
+    --color-panel-bg: #1c1c1c;
+    --color-panel-overlay: rgba(28, 28, 28, 0.92);
+    --color-panel-deep: #242424;
+    --color-surface-2: #242424;
+    --color-surface-3: #1f1f1f;
+    --color-hover: #2a2a2a;
+    --color-divider: #2c2c2c;
+    --color-control-border: #333333;
+    --color-inset: #1c1c1c;
+    --color-track: #2a2a2a;
+    --color-track-fill: #4a4a4a;
+    --color-thumb: #e0e0e0;
+    --color-fg: #f2f2f2;
+    --color-fg-2: #a0a0a0;
+    --color-fg-3: #7a7a7a;
+    --color-accent: #f2f2f2;
+    --color-accent-solid: #f2f2f2;
+    --color-on-accent: #141414;
+    --color-accent-tint: rgba(255, 255, 255, 0.08);
+    --color-success: #3ecf6a;
+    --color-success-emerald: #3ecf6a;
+    --color-danger: #ff6961;
     --color-danger-soft: #ff6961;
-    --color-warning: #ff9f0a;
-    --color-warning-soft: #ff9f0a;
+    --color-warning: #e8973a;
+    --color-warning-soft: #e8973a;
+    --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.45);
+    --shadow-device: 0 2px 6px rgba(0, 0, 0, 0.4), 0 14px 40px rgba(0, 0, 0, 0.6);
+    --shadow-overlay: 0 12px 40px rgba(0, 0, 0, 0.55);
   }
+}
+
+/* The canvas: a light field with a regular dot grid. Every floating card sits
+   on this; nothing else in the tree paints a page background. */
+.ds-canvas {
+  background-color: var(--color-page);
+  background-image: radial-gradient(circle, var(--color-canvas-dot) 1px, transparent 1px);
+  background-size: 16px 16px;
+  background-position: -1px -1px;
+}
+
+/* Slider — a tall rounded track that reads as a control in its own right, with
+   the filled portion a shade darker than the rest and a circular knob riding
+   inside it. `--ds-slider-fill` is a percentage the caller sets from value. */
+.ds-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 40px;
+  background: transparent;
+  outline: none;
+  cursor: pointer;
+}
+.ds-slider:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.ds-slider::-webkit-slider-runnable-track {
+  height: 40px;
+  border-radius: var(--radius-card);
+  background: linear-gradient(
+    to right,
+    var(--color-track-fill) var(--ds-slider-fill, 0%),
+    var(--color-track) var(--ds-slider-fill, 0%)
+  );
+}
+.ds-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--color-thumb);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.ds-slider::-moz-range-track {
+  height: 40px;
+  border-radius: var(--radius-card);
+  background: var(--color-track);
+}
+.ds-slider::-moz-range-progress {
+  height: 40px;
+  border-radius: var(--radius-card) 0 0 var(--radius-card);
+  background: var(--color-track-fill);
+}
+.ds-slider::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-thumb);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.ds-slider:focus-visible {
+  outline: 2px solid var(--color-accent-solid);
+  outline-offset: 2px;
+}
+
+/* Scrollbars inside cards: a thin dark thumb on no track, so a long panel
+   reports its length without drawing a second border down its edge. */
+.bg-inset::-webkit-scrollbar,
+.overflow-y-auto::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.bg-inset::-webkit-scrollbar-track,
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+.bg-inset::-webkit-scrollbar-thumb,
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: var(--color-fg-3);
+  border-radius: 980px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.bg-inset::-webkit-scrollbar-thumb:hover,
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: var(--color-fg-2);
+  background-clip: content-box;
 }
 
 /* Follow the OS scheme: light default, Apple-dark when the OS is dark. UA-rendered
    chrome (select popups, scrollbars) tracks this too. */
 :root {
   color-scheme: light dark;
+  font-family: var(--font-system);
+  /* San Francisco is drawn for antialiased rendering; on `auto` macOS
+     subpixel-smooths it and the whole interface reads heavy and muddy. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-synthesis: none;
+  font-optical-sizing: auto;
+  text-rendering: optimizeLegibility;
+}
+
+/* Line height is part of the scale, not a leftover. Structure titles sit on
+   their own baseline (1), body labels get room to breathe (1.35), and every
+   number is tabular so columns of values don't shift as they tick. */
+body {
+  font-family: var(--font-system);
+  line-height: 1.35;
+}
+
+.font-mono,
+[class*="font-mono"] {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 
 /* Keyboard focus ring for the inline-styled top-bar icon buttons (the toolbar

@@ -1,32 +1,37 @@
 ---
 name: design-system
 description: >-
-  The canonical visual design system for the headless-serve-sim WEB INTERFACE — Apple's
-  apple.com marketing language: a light, airy SF Pro system where structure is flat (0px,
-  shadowless bars/sections/frames) and CONTROLS are rounded (980px pill buttons, ~12px
-  cards/inputs), built on white + #f5f5f7 surfaces with one blue (#0066cc text / #0071e3
-  fill) and quiet cubic-bezier(0.4,0,0.6,1) motion — combined with this project's fixed
-  layout law (centered topbar+device-frame = 100vh assembly with a full-height collapsible
-  right inspector, top + right attached). Use this skill whenever building, restyling,
-  reviewing, or laying out ANY part of the serve-sim web UI: files under
+  The canonical visual design system for the headless-serve-sim WEB INTERFACE — a quiet,
+  monochrome "floating cards on a dotted canvas" language: white cards with 18px corners
+  and one soft shadow float on a #f0f0f0 dot-grid canvas; inside a card, sections are FLAT
+  and divided by 1px #ededed rules; every control is a soft-cornered rectangle (no pills, no
+  stadium switches, no circular buttons) and the SHAPE FOLLOWS THE DATA — a boolean is a
+  one-line row with a soft-rectangle switch and its state in mono, a short enum is a
+  segmented block with a near-black selected fill, a long enum is a portaled menu, numbers
+  live in bordered mono chips, and ranges use a tall 40px track with a white knob. Type is
+  six named tokens (text-eyebrow/micro/value/body/heading/display) and a raw text-[Npx] is
+  a bug. There is NO hue anywhere: emphasis is #1c1c1c on white. The device is drawn
+  with the installed profile's real Simulator.app nine-slice artwork, floating bare on the
+  canvas with its own drop shadow. Use this skill whenever building, restyling, reviewing,
+  or laying out ANY part of the serve-sim web UI: files under
   packages/headless-serve-sim/src/client/** or the presentational SimulatorToolbar;
   choosing colors, radius, borders, spacing, dividers, fonts, or motion; implementing the
-  top bar, the collapsible inspector, inspector blocks, the device frame, tool cards,
-  panels, buttons, inputs, selects, switches, tables, badges, or the CPU/MEM readout.
-  Trigger it even when the request just says "match the design", "apply the design system",
-  "make it look like apple", "use the design tokens", or "round the buttons" — if the edit
+  toolbar card, the collapsible inspector, inspector sections, the device bezel, tool
+  blocks, panels, buttons, inputs, segmented groups, sliders, value chips, tables, badges,
+  or the CPU/MEM readout. Trigger it even when the request just says "match the design",
+  "apply the design system", "use the design tokens", or "round the buttons" — if the edit
   touches how the serve-sim web page LOOKS, consult this skill first.
 ---
 
 # serve-sim Web Design System
 
-This is how the **headless-serve-sim web interface** must look and lay out: **Apple's
-apple.com marketing language** — light, spacious, one typeface, flat scaffolding with pill
-controls — wrapped around this project's fixed layout skeleton.
+How the **headless-serve-sim web interface** must look: **white cards floating on a dotted
+gray canvas**, monochrome, with one control vocabulary — soft-cornered rectangles — and no
+color at all.
 
-**Full extracted reference:** [references/apple-com-design-system.md](references/apple-com-design-system.md)
-(palette, type scale, component recipes, motion, evidence). Read it for any exact value
-not listed below. This SKILL.md is the actionable contract.
+**Component reference:** every shape below is already implemented in
+[`packages/headless-serve-sim/src/client/components/design-system.tsx`](../../../packages/headless-serve-sim/src/client/components/design-system.tsx).
+Use those components; do not re-derive the class strings.
 
 ## Scope & hard boundary
 
@@ -37,203 +42,293 @@ presentational `packages/headless-serve-sim-client/src/simulator/SimulatorToolba
 `SimulatorView.tsx`; the WebSocket / `sendWs` / `onStream*` / keyboard-HID effects in
 `client.tsx`; `use-mjpeg-stream` / `use-avcc-stream` / `avcc-fallback`; any
 transport/codec/gateway/stream file in `headless-serve-sim-client`; all server / Swift /
-middleware code. This is a **visual refit only** — no feature, behavior, data, or
-streaming logic changes. Every control keeps working exactly as before. Preserve every
-handler, `ref`, `data-*`, `aria-*`, and any conditional keyed on a class/inline style.
+middleware code. A restyle is a **visual refit only** — no feature, behavior, data, or
+streaming logic changes. Preserve every handler, `ref`, `data-*`, `aria-*`, and any
+conditional keyed on a class or inline style.
 
 Styling is **Tailwind v4** (utility classes + `@theme` tokens in `global.css`) with inline
 `style={}` for dynamic values; `SimulatorToolbar.tsx` uses inline CSS-in-JS. Match
 whichever the file already uses — don't introduce a new styling system.
 
-## The two laws
+## The three laws
 
-### Law 1 — Look: flat structure, pill controls, one blue, on white
+### Law 1 — Surface: cards float, sections are flat
 
-Apple.com's signature is the **contrast between flat scaffolding and rounded controls**.
-Do not flatten everything (that was the rejected prior design) and do not round
-everything. Split them:
+- **The page is a dotted canvas.** `#f0f0f0` with a 1px `#d7d7d7` dot on a 16px grid —
+  the `.ds-canvas` class. Nothing else in the tree paints a page background.
+- **Every top-level surface is a floating white card**: `bg-panel`, `rounded-panel`
+  (18px), `shadow-panel`, **no border**. Cards are separated by a real gutter (20px) and
+  inset from the viewport (24px), so the canvas shows between and around them.
+- **Inside a card, structure is flat.** Sections have **no card of their own** — no
+  border, no radius, no nested fill. One `1px #ededed` rule divides them, and nothing
+  else. Never nest a card in a card.
+- **Shadows are for floating things only**: cards, overlay panels, dropdowns, toasts, the
+  device. An inline block never casts one.
 
-- **Structural shells are flat: `0px` radius, no shadow.** The top bar, the inspector
-  bar, the device-frame container, and the **device screen itself** are square-cornered
-  and shadowless. They tile flush and attach edge-to-edge. Layer them by **fill shift**
-  (`#fff` canvas → `#f5f5f7` surface → `#e8e8ed`), never by elevation.
-- **Controls are rounded: pills + soft cards.** Buttons are **full `980px` pills**;
-  cards / tool blocks / inputs / selects / menus use **`~12px`**; icon buttons are
-  **circles** (`50%`); badges are pills. This is where the rounding lives.
-- **One blue, almost no other color.** Interactive text/links → `#0066cc`
-  (`text-accent`); the single filled primary button → `#0071e3` (`bg-accent-solid`) with
-  white label; focus ring → `1px #0071e3`, `1px` offset. Status colors (green/red/orange)
-  appear only as **small** dots/badges, never large fills.
-- **Hairlines, not shadows.** Separate sections/rows with a single `1px #d2d2d7`
-  (`border-divider`) rule. A real soft shadow is allowed ONLY for a true floating overlay
-  (dropdown / popover / toast): `0 4px 24px rgba(0,0,0,0.12)`. Never on inline blocks.
-- **Type carries hierarchy, not color.** SF Pro only. Body `17px/400`; headings
-  `SF Pro Display 600`; eyebrows `12px #6e6e73`. Keep **negative tracking** (`-0.022em`
-  at body, tighter as size grows). No blue or colored headings.
-- **Generous space.** Apple under-fills. Let whitespace and fill shifts separate things;
-  use comfortable padding (12–24px in dense UI), not cramped 0–2px.
+### Law 2 — Controls: one shape, no hue, no legacy widgets
 
-### Law 2 — Layout: KEEP the skeleton exactly (this is the one thing not from apple.com)
+Every control is a **soft-cornered rectangle**. Radius scales with height: ~7px for chips
+and small badges (`rounded-chip`), 8px for compact controls (`rounded-sm`), 12px for
+buttons, segments, inputs and sliders (`rounded-card`), 18px for cards (`rounded-panel`).
 
-The structural skeleton is fixed and must be preserved verbatim — only its *styling*
-changes to the apple.com language. The geometry, centering, and attach behavior stay:
+**There are no stadium/pill shapes in this system. `--radius-pill` does not exist.**
+
+### Control follows the data, not the house style
+
+The shape is chosen by what the value IS. Picking one control and forcing
+everything through it is how this panel ended up with five wrapped buttons for a
+colour filter and a wall of Off/On pairs for five booleans.
+
+| The value is… | Control | Notes |
+|---|---|---|
+| a boolean state | `SettingSwitch` | one row: label, state in mono (`off`/`on`), 44×24 soft-rectangle track with a rounded-square knob. **Never** an `Off`/`On` segment pair — five of those turn a settings list into a wall of buttons. |
+| an enum, ≤4 options, labels ≤14 chars | `SegmentedGroup` | all options visible; the options are the interface |
+| an enum, 5+ options **or** any long label | `Select` (`components/select.tsx`) | a portaled menu. "Red/Green (Protanopia)" does not belong in a segment. **It MUST carry a disclosure caret and be sized as a field (~168px, white fill, value left-aligned).** |
+| a continuous range | `Slider` | 40px track, filled part darker, 28px knob |
+| free text | input, `rounded-sm`, hairline border | |
+| an action | button, `rounded-card`; the one primary per block is the near-black fill | |
+| an icon-only action | `SquareIconButton` | a 34px soft square, never a circle |
+
+`fitsSegments()` in `simulator-settings-tool.tsx` encodes the enum threshold —
+use it rather than eyeballing each call site.
+
+- **Selection is near-black, never colored.** Selected segment / primary fill =
+  `bg-accent-solid` (`#1c1c1c`) with `text-on-accent`. Unselected = `bg-panel-deep`
+  (`#f7f7f7`) + `border-divider` + `text-fg-2`. **Never `text-white`** — `on-accent`
+  flips in dark mode; `white` doesn't.
+- **Numbers are mono, in a bordered chip.** `ValueChip`: `font-mono`, `rounded-chip`,
+  `border-control-border`, on white. Every readout wears it, so a value is never
+  mistaken for a label.
+- **Sliders are tall.** A 40px `rounded-card` track, the filled part one shade darker
+  (`--color-track-fill`) than the rest (`--color-track`), with a 28px white knob riding
+  inside it. Use the `Slider` component; `--ds-slider-fill` carries the percentage.
+- **A panel toggle is not a chevron.** A chevron already means "disclose this
+  section" throughout the panel body; reusing it for collapse is the same
+  mistake as the picker wearing a switch's shape. `PanelToggleIcon` draws the
+  panel itself — a rounded rect with a divided side rail, filled while open,
+  hollow when collapsed, mirrored to the edge the panel lives on.
+- **A picker must never be mistakable for a switch.** Measured, they had once
+  become the same: both `8px` radius, both `#e6e6e6` border, both right-aligned
+  to the same x, neither with a glyph — 11px of width was the only difference.
+  A picker now has a **caret**, a white fill and 168px of width; a switch is a
+  44×24 grey track with no glyph. Check any new control pair the same way:
+  compare `borderRadius`, `backgroundColor`, width and glyph presence.
+- **Two or three short options become equal grid columns** filling the row, so a
+  segmented set reads as one control instead of loose buttons; longer sets wrap.
+- **Focus is a crisp ring**, `2px var(--color-accent-solid)`, never a glow.
+- **Status colors are the only color**, and only as small dots or short badge text —
+  never a large fill.
+
+### Law 3 — Layout: cards on the canvas, device bare
 
 ```
-            ┌──────────────────────────────┬─────┐
-            │ TOP BAR  (device · CPU · MEM) │  ▣  │  ← inspector height
-            ├──────────────────────────────┤  I  │     = top bar + frame
-   centered │                              │  N  │
-   in page  │        DEVICE FRAME          │  S  │  collapsed (default): rail,
-            │   (flat 0px frame; screen     │  P  │  top toggle styled like top bar
-            │    is now FLAT too, radius 0;  │  …  │
-            │    fills height, width by      │     │  expanded: widens, shows stacked
-            │    aspect ratio)               │     │  cards (some always shown, some
-            └──────────────────────────────┴─────┘  <details>-collapsible)
-              left column width = frame width
+ ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·
+ ·  ╭────────╮   ╭──────────────╮   ╭──────────╮ ·
+ ·  │ACTIVITY│   │ ds-sim ⌂ ◑ ⧉ ↻│   │INSPECTOR │ ·
+ ·  │        │   ╰──────────────╯   │  ────────│ ·
+ ·  │ gauges │    ╭────────────╮    │  section │ ·
+ ·  │        │    ╢██ screen ██╟    │  ────────│ ·
+ ·  │        │    ╰────────────╯    │  section │ ·
+ ·  ╰────────╯   (real artwork,     ╰──────────╯ ·
+ ·                buttons visible)               ·
+ ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·
 ```
 
-- **Centered assembly.** The page root is `display:flex; align-items:center;
-  justify-content:center; height:100vh; width:100vw; overflow:hidden`, canvas `#ffffff`.
-  The whole assembly (top bar + frame + inspector) is centered in the viewport.
-- **Left column = top bar + device frame, stacked.** Top bar + frame height = `100vh`.
-  The column width equals the device-frame width; the **top bar's width follows the frame
-  width** on every resize (attached on top).
-- **Top bar:** fixed height **44px**, frosted (`rgba(255,255,255,0.8)` +
-  `backdrop-filter: blur(20px) saturate(1.8)`), `0px` radius, a `1px #d2d2d7` bottom
-  keyline, no margin, attaches flush to the frame. Holds the device picker/title, action
-  buttons (home, appearance, AX, rotate, RN-reload — as **circular icon buttons**), and
-  the **CPU + MEM** readout that auto-collapses responsively (full → compact → hidden as
-  the bar narrows).
-- **Device frame:** flat `0px` container with a `1px #d2d2d7` border, fills the height
-  under the top bar. Fit it inside `availH = 100vh − 44` and `availW = 100vw −
-  inspectorWidth`, preserving aspect ratio; set the column width to the resulting frame
-  width. **The streamed screen is now FLAT — `borderRadius: 0`, no superellipse.** ("All
-  flat": the device sits flush in a flat frame.)
-- **Inspector bar:** right of the left column, `height = topBar + frame` (NOT 100vh — it
-  must never change the page height; make its body scrollable), attached flush, `0px`
-  radius, a `1px #d2d2d7` keyline on its **leading (left) edge**, frosted/`#ffffff`.
-  **Collapsed by default** to a ~44px rail whose **top header matches the top bar** (same
-  44px, same bottom keyline) and holds the single expand/collapse toggle. Expanded
-  (~360px) reveals a vertical stack of **soft cards** (`~12px` radius) separated by
-  `1px #d2d2d7` dividers; some always shown, some `<details>`-collapsible. Expanding grows
-  `inspectorWidth`, which shrinks the frame's `availW` (frame recomputes) — it pushes from
-  the frame's edge, never floats over the screen.
-- The wide surfaces (Connection Stats, Simulators grid, WebKit DevTools) keep their
-  existing overlay behavior, launched from inspector entries.
+- **Root:** `.ds-canvas`, `display:flex; align-items:center; **justify-content:
+  space-between**; height:100vh; width:100vw; overflow:hidden`, `padding: 24`.
+  **The panels anchor to the window's left and right edges — always 24px from
+  the border, expanded or collapsed.** They must never drift inward to sit
+  against the device. Under `justify-center` + a gap the collapsed rails bunched
+  up beside the phone and read as hanging off it; the centre column is now
+  `flex-1` so the device centres in whatever space the panels leave.
+- **Left / right cards** (Activity, Inspector): full canvas height
+  (`100vh − 2×24`), `rounded-panel`, `shadow-panel`, **collapsed by default** to a 52px
+  rail, expanding to 380px. Expanding shrinks the device's available width; it never
+  floats over the device. The content panel is laid out at full expanded width at all
+  times and anchored to its edge, so expanding reveals rather than reflows.
+- **Centre column:** the device title bar card (**56px** tall — it carries a two-line
+  title plus five 32px actions and was cramped at 44), its width following the device
+  with a ~420px floor so the device name never truncates, a 14px gap, then the device.
+  The panels keep their OWN header height (64px) so the two tune independently.
+- **The device is bare** — it sits directly on the canvas with its own drop shadow, no
+  card behind it. This keeps the side-button nubs visible.
 
-## Tokens — `global.css` `@theme` (light default + dark via prefers-color-scheme)
+## The device bezel — real Simulator.app artwork, never an approximation
 
-Keep token NAMES stable (the tree already uses `bg-page` / `bg-panel` / `text-fg` / …);
-remap the VALUES to apple.com and ADD radius tokens. Default LIGHT; provide Apple dark via
-`@media (prefers-color-scheme: dark)` overriding the same vars (Tailwind v4 utilities read
-the vars, so the override cascades).
+The installed device profile (`config.deviceFrameSpec`) already carries everything:
+`insetsPx`, per-corner `screenRadiiPx`, `outerRadiiPx`, `cutout`, and **`artwork`** — the
+nine-slice PNGs (corners, edge strips, and each side-button image) that Simulator.app
+itself draws. `prepareDeviceFrameArtwork()` composites them.
+
+Rules:
+
+- **Never hand-roll a corner radius for the device.** Apple's continuous-curvature shape
+  is baked into the artwork; a CSS `border-radius` on the bezel will not match it.
+- **Stack: artwork first, screen composited over it.** The artwork is a whole device, not
+  a mask with a hole — putting it on top lets its nine-slice edges cover the live screen.
+  This mirrors `paintRecordingFrameAtScale` in `screen-recorder.ts`.
+- **Clip the screen to `screenRadiiPx`**, per corner, scaled — and permute the corners
+  with the rotation.
+- Fit the **whole artwork**, not the screen: the artwork bounds are wider than the screen
+  because the buttons stick out. `fitDeviceBezel()` in `utils/bezel-geometry.ts` does
+  this, converting the device-type screen-width cap into a scale ceiling.
+- Profiles with no artwork fall back to a dark shell at `outerRadiiPx`; profiles with no
+  frame at all (vision) fall back to `BareScreen`.
+
+## Tokens — `global.css` `@theme`
+
+Keep token NAMES stable (the tree uses `bg-page` / `bg-panel` / `text-fg` / …); the values
+below are the system. Default LIGHT, with dark via `prefers-color-scheme` overriding the
+same vars, so Tailwind utilities re-theme without a single class change.
 
 ```css
-@theme {
-  /* Surfaces — light, layered by fill shift */
-  --color-page:          #ffffff;   /* canvas */
-  --color-panel:         #ffffff;   /* bars / inspector base (frost via backdrop) */
-  --color-panel-bg:      #ffffff;
-  --color-panel-overlay: rgba(255,255,255,0.8);
-  --color-panel-deep:    #f5f5f7;   /* cards / tool blocks */
-  --color-surface-2:     #f5f5f7;
-  --color-surface-3:     #fafafc;
-  --color-hover:         #e8e8ed;   /* row / control hover on white */
-  --color-divider:       #d2d2d7;   /* EVERY hairline */
+--color-page: #f0f0f0;          /* the dotted canvas */
+--color-canvas-dot: #d7d7d7;
+--color-panel: #ffffff;         /* every floating card */
+--color-panel-deep: #f7f7f7;    /* unselected segment / recessed fill */
+--color-surface-3: #fbfbfb;     /* inputs, icon buttons */
+--color-hover: #f0f0f0;
+--color-divider: #ededed;       /* every hairline, inside cards only */
+--color-control-border: #e6e6e6;/* chips, icon buttons */
+--color-inset: #ffffff;         /* card body: sections divide by rule, not gutter */
+--color-track: #efefef;         /* slider track, unfilled */
+--color-track-fill: #d9d9d9;    /* slider track, filled */
+--color-thumb: #ffffff;         /* slider knob */
 
-  /* Text — weight/size ranks, never color */
-  --color-fg:            #1d1d1f;
-  --color-fg-2:          #6e6e73;
-  --color-fg-3:          #86868b;
+--color-fg: #1a1a1a;  --color-fg-2: #6e6e6e;  --color-fg-3: #9a9a9a;
 
-  /* One blue */
-  --color-accent:        #0066cc;   /* interactive text / links */
-  --color-accent-solid:  #0071e3;   /* single filled primary + focus */
-  --color-accent-tint:   rgba(0,113,227,0.10);
+--color-accent: #1a1a1a;        /* interactive text */
+--color-accent-solid: #1c1c1c;  /* selected fill + focus ring */
+--color-on-accent: #ffffff;     /* label ON an accent fill — flips in dark */
+--color-accent-tint: rgba(0,0,0,0.05);
 
-  /* Status — small accents only */
-  --color-success:       #03a10e;
-  --color-danger:        #e30000;
-  --color-warning:       #f56300;
+--color-success: #178a3f;  --color-danger: #cf3b30;  --color-warning: #c26a1a;
 
-  /* Radius — rounding lives on controls, not structure */
-  --radius-pill:         980px;     /* buttons, badges, segmented */
-  --radius-card:         12px;      /* cards, inputs, menus, blocks */
-  --radius-sm:           8px;       /* compact controls, rows */
+--radius-panel: 18px;  --radius-card: 12px;  --radius-sm: 8px;  --radius-chip: 7px;
 
-  /* Type */
-  --font-system:  "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-display: "SF Pro Display", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-mono:    "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-page:#000000; --color-panel:#1d1d1f; --color-panel-bg:#1d1d1f;
-    --color-panel-overlay:rgba(29,29,31,0.8); --color-panel-deep:#161617;
-    --color-surface-2:#161617; --color-surface-3:#1d1d1f; --color-hover:#2c2c2e;
-    --color-divider:#424245; --color-fg:#f5f5f7; --color-fg-2:#a1a1a6; --color-fg-3:#86868b;
-    --color-accent:#2997ff; --color-accent-solid:#0071e3; --color-accent-tint:rgba(41,151,255,0.12);
-    --color-success:#30d158; --color-danger:#ff453a; --color-warning:#ff9f0a;
-  }
-}
+--shadow-panel:   0 1px 2px rgba(0,0,0,.04), 0 10px 30px rgba(0,0,0,.07);
+--shadow-device:  0 2px 6px rgba(0,0,0,.08), 0 14px 40px rgba(0,0,0,.16);
+--shadow-overlay: 0 12px 40px rgba(0,0,0,.14);
 ```
 
-Set `:root { color-scheme: light dark; }` (UA chrome follows). Use the generated
-utilities, never raw hex: surfaces → `bg-page` / `bg-panel` / `bg-panel-deep` /
-`bg-surface-2` / `bg-hover`; borders → `border-divider`; text → `text-fg` / `text-fg-2` /
-`text-fg-3`; interactive text → `text-accent`; filled button → `bg-accent-solid`; rounding
-→ `rounded-pill` / `rounded-card` / `rounded-sm` (or `rounded-full` for circles).
+Use the generated utilities, never raw hex.
 
-## Component recipes (mapped to this codebase)
+## Type — six named levels, and nothing else
 
-- **Top bar** (`SimulatorToolbar.tsx`): 44px, frosted white, `0` radius, bottom
-  `1px #d2d2d7` keyline, no shadow. Action buttons → **circular** (`borderRadius:'50%'`),
-  transparent, glyph `#1d1d1f`, hover faint `#e8e8ed` circle. Add the CPU/MEM readout with
-  responsive collapse.
-- **Inspector shell** (`inspector-bar.tsx`): full-(topbar+frame)-height right bar, `0`
-  radius, leading `1px #d2d2d7` keyline, frosted/`#ffffff`, scrollable body; 44px top
-  header matching the top bar with the toggle (a circular icon button).
-- **Tool block / card** (`CollapsibleSection` + tool components): `rounded-card`
-  (`12px`), `bg-panel-deep` (`#f5f5f7`), no shadow; stack with `1px #d2d2d7` dividers or
-  small gaps; comfortable padding (`px-3 py-2.5`). Keep the `<details>` mechanics + chevron.
-- **Buttons:** primary (rare, single) = `bg-accent-solid` `#0071e3`, white label,
-  `rounded-pill`, `padding: 8px 16px` (compact pill). Secondary = `bg-panel-deep`
-  `#f5f5f7`, `text-fg`, `rounded-pill`. Tertiary = transparent, `1px` accent border +
-  `text-accent`, `rounded-pill`. Icon buttons = `rounded-full`, transparent, hover
-  `#e8e8ed`.
-- **Inputs / selects / switches:** `1px #d2d2d7` border, `bg-surface-3`/`bg-panel`,
-  `rounded-card`, text `#1d1d1f`, placeholder `#86868b`; focus → `1px #0071e3` ring +
-  `1px` offset (`outline`, not shadow). Pill-shape the toggle tracks.
-- **Tables / data rows** (connection stats, grid, ax tree, user-defaults): header text
-  `#86868b` 12px; cells `#1d1d1f` 13–14px; each row a `1px #d2d2d7` bottom border; hover
-  row `#f5f5f7`. Wrap in a `rounded-card` container; no inner radius on cells.
-- **CPU / MEM** (`TopBarMetrics`): keep the sparkline math; label `#86868b`, value crisp;
-  line colors stay semantic (CPU green/amber/red, MEM blue). `rounded-pill` chips.
-- **Badges / status dots:** `rounded-pill`, 11–12px, tinted fill (`accent-tint` /
-  `success`@10% / `danger`@10%) or solid status color. Small.
-- **Toasts / overlays / dropdown menus:** `rounded-card`, the one place a real
-  `0 4px 24px rgba(0,0,0,0.12)` (dark: `rgba(0,0,0,0.5)`) shadow is OK.
-- **Boot empty state, device picker, grid tiles:** apple cards (`rounded-card`,
-  `#f5f5f7`, hairline dividers), SF Pro Display title, generous space.
+Sizes AND weights are **tokens**, not call-site literals. `text-[15px]` anywhere
+is a bug, and so is re-declaring weight next to a token.
+
+| Token | Size / weight | Tracking | Role |
+|---|---|---|---|
+| `text-eyebrow` | 12px / **700** / uppercase | **0.06em** | card + section titles |
+| `text-micro` | 11px / 500 | — | stat rows, tick captions |
+| `text-value` | 13px / 500 | — | numbers, mono readouts, secondary text |
+| `text-body` | 14px / **500** | -0.003em | field labels, rows, segment + button labels |
+| `text-heading` | 18px / 650 | -0.012em | empty-state and disconnected titles |
+| `text-display` | 28px / 600 | -0.02em | the one big number on a gauge |
+
+**Weight is the primary lever, not size.** A 15px/400 label on white reads thin
+and unresolved; 14px/500 reads solid at a *smaller* size. Never set body text
+below 500 — `font-normal` on a label undoes the scale.
+
+**A section title must out-rank the rows beneath it.** It does that with caps +
+700 weight + **tight** 0.06em tracking, which packs the letters into a solid
+block. This was previously 11px/600 at 0.18em: smaller than the 15px labels it
+introduced, and so widely tracked that it dispersed — a section header that is
+the smallest, lightest, most scattered thing in its own section is inverted.
+Tight tracking anchors; wide tracking floats.
+
+Selection needs `font-semibold` (600) to out-weigh the 500 base.
+
+Verify no size or weight has escaped the scale:
+
+```
+rg -o 'text-\[[0-9.]+px\]' -g '*.tsx' packages/headless-serve-sim/src/client
+rg -n 'text-body[^"]*font-normal' -g '*.tsx' packages/headless-serve-sim/src/client
+```
+
+Both must return nothing. Data is never uppercase; hierarchy never comes from colour.
+
+## Panel structure — three levels, grouped by function
+
+A panel is not a list of tools. Sixteen sections as flat peers is unnavigable:
+nothing tells you what anything is FOR. Group by **what the tool acts on**.
+
+```
+INSPECTOR                    <- panel title   text-eyebrow (12/700 CAPS, tight)
+  Current App / SpringBoard  <- pinned context, not a tool
+┌ DEVICE ─────────────────┐  <- group label   text-micro 700 CAPS text-fg-3,
+│  › Simulator            │     on a bg-panel-deep band, STICKY to the scroll top
+│  › Status Bar           │  <- section       text-body font-semibold, SENTENCE case
+│  › Location   1.53 km   │     status right-aligned, mono
+└─────────────────────────┘
+```
+
+Inspector groups: **Device** (Simulator, Status Bar, Location, Camera) ·
+**App** (Actions, Permissions, User Defaults, Documents) · **Capture**
+(Screenshot, Screen Recording) · **Inspect** (Accessibility, Connection Stats,
+Logs, WebKit DevTools, Simulators). Activity uses the same shape: **Live**
+(gauges) · **Counters**.
+
+**Only the panel title and the group label are uppercase.** Section titles are
+sentence case at `text-body font-semibold` — CAPS on every level is shouting,
+and it made sections compete with the panel title instead of sitting under it.
+
+`SectionGroup` is a **real flex item** (`flex shrink-0 flex-col`), never
+`display:contents`. Under `contents` the group's box disappears, the scroll
+container's `shrink-0` stops applying, and every section inside collapses to
+zero height in a bounded flex column — the panel renders as empty bands.
+
+### Section anatomy
+
+```
+[block: border-t border-divider, no radius, no nested fill]
+  [header  px-5 min-h-[56px]]
+     › CHEVRON (leading, order-first)   <- right when closed, down when open
+     Title (text-body font-semibold, mr-auto)
+     [status, right-aligned, mono, text-value]
+  [body  px-5 pb-4 pt-1  flex-col gap-3]  <- NO rule under the title
+```
+
+Collapsible sections use `CollapsibleSection` (native `<details>`, CSS-only
+height transition). Hand-rolled `open && …` bodies match the same anatomy.
+
+### Fit inside the panel
+
+The panel is 380px. Anything that can be long — a filesystem path, a bundle id —
+must wrap (`break-all line-clamp-2`), not sit in a `whitespace-nowrap` ellipsis:
+a value clipped to 380px of a 1775px string shows the user nothing. Audit with:
+
+```js
+el.scrollWidth > el.clientWidth   // must be false for every non-scroller
+```
 
 ## Motion
 
-Apple's authentic curve: **`cubic-bezier(0.4, 0, 0.6, 1)`** (decelerate), ~**0.3s** for
-color/background/transform, ~**0.24s** for opacity. Restrained — **never bouncy, never a
-spring, never long**. Inspector expand/collapse, top-bar responsive collapse, hovers, and
-`<details>` open/close all use this curve. (Hover = shift the **fill**, not a shadow.)
+**`cubic-bezier(0.4, 0, 0.6, 1)`**, ~0.3s for color/background/transform, ~0.24s for
+opacity, 320ms for the rail width. Restrained — never bouncy, never a spring, never long.
+Hover shifts the **fill**, never a shadow.
 
 ## Self-check before finishing
 
-- Structural shells (top bar, inspector, device frame, **device screen**) are `0px` and
-  shadowless; controls (buttons/badges = pill, cards/inputs = `12px`, icon buttons =
-  circle) are rounded. Grep for stray `borderRadius`/`rounded-*` that contradict this.
-- Colors come from the tokens; no leftover dark-DocC values (`#1d1d1f` page bg, `#2997ff`
-  as the light accent, `#000` canvas in light mode) and no raw hex in components.
-- Type is SF Pro with negative tracking; no colored headings.
-- Layout skeleton intact: centered; top bar 44px width-follows the frame; frame fits
-  `100vh − 44`; inspector = topBar+frame height, collapsed by default, doesn't change page
-  height; device screen flat.
-- No core file touched; every control still works; the build compiles
-  (`bun run packages/headless-serve-sim/build.ts`).
+- No `rounded-pill`, no stadium switch, no `Off`/`On` segment pair for a boolean, no
+  circular button, no `text-white` on an accent fill.
+- `rg -o 'text-\[[0-9.]+px\]' -g '*.tsx' packages/headless-serve-sim/src/client` returns
+  NOTHING — every size is a scale token.
+- Each control matches its data type per the table in Law 2 (a 5-option enum is a menu,
+  not five wrapped buttons).
+- Cards float (18px + shadow, no border); sections inside them are flat and rule-divided;
+  no card nested in a card.
+- No hue: grep for blue/green/red outside `--color-success|danger|warning`, and check
+  those only appear as small dots or badge text.
+- Numbers are mono; section titles use `text-eyebrow`.
+- Device: artwork under the screen, screen clipped to `screenRadiiPx`, whole artwork
+  fitted, buttons visible, no hand-rolled radius.
+- Layout: panels pinned 24px from the window's left/right edges in BOTH states
+  (measure `getBoundingClientRect().left` and `innerWidth - right`); device centred
+  in the remaining bay; rails collapsed by default and never overlapping the device.
+- No core file touched; every control still works; `bun run typecheck` passes and
+  `bun run packages/headless-serve-sim/build.ts` succeeds.
+
+**The client is inlined into the preview HTML at build time — restart the server after
+every rebuild or you will be looking at the old bundle.**
