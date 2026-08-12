@@ -95,47 +95,47 @@ export function BootEmptyState({
   );
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-page p-4 gap-4 font-system box-border">
+    <div className="ds-canvas flex flex-col items-center justify-center h-screen p-6 gap-4 font-system box-border">
       <div className="flex flex-col items-center gap-3 text-center">
-        <h1 className="font-display text-[24px] font-semibold tracking-[-0.01em] m-0 text-fg">
+        <h1 className="font-display text-heading font-semibold m-0 text-fg">
           No headless-serve-sim stream running
         </h1>
-        <p className="text-fg-2 text-[15px] tracking-[-0.01em] max-w-120">
+        <p className="text-fg-2 text-body max-w-120">
           Pick a simulator to connect, or start a specific one yourself with{" "}
-          <code className="bg-surface-2 rounded-pill px-2 py-0.5 text-[13px]">
+          <code className="bg-surface-2 rounded-card px-2 py-0.5 text-value">
             headless-serve-sim --detach &lt;device&gt;
           </code>
           .
         </p>
-        <div className="w-full max-w-90 mt-2 bg-panel-deep rounded-card border border-divider font-mono text-[13px] text-fg text-left max-h-[70vh] overflow-y-auto min-h-0">
-          <div className="flex items-center justify-between px-3 py-2.5 text-[12px] text-fg-3 border-b border-divider">
-            <span className="font-semibold uppercase tracking-[0.06em]">Simulators</span>
+        <div className="w-full max-w-90 mt-2 bg-panel rounded-panel shadow-panel font-mono text-value text-fg text-left max-h-[70vh] overflow-y-auto min-h-0">
+          <div className="flex items-center justify-between px-3 py-2.5 text-value text-fg-3 border-b border-divider">
+            <span className="text-body font-semibold text-fg text-fg">Simulators</span>
             <button
               onClick={onRefresh}
               disabled={loading}
-              className="bg-transparent border-none text-accent text-[12px] cursor-pointer p-0 rounded-sm transition-[color] duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] disabled:cursor-default disabled:opacity-50 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+              className="bg-transparent border-none text-accent text-value cursor-pointer p-0 rounded-sm transition-[color] duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] disabled:cursor-default disabled:opacity-50 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
             >
               {loading ? "..." : "Refresh"}
             </button>
           </div>
           {error && (
-            <div className="px-3 py-2 text-danger text-[12px] break-words border-b border-divider">
+            <div className="px-3 py-2 text-danger text-value break-words border-b border-divider">
               {error}
             </div>
           )}
           {startError && (
-            <div className="px-3 py-2 text-danger text-[12px] break-words border-b border-divider">
+            <div className="px-3 py-2 text-danger text-value break-words border-b border-divider">
               {startError}
             </div>
           )}
           {!loading && !error && devices.length === 0 && (
-            <div className="px-3 py-3 text-fg-3 text-[12px] text-center">
+            <div className="px-3 py-3 text-fg-3 text-value text-center">
               No available simulators found
             </div>
           )}
           {sortedGroups.map(([runtime, devs]) => (
             <div key={runtime} className="border-b border-divider last:border-b-0">
-              <div className="px-3 pt-2.5 pb-1 text-[12px] font-semibold text-fg-3 uppercase tracking-[0.07em]">
+              <div className="px-3 pt-2.5 pb-1 text-value font-semibold text-fg-3 uppercase tracking-[0.07em]">
                 {runtime}
               </div>
               {devs.map((d) => {
@@ -158,7 +158,7 @@ export function BootEmptyState({
                     />
                     <span className="flex-1 min-w-0 truncate text-left">{d.name}</span>
                     <span
-                      className={`shrink-0 whitespace-nowrap text-[11px] ${isStarting ? "text-accent" : "text-fg-2"}`}
+                      className={`shrink-0 whitespace-nowrap text-micro ${isStarting ? "text-accent" : "text-fg-2"}`}
                     >
                       {isStarting
                         ? isBooted

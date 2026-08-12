@@ -72,30 +72,28 @@ export function AppPermissionsTool({ udid, bundleId }: { udid: string; bundleId:
 
   if (!bundleId) {
     return (
-      <div className="bg-panel-deep border border-divider rounded-card px-3 py-2.5 text-fg-3 text-[12px] text-center font-system tracking-[-0.01em]">
+      <div className="bg-panel-deep border border-divider rounded-card px-3 py-2.5 text-fg-3 text-value text-center font-system">
         Permissions appear once an app is in the foreground.
       </div>
     );
   }
 
   return (
-    <div className="bg-panel border border-divider rounded-card overflow-hidden font-system">
+    <div className="border-t border-divider bg-panel overflow-hidden font-system">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="lem-toggle flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full cursor-pointer select-none bg-transparent border-none text-left [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
+        className="lem-toggle flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full cursor-pointer select-none bg-transparent border-none text-left [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold text-fg-2 uppercase tracking-[0.07em]">
-          Permissions
-        </span>
+        <span className="mr-auto text-body font-semibold text-fg text-fg">Permissions</span>
         <Chevron open={open} />
       </button>
 
       {open && (
-        <div className="border-t border-divider px-3.5 py-3 flex flex-col gap-2">
+        <div className="px-5 pb-4 pt-1 flex flex-col gap-3">
           {error && (
-            <div className="bg-panel-deep border border-divider rounded-card text-danger text-[12px] px-3 py-2 tracking-[-0.01em]">
+            <div className="bg-panel-deep border border-divider rounded-card text-danger text-value px-3 py-2">
               {error}
             </div>
           )}
@@ -109,11 +107,11 @@ export function AppPermissionsTool({ udid, bundleId }: { udid: string; bundleId:
                     key={key}
                     className="flex items-center justify-between gap-2 py-2 border-b border-divider last:border-b-0"
                   >
-                    <span className="text-[13px] text-fg overflow-hidden text-ellipsis whitespace-nowrap flex-1 min-w-0 tracking-[-0.01em]">
+                    <span className="text-value text-fg overflow-hidden text-ellipsis whitespace-nowrap flex-1 min-w-0">
                       {label}
                     </span>
                     <div
-                      className="flex shrink-0 gap-0.5 bg-panel-deep border border-divider rounded-pill p-0.5"
+                      className="flex shrink-0 gap-0.5 bg-panel-deep border border-divider rounded-card p-0.5"
                       role="group"
                       aria-label={label}
                     >
@@ -180,7 +178,7 @@ export function AppPermissionsTool({ udid, bundleId }: { udid: string; bundleId:
             <button
               onClick={resetAll}
               disabled={pending === "__all__"}
-              className="bg-transparent border border-divider text-fg-2 hover:bg-hover rounded-pill text-[11px] px-3 py-1.5 min-h-[32px] cursor-pointer tracking-[-0.01em] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+              className="bg-transparent border border-divider text-fg-2 hover:bg-hover rounded-card text-micro px-3 py-1.5 min-h-[32px] cursor-pointer [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
               title="headless-serve-sim permissions reset all"
             >
               {pending === "__all__" ? "…" : "Reset all"}

@@ -176,7 +176,7 @@ export function DeviceHardwareButtons({
 
   return (
     <div
-      className="flex items-center gap-1 rounded-pill border border-divider bg-surface-2 p-0.5"
+      className="flex items-center gap-1 rounded-chip border border-divider bg-surface-2 p-0.5"
       role="group"
       aria-label="Hardware buttons"
     >
@@ -198,7 +198,7 @@ export function DeviceHardwareButtons({
           className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-transparent text-fg-3 [transition:background_0.2s,color_0.2s] hover:bg-panel hover:text-fg-1 active:bg-hover focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
         >
           {HARDWARE_BUTTON_GLYPHS[entry.name] ?? (
-            <span className="text-[11px] font-semibold">?</span>
+            <span className="text-micro font-semibold">?</span>
           )}
         </button>
       ))}

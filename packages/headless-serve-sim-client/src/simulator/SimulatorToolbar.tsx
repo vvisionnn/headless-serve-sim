@@ -53,18 +53,17 @@ export interface SimulatorToolbarProps extends HTMLAttributes<HTMLDivElement> {
   children?: ReactNode;
 }
 
+// The toolbar sits inside its own floating card, so it paints no background,
+// no keyline and no shadow of its own — the card supplies all three.
 const toolbarStyle: CSSProperties = {
   display: "flex",
   flexWrap: "nowrap",
   alignItems: "center",
   justifyContent: "space-between",
   gap: "0 8px",
-  height: 44,
-  padding: "0 10px",
-  background: "var(--color-panel-overlay)",
-  backdropFilter: "saturate(1.8) blur(20px)",
-  WebkitBackdropFilter: "saturate(1.8) blur(20px)",
-  borderBottom: "1px solid var(--color-divider)",
+  height: "100%",
+  padding: "0 12px",
+  background: "transparent",
   minWidth: 0,
   width: "100%",
   boxSizing: "border-box",
@@ -172,8 +171,9 @@ const Title = forwardRef<HTMLButtonElement, TitleProps>(function Title(
           display: "inline-flex",
           alignItems: "center",
           gap: 4,
-          fontSize: 12,
-          fontWeight: 600,
+          fontSize: 13,
+          fontWeight: 590,
+          letterSpacing: "-0.008em",
           color: "var(--color-fg)",
           maxWidth: "100%",
           overflow: "hidden",
@@ -200,7 +200,8 @@ const Title = forwardRef<HTMLButtonElement, TitleProps>(function Title(
       </span>
       <span
         style={{
-          fontSize: 10,
+          fontSize: 11,
+          fontFamily: "var(--font-mono)",
           color: "var(--color-fg-3)",
           maxWidth: "100%",
           overflow: "hidden",
@@ -219,7 +220,7 @@ const Title = forwardRef<HTMLButtonElement, TitleProps>(function Title(
 const actionsStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 4,
+  gap: 6,
   flexShrink: 0,
 };
 
@@ -234,16 +235,20 @@ export interface ToolbarButtonProps extends ButtonHTMLAttributes<HTMLButtonEleme
   forceDisabled?: boolean;
 }
 
+// The system's icon button: a soft-cornered square with a hairline outline on a
+// quiet fill — the same shape as a value chip or a segment, never a circle.
 const buttonStyle: CSSProperties = {
-  background: "transparent",
-  border: "none",
-  padding: 7,
-  borderRadius: "50%",
+  background: "var(--color-surface-3)",
+  border: "1px solid var(--color-control-border)",
+  padding: 0,
+  width: 32,
+  height: 32,
+  borderRadius: 8,
   cursor: "pointer",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  color: "var(--color-fg)",
+  color: "var(--color-fg-2)",
   transition:
     "background-color 0.3s cubic-bezier(0.4,0,0.6,1), color 0.3s cubic-bezier(0.4,0,0.6,1)",
 };
@@ -271,8 +276,9 @@ const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(function
       }}
       style={{
         ...buttonStyle,
-        color: effectiveDisabled ? "var(--color-fg-3)" : "var(--color-fg)",
-        background: hover && !effectiveDisabled ? "var(--color-hover)" : "transparent",
+        color: effectiveDisabled ? "var(--color-fg-3)" : "var(--color-fg-2)",
+        background: hover && !effectiveDisabled ? "var(--color-hover)" : "var(--color-surface-3)",
+        opacity: effectiveDisabled ? 0.5 : 1,
         cursor: effectiveDisabled ? "not-allowed" : "pointer",
         ...style,
       }}
@@ -312,8 +318,8 @@ const ROTATE_LEFT_CYCLE: Record<SimulatorOrientation, SimulatorOrientation> = {
 
 const HomeIcon = (
   <svg
-    width="18"
-    height="18"
+    width="16"
+    height="16"
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
@@ -327,8 +333,8 @@ const HomeIcon = (
 
 const ScreenshotIcon = (
   <svg
-    width="18"
-    height="18"
+    width="16"
+    height="16"
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
@@ -343,8 +349,8 @@ const ScreenshotIcon = (
 
 const RotateIcon = (
   <svg
-    width="18"
-    height="18"
+    width="16"
+    height="16"
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"

@@ -42,53 +42,51 @@ export function AppDetectionTool({
 
   if (!details) {
     return (
-      <div className="bg-panel border border-divider rounded-card px-3 py-2.5 text-fg-3 text-[12px] text-center">
+      <div className="bg-panel px-5 py-4 text-center text-body text-fg-3">
         Waiting for an app to come to the foreground…
       </div>
     );
   }
 
   return (
-    <div className="bg-panel border border-divider rounded-card overflow-hidden">
+    <div className="border-t border-divider bg-panel overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="lem-toggle flex items-center gap-3 bg-transparent border-none text-fg px-3.5 py-2.5 cursor-pointer w-full text-left min-h-[44px] [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
+        className="lem-toggle flex items-center gap-3 bg-transparent border-none text-fg px-5 py-3 cursor-pointer w-full text-left min-h-[56px] [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        {details.iconDataUrl ? (
-          <img
-            src={details.iconDataUrl}
-            className="w-10 h-10 shrink-0 object-cover border border-divider rounded-card"
-            alt=""
-          />
-        ) : (
-          <div className="w-10 h-10 shrink-0 border border-divider bg-surface-2 rounded-card" />
-        )}
-        <div className="min-w-0 flex-1 leading-tight">
-          <div className="text-[11px] font-semibold text-fg-2 uppercase tracking-[0.07em]">
-            Current App
-          </div>
-          <div className="text-[13px] font-semibold text-fg tracking-[-0.01em] truncate">
+        {/* Two lines, not three: the section's name, then the app's. The bundle
+            id is reference data and lives in the body with the rest of it. An
+            icon appears only when there is one — an empty placeholder box is
+            just a hole in the layout. */}
+        <div className="min-w-0 flex-1">
+          <div className="text-body font-semibold text-fg text-fg">Current App</div>
+          <div className="mt-1 truncate text-body text-fg-2">
             {details.displayName ?? details.bundleId}
-            {details.loading && <span className="text-fg-3 font-normal"> …</span>}
-          </div>
-          <div className="text-[11px] text-fg-3 font-mono truncate" title={details.bundleId}>
-            {details.bundleId}
+            {details.loading && <span className="text-fg-3"> …</span>}
           </div>
         </div>
+        {details.iconDataUrl && (
+          <img
+            src={details.iconDataUrl}
+            className="size-9 shrink-0 rounded-sm object-cover"
+            alt=""
+          />
+        )}
         <Chevron open={open} />
       </button>
 
       {open && (
-        <div className="border-t border-divider px-3.5 py-3 flex flex-col gap-2">
+        <div className="px-5 pb-4 pt-1 flex flex-col gap-3">
           {details.error && (
-            <div className="bg-surface-2 border border-divider rounded-card text-danger text-[11px] px-3 py-2">
+            <div className="bg-surface-2 border border-divider rounded-card text-danger text-value px-3 py-2">
               {details.error}
             </div>
           )}
 
           <dl className="m-0 flex flex-col gap-2">
+            <Row label="Bundle ID" value={details.bundleId} />
             <Row
               label="Version"
               value={
@@ -106,7 +104,6 @@ export function AppDetectionTool({
             <Row
               label="App path"
               value={details.appPath ?? (details.loading ? "…" : "—")}
-              mono
               action={
                 details.appPath
                   ? {
@@ -143,19 +140,17 @@ export function AppDetectionTool({
 function Row({
   label,
   value,
-  mono,
   action,
 }: {
   label: string;
   value: string;
-  mono?: boolean;
   action?: { title: string; onClick: () => void; icon: ReactNode };
 }) {
   return (
     <div className="group flex items-baseline gap-2 min-w-0">
-      <dt className="m-0 text-[12px] text-fg-3 w-21 shrink-0">{label}</dt>
+      <dt className="m-0 w-24 shrink-0 text-value text-fg-3">{label}</dt>
       <dd
-        className={`m-0 text-fg flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap relative ${mono ? "font-mono text-[11px]" : "text-[13px]"}`}
+        className="m-0 flex-1 min-w-0 relative font-mono text-value text-fg break-all line-clamp-2"
         title={value}
       >
         {value}

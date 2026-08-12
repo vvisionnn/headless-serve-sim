@@ -41,7 +41,7 @@ export function WebKitDevtoolsPanel({
             onRefresh={onRefresh}
           />
         ) : (
-          <span className="text-[12px] text-fg-3 overflow-hidden text-ellipsis whitespace-nowrap">
+          <span className="text-value text-fg-3 overflow-hidden text-ellipsis whitespace-nowrap">
             {loading
               ? "Looking for Safari and inspectable webviews..."
               : "No inspectable Safari or WKWebView targets"}
@@ -57,7 +57,7 @@ export function WebKitDevtoolsPanel({
 
       <div className="flex-1 min-h-0 bg-panel-deep relative">
         {error ? (
-          <div className="h-full flex items-center justify-center p-6 bg-panel-deep text-fg-2 text-center text-[13px] tracking-[-0.01em]">
+          <div className="h-full flex items-center justify-center p-6 bg-panel-deep text-fg-2 text-center text-value">
             {error}
           </div>
         ) : selected && open ? (
@@ -73,7 +73,7 @@ export function WebKitDevtoolsPanel({
             onLoad={(event) => collapseScreencastPane(event.currentTarget)}
           />
         ) : (
-          <div className="h-full flex items-center justify-center p-6 bg-panel-deep text-fg-2 text-center text-[13px] tracking-[-0.01em]">
+          <div className="h-full flex items-center justify-center p-6 bg-panel-deep text-fg-2 text-center text-value">
             {selected
               ? "DevTools paused — open the panel to reattach."
               : "Open Safari or an inspectable WKWebView in the simulator."}

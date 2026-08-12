@@ -128,7 +128,7 @@ export function CameraStatusPill({ state }: { state: CameraPillState }) {
         : null;
   return (
     <span
-      className="text-[11px] text-fg-3 inline-flex items-center gap-1.5 leading-none"
+      className="text-micro text-fg-3 inline-flex items-center gap-1.5 leading-none"
       data-camera-pill-state={state}
     >
       {dotClass && <span className={dotClass} />}
@@ -139,10 +139,7 @@ export function CameraStatusPill({ state }: { state: CameraPillState }) {
 
 export function CameraTestPatternHint() {
   return (
-    <p
-      className="m-0 text-center text-[12px] leading-[1.5] text-fg-3"
-      data-camera-test-pattern-hint
-    >
+    <p className="m-0 text-center text-value leading-[1.5] text-fg-3" data-camera-test-pattern-hint>
       Test-pattern feed
     </p>
   );
@@ -162,15 +159,15 @@ export function CameraMediaPreview({
   sourceKind,
 }: CameraMediaPreviewProps) {
   if (mode === "uploading") {
-    return <span className="text-[11px] text-fg-2">Uploading…</span>;
+    return <span className="text-micro text-fg-2">Uploading…</span>;
   }
   if (mode === "file") {
     return (
       <>
-        <div className="shrink-0 text-[10px] tracking-[0.06em] uppercase text-fg-2 bg-panel border border-divider rounded-pill px-2 py-[3px]">
+        <div className="shrink-0 text-micro tracking-[0.06em] uppercase text-fg-2 bg-panel border border-divider rounded-card px-2 py-[3px]">
           {sourceKind === "video" ? "Video" : "Image"}
         </div>
-        <span className="flex-1 min-w-0 truncate text-[13px] text-fg font-mono">
+        <span className="flex-1 min-w-0 truncate text-value text-fg font-mono">
           {fileName ?? ""}
         </span>
       </>
@@ -179,16 +176,16 @@ export function CameraMediaPreview({
   if (mode === "webcam") {
     return (
       <>
-        <div className="shrink-0 text-[10px] tracking-[0.06em] uppercase text-fg-2 bg-panel border border-divider rounded-pill px-2 py-[3px]">
+        <div className="shrink-0 text-micro tracking-[0.06em] uppercase text-fg-2 bg-panel border border-divider rounded-card px-2 py-[3px]">
           Webcam
         </div>
-        <span className="flex-1 min-w-0 truncate text-[13px] text-fg font-mono">
+        <span className="flex-1 min-w-0 truncate text-value text-fg font-mono">
           {webcamName ?? ""}
         </span>
       </>
     );
   }
-  return <span className="text-[13px] text-fg font-medium">Select or drop media</span>;
+  return <span className="text-value text-fg font-medium">Select or drop media</span>;
 }
 
 export function CameraInlineBanner({
@@ -200,8 +197,8 @@ export function CameraInlineBanner({
 }) {
   const classes =
     kind === "warning"
-      ? "bg-surface-2 border border-divider rounded-card text-warning text-[12px] px-2.5 py-2 break-words"
-      : "bg-surface-2 border border-divider rounded-card text-danger text-[12px] px-2.5 py-2 break-words";
+      ? "bg-surface-2 border border-divider rounded-card text-warning text-value px-2.5 py-2 break-words"
+      : "bg-surface-2 border border-divider rounded-card text-danger text-value px-2.5 py-2 break-words";
   return (
     <div
       className={classes}
@@ -815,20 +812,16 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
         : "placeholder";
 
   return (
-    <div className="bg-panel border border-divider rounded-card overflow-hidden">
+    <div className="border-t border-divider bg-panel overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="lem-toggle flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full bg-transparent border-none text-left cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
+        className="lem-toggle flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full bg-transparent border-none text-left cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
-          Camera
-        </span>
-        <span className="flex items-center gap-2.5">
-          <CameraStatusPill state={pillState} />
-          <Chevron open={open} />
-        </span>
+        <span className="mr-auto text-body font-semibold text-fg text-fg">Camera</span>
+        <CameraStatusPill state={pillState} />
+        <Chevron open={open} />
       </button>
 
       {open && (
@@ -837,9 +830,9 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
-          className="border-t border-divider px-3.5 py-3 flex flex-col gap-2"
+          className="px-5 pb-4 pt-1 flex flex-col gap-3"
         >
-          <p className="m-0 text-[12px] leading-[1.5] text-fg-3">
+          <p className="m-0 text-value leading-[1.5] text-fg-3">
             Replaces the simulator's camera feed by injecting a dylib at app launch and streaming
             frames into shared memory. Pick media or a webcam, then Play to inject into the
             foreground app.
@@ -962,7 +955,7 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
                     <button
                       type="button"
                       role="menuitem"
-                      className="text-left bg-transparent border-none text-fg text-[13px] px-2.5 py-2 rounded-sm cursor-pointer hover:bg-hover transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)]"
+                      className="text-left bg-transparent border-none text-fg text-value px-2.5 py-2 rounded-sm cursor-pointer hover:bg-hover transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)]"
                       onClick={() => {
                         setSourceMenuOpen(false);
                         openFilePicker();
@@ -973,7 +966,7 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
                     </button>
                     <div className="h-px bg-divider my-1" />
                     <div className="flex items-center justify-between pl-2.5 pr-2 pt-1 pb-[2px]">
-                      <span className="text-[12px] text-fg-3">
+                      <span className="text-value text-fg-3">
                         {webcamLoading
                           ? "Cameras (loading…)"
                           : webcams.length === 0
@@ -1002,7 +995,7 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
                           type="button"
                           role="menuitem"
                           className={[
-                            "text-left bg-transparent border-none text-[13px] px-2.5 py-2 rounded-sm cursor-pointer hover:bg-hover transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)]",
+                            "text-left bg-transparent border-none text-value px-2.5 py-2 rounded-sm cursor-pointer hover:bg-hover transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)]",
                             active ? "!bg-accent-tint !text-accent" : "text-fg",
                           ].join(" ")}
                           onClick={() => selectWebcam(w)}
@@ -1021,7 +1014,7 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
               onClick={primary.onClick}
               disabled={primaryDisabled}
               className={[
-                "flex-1 flex items-center justify-center gap-1.5 py-2 px-4 text-[13px] font-medium rounded-pill cursor-pointer disabled:opacity-50 min-h-[36px] transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]",
+                "flex-1 flex items-center justify-center gap-1.5 py-2 px-4 text-value font-medium rounded-card cursor-pointer disabled:opacity-50 min-h-[36px] transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]",
                 primary.kind === "stop"
                   ? "lem-primary lem-primary-on bg-panel border border-divider text-fg hover:bg-hover"
                   : "lem-primary bg-accent-solid border border-accent-solid text-white",

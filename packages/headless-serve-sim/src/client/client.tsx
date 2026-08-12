@@ -16,6 +16,7 @@ import {
   getDeviceType,
   matchDeviceFrameSpec,
   parseServerStreamStats,
+  rotationDegreesForOrientation,
   simulatorMaxWidth,
   type DeviceType,
   type DeviceFrameSpec,
@@ -31,6 +32,8 @@ import { AxDomOverlay } from "./components/ax-dom-overlay";
 import { AxStateProvider } from "./components/ax-state-provider";
 import { AxToolbarButton } from "./components/ax-toolbar-button";
 import { BootEmptyState } from "./components/boot-empty-state";
+import { PanelCard } from "./components/design-system";
+import { BareScreen, DeviceBezel } from "./components/device-bezel";
 import { SimulatorDisconnected } from "./components/simulator-disconnected";
 import { DeviceHardwareButtons } from "./components/device-hardware-buttons";
 import { DevicePicker } from "./components/device-picker";
@@ -65,6 +68,7 @@ import { simEndpoint } from "./utils/sim-endpoint";
 import { SIMULATOR_RESIZE_MAX_SCALE } from "./utils/simulator-resize";
 import { toggleSimulatorAppearance } from "./utils/simulator-appearance";
 import { fitDeviceFrame } from "./utils/frame-geometry";
+import { fitDeviceBezel } from "./utils/bezel-geometry";
 import { resolveActiveScreenConfig } from "./utils/screen-config";
 import { readPersistedFlag, writePersistedFlag } from "./utils/persisted-flag";
 import { paneInitiallyOpen } from "../preview-initial-state";
@@ -975,12 +979,10 @@ function AppWithConfig({
   );
 
   // ── Layout geometry ──────────────────────────────────────────────────
-  // Left column = top bar + device frame, filling the viewport height. The
-  // frame fits within the space left of the inspector, preserving the device
-  // aspect ratio; the top bar's width follows the frame width.
-  // Both side rails — the left Activity gauges and the right inspector — share
-  // the same collapsed/expanded geometry, default collapsed, and persist their
-  // state across reloads.
+  // Everything floats on the dotted canvas as its own card: the Activity rail,
+  // the device column (toolbar card above a bare device), and the inspector.
+  // The two side rails keep their collapsed/expanded geometry, default
+  // collapsed, and persist their state across reloads.
   const launchState = window.__SIM_PREVIEW__?.initialState;
   const [metricsOpen, setMetricsOpen] = usePersistedFlag(
     "headless-serve-sim:metrics-open",
@@ -992,9 +994,15 @@ function AppWithConfig({
     false,
     launchState?.panes ? launchState.panes.includes("inspector") : undefined,
   );
-  const TOP_BAR_HEIGHT = 44;
-  const RAIL_COLLAPSED_WIDTH = 44;
-  const RAIL_EXPANDED_WIDTH = 360;
+  const TOP_BAR_HEIGHT = 56;
+  const PANEL_HEADER_HEIGHT = 64;
+  const RAIL_COLLAPSED_WIDTH = 52;
+  const RAIL_EXPANDED_WIDTH = 380;
+  // The canvas margin around the whole assembly, the gutter between cards, and
+  // the smaller gutter between the toolbar card and the device it belongs to.
+  const PAGE_PAD = 24;
+  const CARD_GAP = 20;
+  const DEVICE_GAP = 14;
   const inspectorWidth = Math.min(
     inspectorOpen ? RAIL_EXPANDED_WIDTH : RAIL_COLLAPSED_WIDTH,
     viewportWidth,
@@ -1003,52 +1011,152 @@ function AppWithConfig({
     metricsOpen ? RAIL_EXPANDED_WIDTH : RAIL_COLLAPSED_WIDTH,
     viewportWidth,
   );
-  // Both side rails are reserved out of the frame's available width, so the
-  // device never slips under either bar at any viewport size.
-  const sideRailsWidth = Math.min(metricsWidth + inspectorWidth, viewportWidth);
 
-  // The assembly is wrapped in a 1px border on every outer edge; reserve those
-  // 2px (top+bottom / left+right) so the bordered box always fits the viewport
-  // and all four edges stay visible at any size.
-  const ASSEMBLY_BORDER = 2;
+  // Cards fill the canvas height minus its margin; the device gets what's left
+  // of the width once both rails and the three gutters are reserved.
+  const cardHeight = Math.max(0, viewportHeight - 2 * PAGE_PAD);
+  const deviceAvailWidth = Math.max(
+    0,
+    viewportWidth - 2 * PAGE_PAD - metricsWidth - inspectorWidth - 2 * CARD_GAP,
+  );
+  const deviceAvailHeight = Math.max(0, cardHeight - TOP_BAR_HEIGHT - DEVICE_GAP);
+
+  // Which way the device is turned. Prefer the reported orientation; fall back
+  // to comparing the streamed aspect against the profile's native one, exactly
+  // as the recorder does, so both agree on the frame's rotation.
+  const bezelSpec = config.deviceFrameSpec ?? null;
+  const bezelRotation = useMemo(() => {
+    const reported = rotationDegreesForOrientation(
+      (activeStreamConfig as { orientation?: SimulatorOrientation }).orientation,
+    );
+    if (reported) return reported;
+    if (!bezelSpec || !frameDisplayConfig) return 0;
+    const nativeIsLandscape = bezelSpec.nativeScreen.width > bezelSpec.nativeScreen.height;
+    const displayIsLandscape = frameDisplayConfig.width > frameDisplayConfig.height;
+    return nativeIsLandscape !== displayIsLandscape ? 90 : 0;
+  }, [activeStreamConfig, bezelSpec, frameDisplayConfig]);
+
+  const bezelGeom = useMemo(
+    () =>
+      bezelSpec
+        ? fitDeviceBezel({
+            spec: bezelSpec,
+            rotation: bezelRotation,
+            availWidth: deviceAvailWidth,
+            availHeight: deviceAvailHeight,
+            maxScreenWidth: frameMaxWidth,
+            maxScale: SIMULATOR_RESIZE_MAX_SCALE,
+          })
+        : null,
+    [bezelSpec, bezelRotation, deviceAvailWidth, deviceAvailHeight, frameMaxWidth],
+  );
+
+  // No installed frame profile (vision, or an Xcode without DeviceKit artwork):
+  // fall back to fitting the bare screen, which is all we can draw.
   const frameGeom = useMemo(
     () =>
       fitDeviceFrame({
-        viewportWidth,
-        viewportHeight,
-        topBarHeight: TOP_BAR_HEIGHT,
-        sideRailsWidth,
-        assemblyBorder: ASSEMBLY_BORDER,
+        viewportWidth: deviceAvailWidth,
+        viewportHeight: deviceAvailHeight,
+        topBarHeight: 0,
+        sideRailsWidth: 0,
+        assemblyBorder: 0,
         aspect: frameAspectRatioValue,
         maxWidth: frameMaxWidth,
         maxScale: SIMULATOR_RESIZE_MAX_SCALE,
       }),
-    [viewportWidth, viewportHeight, sideRailsWidth, frameAspectRatioValue, frameMaxWidth],
+    [deviceAvailWidth, deviceAvailHeight, frameAspectRatioValue, frameMaxWidth],
+  );
+
+  const deviceWidth = bezelGeom ? bezelGeom.width : frameGeom.width;
+  // A narrow device (watch, or a tall phone in a short window) would squeeze the
+  // toolbar's device name to nothing, so the card keeps its own floor and simply
+  // overhangs the device when it has to.
+  const toolbarWidth = Math.max(deviceWidth, Math.min(420, deviceAvailWidth));
+  const attachScreen = useCallback((node: HTMLDivElement | null) => {
+    simContainerRef.current = node;
+  }, []);
+  const screenContent = (
+    <>
+      <SimulatorView
+        url={config.url}
+        style={{
+          width: "100%",
+          height: "100%",
+          border: "none",
+        }}
+        imageStyle={{ borderRadius: 0 } as CSSProperties}
+        hideControls
+        onStreamingChange={setStreaming}
+        onStreamTouch={onStreamTouch}
+        onStreamMultiTouch={onStreamMultiTouch}
+        onStreamButton={onStreamButton}
+        onStreamDigitalCrown={onStreamDigitalCrown}
+        onStreamRequestKeyframe={onStreamRequestKeyframe}
+        codec={useAvccVideo ? "avcc" : "mjpeg"}
+        subscribeFrame={useAvccVideo ? undefined : mjpeg.subscribeFrame}
+        streamFrame={useAvccVideo ? undefined : mjpeg.frame}
+        streamConfig={activeStreamConfig}
+        enableDigitalCrown={deviceType === "watch"}
+        onScreenConfigChange={onScreenConfigChange}
+        statsEnabled={statsOpen}
+        onConnectionStats={handleConnectionStats}
+        recordingSourceRef={recordingSourceRef}
+        onDecoderError={onDecoderError}
+        onDecoderRecover={onDecoderRecover}
+        onStreamScroll={onStreamScroll}
+      />
+      {axOverlayEnabled && <AxDomOverlay />}
+      {mediaDrop.isDragOver && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[rgba(0,0,0,0.55)] text-white pointer-events-none">
+          <svg
+            width="32"
+            height="32"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+          <span className="text-value font-medium">Drop media or .ipa</span>
+        </div>
+      )}
+    </>
   );
 
   return (
     <AxStateProvider endpoint={axOverlayEnabled ? config?.axEndpoint : undefined}>
-      <div className="flex items-center justify-center h-screen w-screen overflow-hidden bg-page font-system">
-        {/* The whole assembly enclosed by a real hairline border on ALL FOUR edges
-          (the geometry reserves its 2px so it's never clipped, at any viewport
-          size) — same border as the bars, no shadow. Internal seams come from
-          the bars' own keylines. */}
-        <div className="flex border border-divider">
-          {/* Left rail — native foreground-app resource metrics. */}
-          <MetricsBar
-            open={metricsOpen}
-            onToggle={() => setMetricsOpen((o) => !o)}
-            collapsedWidth={RAIL_COLLAPSED_WIDTH}
-            expandedWidth={RAIL_EXPANDED_WIDTH}
-            topBarHeight={TOP_BAR_HEIGHT}
-            frameHeight={frameGeom.height}
-            metricsEndpoint={config.metricsEndpoint ?? simEndpoint("api/metrics")}
-            enabled={streaming}
-          />
-          <div
-            className="flex shrink-0 min-w-0 flex-col"
+      <div
+        className="ds-canvas flex h-screen w-screen items-center justify-between overflow-hidden font-system"
+        style={{ padding: PAGE_PAD }}
+      >
+        {/* Left card — native foreground-app resource metrics. */}
+        <MetricsBar
+          open={metricsOpen}
+          onToggle={() => setMetricsOpen((o) => !o)}
+          collapsedWidth={RAIL_COLLAPSED_WIDTH}
+          expandedWidth={RAIL_EXPANDED_WIDTH}
+          topBarHeight={PANEL_HEADER_HEIGHT}
+          height={cardHeight}
+          metricsEndpoint={config.metricsEndpoint ?? simEndpoint("api/metrics")}
+          enabled={streaming}
+        />
+
+        {/* Centre — the toolbar card, then the device itself on the canvas. */}
+        <div
+          className="flex min-w-0 flex-1 flex-col items-center justify-center"
+          style={{ gap: DEVICE_GAP, height: cardHeight }}
+        >
+          <PanelCard
+            className="shrink-0"
             style={{
-              width: frameGeom.width,
+              width: toolbarWidth,
+              height: TOP_BAR_HEIGHT,
               transition: "width 320ms cubic-bezier(0.4, 0, 0.6, 1)",
             }}
           >
@@ -1105,189 +1213,154 @@ function AppWithConfig({
                 <SimulatorToolbar.RotateButton title="Rotate device" />
               </SimulatorToolbar.Actions>
             </SimulatorToolbar>
-            <div
-              ref={simContainerRef}
-              className="relative shrink-0 overflow-hidden bg-page"
-              style={{ width: frameGeom.width, height: frameGeom.height }}
+          </PanelCard>
+
+          {bezelGeom && bezelSpec ? (
+            <DeviceBezel
+              spec={bezelSpec}
+              geometry={bezelGeom}
+              screenRef={attachScreen}
               {...mediaDrop.dropZoneProps}
             >
-              <SimulatorView
-                url={config.url}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  border: "none",
-                }}
-                imageStyle={{ borderRadius: 0 } as CSSProperties}
-                hideControls
-                onStreamingChange={setStreaming}
-                onStreamTouch={onStreamTouch}
-                onStreamMultiTouch={onStreamMultiTouch}
-                onStreamButton={onStreamButton}
-                onStreamDigitalCrown={onStreamDigitalCrown}
-                onStreamRequestKeyframe={onStreamRequestKeyframe}
-                codec={useAvccVideo ? "avcc" : "mjpeg"}
-                subscribeFrame={useAvccVideo ? undefined : mjpeg.subscribeFrame}
-                streamFrame={useAvccVideo ? undefined : mjpeg.frame}
-                streamConfig={activeStreamConfig}
-                enableDigitalCrown={deviceType === "watch"}
-                onScreenConfigChange={onScreenConfigChange}
-                statsEnabled={statsOpen}
-                onConnectionStats={handleConnectionStats}
-                recordingSourceRef={recordingSourceRef}
-                onDecoderError={onDecoderError}
-                onDecoderRecover={onDecoderRecover}
-                onStreamScroll={onStreamScroll}
-              />
-              {axOverlayEnabled && <AxDomOverlay />}
-              {mediaDrop.isDragOver && (
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-accent bg-accent-tint backdrop-blur-[2px] text-accent pointer-events-none">
-                  <svg
-                    width="32"
-                    height="32"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="17 8 12 3 7 8" />
-                    <line x1="12" y1="3" x2="12" y2="15" />
-                  </svg>
-                  <span className="text-[13px] font-medium">Drop media or .ipa</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Upload toasts */}
-          {uploads.toasts.length > 0 && (
-            <div className="fixed bottom-4 right-4 flex flex-col gap-1.5 max-w-[320px] z-30">
-              {uploads.toasts.map((t) => {
-                const isError = t.status === "error";
-                const isUploading = t.status === "uploading";
-                // While transferring chunks, show "Uploading … N%". Once chunks
-                // are done, the install/addmedia step has no progress signal, so
-                // swap to a phase-specific verb and an indeterminate bar.
-                const transferring = isUploading && t.progress !== null;
-                const pct = t.progress != null ? Math.round(t.progress * 100) : 0;
-                return (
-                  <div
-                    key={t.id}
-                    className={`flex flex-col gap-1.5 px-3 py-2.5 rounded-card bg-panel border border-divider text-fg text-[12px] font-mono shadow-[0_4px_24px_rgba(0,0,0,0.12)] ${isError ? "select-text cursor-text" : "select-none cursor-default"}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="size-1.5 shrink-0 rounded-full [transition:background_0.3s]"
-                        style={{
-                          background: isUploading
-                            ? "var(--color-accent)"
-                            : t.status === "success"
-                              ? "var(--color-success)"
-                              : "var(--color-danger)",
-                        }}
-                      />
-                      <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                        {isUploading && transferring && `Uploading ${t.name}… ${pct}%`}
-                        {isUploading &&
-                          !transferring &&
-                          (t.kind === "ipa" ? `Installing ${t.name}…` : `Adding ${t.name}…`)}
-                        {t.status === "success" &&
-                          (t.kind === "ipa" ? `Installed ${t.name}` : `Added ${t.name} to Photos`)}
-                        {isError && `${t.name}: ${t.message ?? "Upload failed"}`}
-                      </span>
-                    </div>
-                    {isUploading && (
-                      <div className="relative h-[3px] w-full rounded-full bg-hover overflow-hidden">
-                        {transferring ? (
-                          <div
-                            className="h-full rounded-full bg-accent-solid [transition:width_120ms_linear]"
-                            style={{ width: `${pct}%` }}
-                          />
-                        ) : (
-                          <div className="headless-serve-sim-toast-indeterminate absolute top-0 left-0 h-full w-[40%] rounded-full bg-accent-solid" />
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+              {screenContent}
+            </DeviceBezel>
+          ) : (
+            <BareScreen
+              width={frameGeom.width}
+              height={frameGeom.height}
+              screenRef={attachScreen}
+              {...mediaDrop.dropZoneProps}
+            >
+              {screenContent}
+            </BareScreen>
           )}
-
-          {/* Inspector */}
-          <InspectorBar
-            open={inspectorOpen}
-            hardwareButtons={
-              <DeviceHardwareButtons
-                frame={config.deviceFrameSpec ?? null}
-                onPress={(press) => {
-                  sendWs(0x04, press);
-                  logEvent({
-                    kind: "button",
-                    details: {
-                      button: press.button ?? `usage:0x${(press.usage ?? 0).toString(16)}`,
-                    },
-                  });
-                }}
-              />
-            }
-            onToggle={() => setInspectorOpen((o) => !o)}
-            collapsedWidth={RAIL_COLLAPSED_WIDTH}
-            expandedWidth={RAIL_EXPANDED_WIDTH}
-            topBarHeight={TOP_BAR_HEIGHT}
-            frameHeight={frameGeom.height}
-            openOverlay={
-              statsOpen
-                ? "stats"
-                : logsOpen
-                  ? "logs"
-                  : gridOpen
-                    ? "grid"
-                    : devtoolsOpen
-                      ? "devtools"
-                      : null
-            }
-            udid={config.device}
-            deviceFrameSpec={recordingDeviceFrameSpec}
-            streaming={streaming}
-            streamMode={streamMode}
-            streamModeAvailable={useAvccVideo}
-            onStreamModeChange={onModeChange}
-            recordingSourceRef={recordingSourceRef}
-            execToken={config.execToken}
-            uiSettingsRevision={uiSettingsRevision}
-            currentApp={currentApp}
-            axOverlayEnabled={axOverlayEnabled}
-            onToggleAxOverlay={() => setAxOverlayEnabled((enabled) => !enabled)}
-            onOpenStats={() => {
-              setLogsOpen(false);
-              setGridOpen(false);
-              setDevtoolsOpen(false);
-              setStatsOpen(true);
-            }}
-            onOpenLogs={() => {
-              setStatsOpen(false);
-              setGridOpen(false);
-              setDevtoolsOpen(false);
-              setLogsOpen(true);
-            }}
-            onOpenGrid={() => {
-              setStatsOpen(false);
-              setLogsOpen(false);
-              setDevtoolsOpen(false);
-              setGridOpen(true);
-            }}
-            onOpenDevtools={() => {
-              setStatsOpen(false);
-              setLogsOpen(false);
-              setGridOpen(false);
-              setDevtoolsOpen(true);
-            }}
-          />
         </div>
+
+        {/* Right card — inspector. */}
+        <InspectorBar
+          open={inspectorOpen}
+          hardwareButtons={
+            <DeviceHardwareButtons
+              frame={config.deviceFrameSpec ?? null}
+              onPress={(press) => {
+                sendWs(0x04, press);
+                logEvent({
+                  kind: "button",
+                  details: {
+                    button: press.button ?? `usage:0x${(press.usage ?? 0).toString(16)}`,
+                  },
+                });
+              }}
+            />
+          }
+          onToggle={() => setInspectorOpen((o) => !o)}
+          collapsedWidth={RAIL_COLLAPSED_WIDTH}
+          expandedWidth={RAIL_EXPANDED_WIDTH}
+          topBarHeight={PANEL_HEADER_HEIGHT}
+          height={cardHeight}
+          openOverlay={
+            statsOpen
+              ? "stats"
+              : logsOpen
+                ? "logs"
+                : gridOpen
+                  ? "grid"
+                  : devtoolsOpen
+                    ? "devtools"
+                    : null
+          }
+          udid={config.device}
+          deviceFrameSpec={recordingDeviceFrameSpec}
+          streaming={streaming}
+          streamMode={streamMode}
+          streamModeAvailable={useAvccVideo}
+          onStreamModeChange={onModeChange}
+          recordingSourceRef={recordingSourceRef}
+          execToken={config.execToken}
+          uiSettingsRevision={uiSettingsRevision}
+          currentApp={currentApp}
+          axOverlayEnabled={axOverlayEnabled}
+          onToggleAxOverlay={() => setAxOverlayEnabled((enabled) => !enabled)}
+          onOpenStats={() => {
+            setLogsOpen(false);
+            setGridOpen(false);
+            setDevtoolsOpen(false);
+            setStatsOpen(true);
+          }}
+          onOpenLogs={() => {
+            setStatsOpen(false);
+            setGridOpen(false);
+            setDevtoolsOpen(false);
+            setLogsOpen(true);
+          }}
+          onOpenGrid={() => {
+            setStatsOpen(false);
+            setLogsOpen(false);
+            setDevtoolsOpen(false);
+            setGridOpen(true);
+          }}
+          onOpenDevtools={() => {
+            setStatsOpen(false);
+            setLogsOpen(false);
+            setGridOpen(false);
+            setDevtoolsOpen(true);
+          }}
+        />
+
+        {/* Upload toasts */}
+        {uploads.toasts.length > 0 && (
+          <div className="fixed bottom-6 right-6 flex flex-col gap-2 max-w-[320px] z-30">
+            {uploads.toasts.map((t) => {
+              const isError = t.status === "error";
+              const isUploading = t.status === "uploading";
+              // While transferring chunks, show "Uploading … N%". Once chunks
+              // are done, the install/addmedia step has no progress signal, so
+              // swap to a phase-specific verb and an indeterminate bar.
+              const transferring = isUploading && t.progress !== null;
+              const pct = t.progress != null ? Math.round(t.progress * 100) : 0;
+              return (
+                <div
+                  key={t.id}
+                  className={`flex flex-col gap-1.5 px-3.5 py-3 rounded-card bg-panel text-fg text-value font-mono shadow-overlay ${isError ? "select-text cursor-text" : "select-none cursor-default"}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="size-1.5 shrink-0 rounded-full [transition:background_0.3s]"
+                      style={{
+                        background: isUploading
+                          ? "var(--color-fg-3)"
+                          : t.status === "success"
+                            ? "var(--color-success)"
+                            : "var(--color-danger)",
+                      }}
+                    />
+                    <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                      {isUploading && transferring && `Uploading ${t.name}… ${pct}%`}
+                      {isUploading &&
+                        !transferring &&
+                        (t.kind === "ipa" ? `Installing ${t.name}…` : `Adding ${t.name}…`)}
+                      {t.status === "success" &&
+                        (t.kind === "ipa" ? `Installed ${t.name}` : `Added ${t.name} to Photos`)}
+                      {isError && `${t.name}: ${t.message ?? "Upload failed"}`}
+                    </span>
+                  </div>
+                  {isUploading && (
+                    <div className="relative h-[3px] w-full rounded-full bg-track overflow-hidden">
+                      {transferring ? (
+                        <div
+                          className="h-full rounded-full bg-accent-solid [transition:width_120ms_linear]"
+                          style={{ width: `${pct}%` }}
+                        />
+                      ) : (
+                        <div className="headless-serve-sim-toast-indeterminate absolute top-0 left-0 h-full w-[40%] rounded-full bg-accent-solid" />
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         <GridPanel
           open={gridOpen}

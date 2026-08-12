@@ -286,10 +286,10 @@ export function ScreenRecordingTool({
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="flex min-h-[44px] w-full cursor-pointer select-none items-center justify-between gap-2.5 border-none bg-transparent px-3.5 text-left hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
+        className="flex min-h-[56px] w-full cursor-pointer select-none items-center justify-between gap-2.5 border-none bg-transparent px-3.5 text-left hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
+        <span className="mr-auto flex items-center gap-2 text-body font-semibold text-fg text-fg">
           {busy && <span className="size-2 rounded-full bg-danger" aria-hidden="true" />}
           Screen Recording
         </span>
@@ -297,14 +297,14 @@ export function ScreenRecordingTool({
       </button>
 
       {open && (
-        <div className="flex flex-col gap-3 border-t border-divider px-3.5 py-3">
+        <div className="flex flex-col gap-3 px-5 pb-4 pt-1">
           <div
             className="flex items-center gap-2.5"
             role="radiogroup"
             aria-label="Recording format"
           >
-            <span className="w-[48px] shrink-0 text-[12px] text-fg-3">Format</span>
-            <div className="flex flex-1 gap-0.5 rounded-pill border border-divider bg-surface-2 p-0.5">
+            <span className="w-[48px] shrink-0 text-value text-fg-3">Format</span>
+            <div className="flex flex-1 gap-0.5 rounded-card border border-divider bg-surface-2 p-0.5">
               {(["auto", "mp4", "webm"] as const).map((option) => (
                 <button
                   key={option}
@@ -313,7 +313,7 @@ export function ScreenRecordingTool({
                   aria-checked={format === option}
                   disabled={busy || !support[option]}
                   onClick={() => setFormat(option)}
-                  className={`min-h-7 flex-1 cursor-pointer rounded-pill border-none px-2 text-[11px] font-medium focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] ${format === option ? "bg-panel text-fg shadow-sm" : "bg-transparent text-fg-2 hover:bg-hover"} disabled:cursor-not-allowed disabled:text-fg-3`}
+                  className={`min-h-7 flex-1 cursor-pointer rounded-card border-none px-2 text-micro font-medium focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] ${format === option ? "bg-panel text-fg shadow-sm" : "bg-transparent text-fg-2 hover:bg-hover"} disabled:cursor-not-allowed disabled:text-fg-3`}
                 >
                   {option === "auto" ? "Auto" : option === "mp4" ? "MP4" : "WebM"}
                 </button>
@@ -330,7 +330,7 @@ export function ScreenRecordingTool({
             />
           )}
 
-          <label className="flex min-h-8 cursor-pointer items-center justify-between gap-3 text-[12px] text-fg-2">
+          <label className="flex min-h-8 cursor-pointer items-center justify-between gap-3 text-value text-fg-2">
             <span>Show touches</span>
             <input
               type="checkbox"
@@ -340,10 +340,10 @@ export function ScreenRecordingTool({
               className="size-4 accent-[var(--color-accent-solid)]"
             />
           </label>
-          <label className="flex min-h-8 cursor-pointer items-center justify-between gap-3 text-[12px] text-fg-2 has-[:disabled]:cursor-not-allowed">
+          <label className="flex min-h-8 cursor-pointer items-center justify-between gap-3 text-value text-fg-2 has-[:disabled]:cursor-not-allowed">
             <span className="flex min-w-0 flex-col">
               <span>Device frame</span>
-              <span className="truncate text-[10px] text-fg-3">
+              <span className="truncate text-micro text-fg-3">
                 {recordingFrameDescription(
                   deviceFrameSpec,
                   artworkLoading,
@@ -365,7 +365,7 @@ export function ScreenRecordingTool({
           {busy ? (
             <div className="flex items-center gap-2">
               <div
-                className="flex h-8 flex-1 items-center justify-center gap-2 rounded-pill border border-divider bg-surface-2 text-[12px] font-medium text-fg"
+                className="flex h-8 flex-1 items-center justify-center gap-2 rounded-card border border-divider bg-surface-2 text-value font-medium text-fg"
                 role="status"
               >
                 <span className="size-2 rounded-full bg-danger" aria-hidden="true" />
@@ -375,7 +375,7 @@ export function ScreenRecordingTool({
                 type="button"
                 onClick={() => void stop()}
                 disabled={phase === "stopping"}
-                className="h-8 cursor-pointer rounded-pill border-none bg-danger px-4 text-[12px] font-semibold text-white hover:brightness-105 disabled:cursor-not-allowed disabled:bg-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+                className="h-8 cursor-pointer rounded-card border-none bg-danger px-4 text-value font-semibold text-white hover:brightness-105 disabled:cursor-not-allowed disabled:bg-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
               >
                 Stop recording
               </button>
@@ -385,7 +385,7 @@ export function ScreenRecordingTool({
               type="button"
               onClick={start}
               disabled={!support[format] || !streaming || artworkLoading}
-              className="inline-flex min-h-8 w-full cursor-pointer items-center justify-center gap-2 rounded-pill border-none bg-accent-solid px-4 text-[12px] font-semibold text-white hover:brightness-105 disabled:cursor-not-allowed disabled:bg-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+              className="inline-flex min-h-8 w-full cursor-pointer items-center justify-center gap-2 rounded-card border-none bg-accent-solid px-4 text-value font-semibold text-white hover:brightness-105 disabled:cursor-not-allowed disabled:bg-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
             >
               <span className="size-2 rounded-full border-2 border-white" aria-hidden="true" />
               {artworkLoading ? "Preparing frame…" : "Start recording"}
@@ -394,7 +394,7 @@ export function ScreenRecordingTool({
 
           {!support.auto && (
             <div
-              className="rounded-card border border-divider bg-surface-2 px-3 py-2 text-[12px] text-fg-2"
+              className="rounded-card border border-divider bg-surface-2 px-3 py-2 text-value text-fg-2"
               role="status"
             >
               Screen recording is not supported in this browser.
@@ -402,7 +402,7 @@ export function ScreenRecordingTool({
           )}
           {support.auto && !streaming && (
             <div
-              className="rounded-card border border-divider bg-surface-2 px-3 py-2 text-[12px] text-fg-2"
+              className="rounded-card border border-divider bg-surface-2 px-3 py-2 text-value text-fg-2"
               role="status"
             >
               Waiting for the simulator stream.
@@ -410,7 +410,7 @@ export function ScreenRecordingTool({
           )}
           {error && (
             <div
-              className="rounded-card border border-divider bg-surface-2 px-3 py-2 text-[12px] text-danger"
+              className="rounded-card border border-divider bg-surface-2 px-3 py-2 text-value text-danger"
               role="alert"
             >
               {error}
@@ -426,14 +426,14 @@ export function ScreenRecordingTool({
                 className="max-h-[220px] w-full rounded-card border border-divider bg-black"
                 aria-label="Recorded simulator video"
               />
-              <div className="text-center text-[11px] text-fg-3 [font-variant-numeric:tabular-nums]">
+              <div className="text-center text-micro text-fg-3 [font-variant-numeric:tabular-nums]">
                 {artifact.width}×{artifact.height} · {durationLabel(artifact.durationSeconds)} ·{" "}
                 {bytesLabel(artifact.bytes)}
               </div>
               <a
                 href={artifact.url}
                 download={artifact.filename}
-                className="inline-flex min-h-8 w-full items-center justify-center rounded-pill border border-divider bg-panel px-3 text-[12px] font-medium text-fg-2 no-underline hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+                className="inline-flex min-h-8 w-full items-center justify-center rounded-card border border-divider bg-panel px-3 text-value font-medium text-fg-2 no-underline hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
               >
                 Download recording
               </a>

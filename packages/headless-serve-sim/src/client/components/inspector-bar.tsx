@@ -11,6 +11,7 @@ import { AppDetectionTool } from "./app-detection-tool";
 import { AppPermissionsTool } from "./app-permissions-tool";
 import { AxTreeTool } from "./ax-tree-tool";
 import { CameraTool } from "./camera-tool";
+import { PanelToggleIcon, SectionGroup, SquareIconButton } from "./design-system";
 import { ImportDocumentTool } from "./import-document-tool";
 import { ScreenshotTool } from "./screenshot-tool";
 import { ScreenRecordingTool } from "./screen-recording-tool";
@@ -19,11 +20,12 @@ import { SimulatorSettingsTool } from "./simulator-settings-tool";
 import { StatusBarTool } from "./status-bar-tool";
 import { UserDefaultsTool } from "./user-defaults-tool";
 
-// The full-height right inspector. Collapsed by default to a thin rail whose top
-// header matches the top bar. The content panel is laid out at the FULL expanded
-// width at all times and anchored to the right edge; expanding just animates the
-// rail's width (revealing the panel) while the body fades + slides in — so it
-// reads as a panel sliding out, never as content reflowing mid-animation.
+// The inspector card. Collapsed by default to a thin rail whose top header
+// still reads as the card's title row. The content panel is laid out at the
+// FULL expanded width at all times and anchored to the right edge; expanding
+// just animates the card's width (revealing the panel) while the body fades +
+// slides in — so it reads as a panel sliding out, never as content reflowing
+// mid-animation.
 
 export interface InspectorBarProps {
   open: boolean;
@@ -31,7 +33,8 @@ export interface InspectorBarProps {
   collapsedWidth: number;
   expandedWidth: number;
   topBarHeight: number;
-  frameHeight: number;
+  /** Full card height — the inspector spans the canvas, not the device. */
+  height: number;
   openOverlay: "stats" | "logs" | "grid" | "devtools" | null;
   udid: string;
   deviceFrameSpec: DeviceFrameSpec | DeviceType | null;
@@ -54,8 +57,8 @@ export interface InspectorBarProps {
   onOpenDevtools: () => void;
 }
 
-// Apple's restrained decelerate curve, shared with the device frame so the two
-// animate in lockstep when the inspector expands/collapses. No spring/overshoot.
+// Restrained decelerate curve, shared with the device so the two animate in
+// lockstep when the inspector expands/collapses. No spring/overshoot.
 const EASE = "cubic-bezier(0.4, 0, 0.6, 1)";
 
 export function InspectorBar({
@@ -64,7 +67,7 @@ export function InspectorBar({
   collapsedWidth,
   expandedWidth,
   topBarHeight,
-  frameHeight,
+  height,
   openOverlay,
   udid,
   deviceFrameSpec,
@@ -84,10 +87,9 @@ export function InspectorBar({
   onOpenGrid,
   onOpenDevtools,
 }: InspectorBarProps) {
-  const height = topBarHeight + frameHeight;
   return (
     <aside
-      className="relative shrink-0 overflow-hidden bg-panel border-l border-divider font-system"
+      className="relative shrink-0 overflow-hidden rounded-panel bg-panel shadow-panel font-system"
       style={{
         width: open ? expandedWidth : collapsedWidth,
         height,
@@ -101,66 +103,29 @@ export function InspectorBar({
         className="absolute top-0 right-0 flex flex-col"
         style={{ width: expandedWidth, height }}
       >
-        {/* Header — frosted, same height + bottom keyline as the top bar. Title
-            at the left, toggle at the right so it stays in the collapsed rail
-            (which reveals the panel's right edge). */}
+        {/* Title row. The toggle sits at the right so it stays inside the
+            collapsed rail (which reveals the panel's right edge). */}
         <div
-          className="flex items-center justify-between shrink-0 border-b border-divider px-1 bg-panel-overlay [backdrop-filter:saturate(1.8)_blur(20px)]"
+          className="flex shrink-0 items-center justify-between gap-2 px-[9px]"
           style={{ height: topBarHeight }}
         >
-          <span className="ml-2.5 flex items-center gap-1.5 whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--color-fg-2)"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="shrink-0"
-              aria-hidden
-            >
-              <line x1="21" x2="14" y1="4" y2="4" />
-              <line x1="10" x2="3" y1="4" y2="4" />
-              <line x1="21" x2="12" y1="12" y2="12" />
-              <line x1="8" x2="3" y1="12" y2="12" />
-              <line x1="21" x2="16" y1="20" y2="20" />
-              <line x1="12" x2="3" y1="20" y2="20" />
-              <line x1="14" x2="14" y1="2" y2="6" />
-              <line x1="8" x2="8" y1="10" y2="14" />
-              <line x1="16" x2="16" y1="18" y2="22" />
-            </svg>
-            Inspector
-          </span>
-          <button
-            type="button"
+          <span className="ml-3 truncate text-eyebrow uppercase text-fg">Inspector</span>
+          <SquareIconButton
             onClick={onToggle}
-            className="flex size-9 items-center justify-center rounded-full bg-transparent text-fg-2 hover:bg-hover hover:text-fg [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1)] cursor-pointer focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
-            aria-label={open ? "Collapse inspector" : "Expand inspector"}
-            aria-expanded={open}
+            label={open ? "Collapse inspector" : "Expand inspector"}
             title="Inspector"
           >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              style={{ transform: open ? "none" : "rotate(180deg)" }}
-            >
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
-          </button>
+            <PanelToggleIcon side="right" open={open} />
+          </SquareIconButton>
         </div>
 
-        {/* Body — grouped white cards on a gray canvas with breathing room, so
-            each tool reads as a distinct section. Fades + slides as a unit. */}
+        {/* Body — flat sections on white, separated by hairline rules rather
+            than by gutters. Fades + slides as a unit. */}
+        {/* Body — sections grouped by WHAT THEY ACT ON, divided by hairline
+            rules. Sixteen tools as flat peers is a list, not an interface.
+            Fades + slides as a unit. */}
         <div
-          className="flex flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden bg-inset p-3.5 [&>*]:shrink-0"
+          className="flex flex-1 flex-col overflow-y-auto overflow-x-hidden bg-inset [&>*]:shrink-0"
           aria-hidden={!open}
           style={{
             opacity: open ? 1 : 0,
@@ -169,48 +134,64 @@ export function InspectorBar({
             transition: `opacity 260ms ${EASE}, transform 320ms ${EASE}`,
           }}
         >
+          {/* Context, not a tool — what everything below is currently acting on. */}
           <AppDetectionTool udid={udid} currentApp={currentApp} />
-          <SimulatorSettingsTool
-            udid={udid}
-            execToken={execToken}
-            refreshKey={uiSettingsRevision}
-            hardware={hardwareButtons}
-          />
-          <AxTreeTool overlayEnabled={axOverlayEnabled} onToggleOverlay={onToggleAxOverlay} />
-          <CameraTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
-          <ScreenshotTool udid={udid} />
-          <ScreenRecordingTool
-            sourceRef={recordingSourceRef}
-            deviceFrameSpec={deviceFrameSpec}
-            deviceKey={udid}
-            streaming={streaming}
-            streamMode={streamMode}
-            streamModeAvailable={streamModeAvailable}
-            onStreamModeChange={onStreamModeChange}
-          />
-          <ImportDocumentTool udid={udid} />
-          <LocationEmulationTool udid={udid} exec={execOnHost} />
-          <StatusBarTool udid={udid} />
-          <UserDefaultsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
-          <AppActionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
-          <AppPermissionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
 
-          <InspectorLauncher
-            label="Connection Stats"
-            onClick={onOpenStats}
-            expanded={openOverlay === "stats"}
-          />
-          <InspectorLauncher label="Logs" onClick={onOpenLogs} expanded={openOverlay === "logs"} />
-          <InspectorLauncher
-            label="Simulators"
-            onClick={onOpenGrid}
-            expanded={openOverlay === "grid"}
-          />
-          <InspectorLauncher
-            label="WebKit DevTools"
-            onClick={onOpenDevtools}
-            expanded={openOverlay === "devtools"}
-          />
+          <SectionGroup label="Device">
+            <SimulatorSettingsTool
+              udid={udid}
+              execToken={execToken}
+              refreshKey={uiSettingsRevision}
+              hardware={hardwareButtons}
+            />
+            <StatusBarTool udid={udid} />
+            <LocationEmulationTool udid={udid} exec={execOnHost} />
+            <CameraTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
+          </SectionGroup>
+
+          <SectionGroup label="App">
+            <AppActionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
+            <AppPermissionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
+            <UserDefaultsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
+            <ImportDocumentTool udid={udid} />
+          </SectionGroup>
+
+          <SectionGroup label="Capture">
+            <ScreenshotTool udid={udid} />
+            <ScreenRecordingTool
+              sourceRef={recordingSourceRef}
+              deviceFrameSpec={deviceFrameSpec}
+              deviceKey={udid}
+              streaming={streaming}
+              streamMode={streamMode}
+              streamModeAvailable={streamModeAvailable}
+              onStreamModeChange={onStreamModeChange}
+            />
+          </SectionGroup>
+
+          <SectionGroup label="Inspect">
+            <AxTreeTool overlayEnabled={axOverlayEnabled} onToggleOverlay={onToggleAxOverlay} />
+            <InspectorLauncher
+              label="Connection Stats"
+              onClick={onOpenStats}
+              expanded={openOverlay === "stats"}
+            />
+            <InspectorLauncher
+              label="Logs"
+              onClick={onOpenLogs}
+              expanded={openOverlay === "logs"}
+            />
+            <InspectorLauncher
+              label="WebKit DevTools"
+              onClick={onOpenDevtools}
+              expanded={openOverlay === "devtools"}
+            />
+            <InspectorLauncher
+              label="Simulators"
+              onClick={onOpenGrid}
+              expanded={openOverlay === "grid"}
+            />
+          </SectionGroup>
         </div>
       </div>
     </aside>
@@ -232,7 +213,7 @@ function InspectorLauncher({
       onClick={onClick}
       aria-haspopup="dialog"
       aria-expanded={expanded}
-      className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-card border border-divider bg-panel px-3.5 py-3 text-left text-[13px] font-medium text-fg hover:bg-hover [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+      className="flex w-full cursor-pointer items-center justify-between gap-2 border-t border-divider bg-transparent px-5 py-3.5 text-left text-body text-fg hover:bg-hover [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
     >
       <span>{label}</span>
       <svg

@@ -1,13 +1,7 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { hostUiRequest } from "../utils/exec";
 import { CollapsibleSection } from "./collapsible-section";
+import { SegmentedGroup, Slider } from "./design-system";
 import { Select } from "./select";
 import { SettingSwitch } from "./setting-switch";
 
@@ -74,6 +68,18 @@ const TOGGLE_OPTIONS = [
   { key: "voiceover", label: "VoiceOver" },
 ] as const;
 
+/** A setting's name with its glyph, used as the label line of any control. */
+function SettingLabel({ icon, label }: { icon: ReactNode; label: string }) {
+  return (
+    <span className="flex items-center gap-2.5">
+      <span className="flex size-[18px] shrink-0 items-center justify-center text-fg-3">
+        {icon}
+      </span>
+      {label}
+    </span>
+  );
+}
+
 function SettingRow({
   icon,
   label,
@@ -84,10 +90,9 @@ function SettingRow({
   children: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 min-h-[32px]" data-setting-row={label}>
-      <span className="flex shrink-0 items-center gap-2 text-[13px] text-fg-3 whitespace-nowrap">
-        <span className="flex size-[18px] items-center justify-center text-fg-3">{icon}</span>
-        {label}
+    <div className="flex items-center justify-between gap-3 min-h-[38px]" data-setting-row={label}>
+      <span className="flex shrink-0 items-center text-body text-fg whitespace-nowrap">
+        <SettingLabel icon={icon} label={label} />
       </span>
       {/* min-w-0 lets the control shrink instead of overflowing the panel
           when it's resized to its narrow end. */}
@@ -143,72 +148,93 @@ function TextSizeSlider({
 
   const max = TEXT_SIZE_CATEGORIES.length - 1;
   const shown = drag ?? value;
-  const fill = `${(shown / max) * 100}%`;
-  // Filled portion goes muted while disabled so the control doesn't read as
-  // live during hydration.
-  const fillColor = disabled ? "var(--color-fg-3)" : "var(--color-accent-solid)";
-
-  const trackClasses =
-    "[&::-webkit-slider-runnable-track]:h-[4px] [&::-webkit-slider-runnable-track]:rounded-pill " +
-    "[&::-webkit-slider-runnable-track]:[background:linear-gradient(to_right,var(--slider-fill-color)_var(--slider-fill),var(--color-divider)_var(--slider-fill))] " +
-    "[&::-moz-range-track]:h-[4px] [&::-moz-range-track]:rounded-pill [&::-moz-range-track]:bg-divider " +
-    "[&::-moz-range-progress]:h-[4px] [&::-moz-range-progress]:rounded-pill [&::-moz-range-progress]:bg-[var(--slider-fill-color)]";
-  const thumbClasses =
-    "[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:size-[13px] " +
-    "[&::-webkit-slider-thumb]:rounded-full " +
-    "[&::-webkit-slider-thumb]:bg-fg [&:disabled::-webkit-slider-thumb]:bg-fg-3 " +
-    "[&::-webkit-slider-thumb]:-mt-[4.5px] " +
-    "[&::-moz-range-thumb]:size-[13px] [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-none " +
-    "[&::-moz-range-thumb]:bg-fg [&:disabled::-moz-range-thumb]:bg-fg-3";
 
   return (
-    <span className="flex w-[120px] min-w-0 flex-col">
-      <input
-        type="range"
-        aria-label="Text Size"
-        min={0}
-        max={max}
-        step={1}
-        value={shown}
-        disabled={disabled}
-        onChange={(e) => handleInput(Number((e.target as HTMLInputElement).value))}
-        onPointerUp={flush}
-        onKeyUp={flush}
-        onBlur={flush}
-        style={{ "--slider-fill": fill, "--slider-fill-color": fillColor } as CSSProperties}
-        className={`h-[13px] w-full appearance-none bg-transparent outline-none focus-visible:[outline:2px_solid_var(--color-accent-solid)] focus-visible:outline-offset-4 ${disabled ? "cursor-default" : "cursor-pointer"} ${trackClasses} ${thumbClasses}`}
-      />
-      <span aria-hidden className="pointer-events-none mt-[3px] flex justify-between px-[5.5px]">
-        {TEXT_SIZE_CATEGORIES.map((category) => (
-          <span key={category} className="size-[2px] rounded-full bg-fg-3" />
-        ))}
-      </span>
-    </span>
+    <Slider
+      label={
+        <span className="flex items-center gap-2.5">
+          <span className="flex size-[18px] items-center justify-center text-fg-3">
+            {I.textSize}
+          </span>
+          Text Size
+        </span>
+      }
+      ariaLabel="Text Size"
+      value={shown}
+      min={0}
+      max={max}
+      step={1}
+      disabled={disabled}
+      format={(v) => TEXT_SIZE_CATEGORIES[v]?.replace(/-/g, " ") ?? String(v)}
+      onChange={handleInput}
+      onCommit={flush}
+      below={
+        <span aria-hidden className="pointer-events-none -mt-1 flex justify-between px-[13px]">
+          {TEXT_SIZE_CATEGORIES.map((category) => (
+            <span key={category} className="size-[3px] rounded-full bg-fg-3" />
+          ))}
+        </span>
+      }
+    />
+  );
+}
+
+// An enum picks its own control from its shape, not from a house style:
+// a handful of short labels reads best laid out flat; a long list, or labels
+// like "Red/Green (Protanopia)", only fits behind a menu. Forcing the second
+// case into segments is what produced a block of five wrapped buttons.
+const SEGMENT_MAX_OPTIONS = 4;
+const SEGMENT_MAX_LABEL = 14;
+
+function fitsSegments(options: Array<{ value: string; label: string }>): boolean {
+  return (
+    options.length <= SEGMENT_MAX_OPTIONS &&
+    options.every((o) => o.label.length <= SEGMENT_MAX_LABEL)
   );
 }
 
 function SettingSelect({
+  icon,
   label,
   value,
   options,
   disabled,
   onChange,
 }: {
+  icon: ReactNode;
   label: string;
   value: string;
   options: Array<{ value: string; label: string }>;
   disabled: boolean;
   onChange: (next: string) => void;
 }) {
+  if (fitsSegments(options)) {
+    return (
+      <SegmentedGroup
+        label={<SettingLabel icon={icon} label={label} />}
+        ariaLabel={label}
+        value={value}
+        options={options}
+        disabled={disabled}
+        showValue={false}
+        onChange={onChange}
+      />
+    );
+  }
   return (
-    <Select
-      label={label}
-      value={value}
-      options={options}
-      disabled={disabled}
-      onChange={onChange}
-      className="bg-surface-3 border border-divider rounded-card text-fg text-[12px] py-1 px-2.5 min-w-0 max-w-[150px] outline-none [transition:background_0.3s,border-color_0.3s] [transition-timing-function:cubic-bezier(0.4,0,0.6,1)] focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] disabled:text-fg-3"
-    />
+    <div className="flex min-h-[38px] items-center justify-between gap-3" data-setting-row={label}>
+      <span className="min-w-0 truncate text-body text-fg">
+        <SettingLabel icon={icon} label={label} />
+      </span>
+      <Select
+        label={label}
+        value={value}
+        options={options}
+        disabled={disabled}
+        onChange={onChange}
+        className="flex w-[168px] min-w-0 cursor-pointer items-center justify-between gap-2 rounded-sm border border-control-border bg-panel px-3 py-2 text-value text-fg outline-none [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)] hover:border-fg-3 hover:bg-hover focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] disabled:opacity-45"
+      />
+    </div>
   );
 }
 
@@ -459,83 +485,79 @@ export function SimulatorSettingsTool({
       summary="Simulator"
     >
       {error && (
-        <div className="bg-panel-deep border border-divider rounded-card text-danger-soft text-[12px] px-3 py-2.5 flex items-center justify-between gap-2 tracking-[-0.01em]">
+        <div className="bg-panel-deep border border-divider rounded-card text-danger-soft text-value px-3 py-2.5 flex items-center justify-between gap-2">
           <span className="min-w-0 break-words">{error}</span>
           <button
             type="button"
             onClick={() => void refresh()}
-            className="shrink-0 cursor-pointer rounded-pill border border-divider bg-transparent px-3 py-1 text-[12px] text-danger-soft outline-none [transition:background_0.3s] [transition-timing-function:cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+            className="shrink-0 cursor-pointer rounded-card border border-divider bg-transparent px-3 py-1 text-value text-danger-soft outline-none [transition:background_0.3s] [transition-timing-function:cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
           >
             Retry
           </button>
         </div>
       )}
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-4">
         {hardware && (
           <SettingRow icon={I.hardware} label="Buttons">
             {hardware}
           </SettingRow>
         )}
-        <SettingRow icon={I.appearance} label="Appearance">
-          <SettingSelect
-            label="Appearance"
-            value={shown.appearance ?? "light"}
-            options={SELECT_OPTIONS.appearance!}
-            disabled={!ready || pending === "appearance"}
-            onChange={(v) => apply("appearance", v)}
-          />
-        </SettingRow>
+        <SettingSelect
+          icon={I.appearance}
+          label="Appearance"
+          value={shown.appearance ?? "light"}
+          options={SELECT_OPTIONS.appearance!}
+          disabled={!ready || pending === "appearance"}
+          onChange={(v) => apply("appearance", v)}
+        />
 
-        <SettingRow icon={I.glass} label="Liquid Glass">
-          <SettingSelect
-            label="Liquid Glass"
-            value={shown["liquid-glass"] ?? "clear"}
-            options={SELECT_OPTIONS["liquid-glass"]!}
-            disabled={!ready || pending === "liquid-glass"}
-            onChange={(v) => apply("liquid-glass", v)}
-          />
-        </SettingRow>
+        <SettingSelect
+          icon={I.glass}
+          label="Liquid Glass"
+          value={shown["liquid-glass"] ?? "clear"}
+          options={SELECT_OPTIONS["liquid-glass"]!}
+          disabled={!ready || pending === "liquid-glass"}
+          onChange={(v) => apply("liquid-glass", v)}
+        />
 
-        <SettingRow icon={I.filter} label="Color Filter">
-          <SettingSelect
-            label="Color Filter"
-            value={shown["color-filter"] ?? "none"}
-            options={SELECT_OPTIONS["color-filter"]!}
-            disabled={!ready || pending === "color-filter"}
-            onChange={(v) => apply("color-filter", v)}
-          />
-        </SettingRow>
+        <SettingSelect
+          icon={I.filter}
+          label="Color Filter"
+          value={shown["color-filter"] ?? "none"}
+          options={SELECT_OPTIONS["color-filter"]!}
+          disabled={!ready || pending === "color-filter"}
+          onChange={(v) => apply("color-filter", v)}
+        />
 
-        <SettingRow icon={I.textSize} label="Text Size">
-          <TextSizeSlider value={textSizeIndex} disabled={!ready} onChange={applyTextSize} />
-        </SettingRow>
+        <TextSizeSlider value={textSizeIndex} disabled={!ready} onChange={applyTextSize} />
 
         {TOGGLE_OPTIONS.map(({ key, label }) => (
-          <SettingRow
+          <SettingSwitch
             key={key}
-            icon={
-              I[
-                key === "reduce-motion"
-                  ? "motion"
-                  : key === "increase-contrast"
-                    ? "contrast"
-                    : key === "show-borders"
-                      ? "borders"
-                      : key === "reduce-transparency"
-                        ? "transparency"
-                        : "voiceover"
-              ]
-            }
             label={label}
-          >
-            <SettingSwitch
-              label={label}
-              checked={shown[key] === "on"}
-              disabled={!ready || pending === key}
-              onChange={(next) => apply(key, next ? "on" : "off")}
-            />
-          </SettingRow>
+            decoratedLabel={
+              <SettingLabel
+                icon={
+                  I[
+                    key === "reduce-motion"
+                      ? "motion"
+                      : key === "increase-contrast"
+                        ? "contrast"
+                        : key === "show-borders"
+                          ? "borders"
+                          : key === "reduce-transparency"
+                            ? "transparency"
+                            : "voiceover"
+                  ]
+                }
+                label={label}
+              />
+            }
+            checked={shown[key] === "on"}
+            disabled={!ready || pending === key}
+            onChange={(next) => apply(key, next ? "on" : "off")}
+          />
         ))}
       </div>
     </CollapsibleSection>

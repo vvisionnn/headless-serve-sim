@@ -332,14 +332,12 @@ export function LocationEmulationTool({ udid, exec }: { udid: string; exec: Exec
       <button
         type="button"
         onClick={() => setOpen((v: boolean) => !v)}
-        className="lem-toggle flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full cursor-pointer select-none bg-transparent border-none text-fg text-left [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
+        className="lem-toggle flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full cursor-pointer select-none bg-transparent border-none text-fg text-left [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
-          Location
-        </span>
+        <span className="mr-auto text-body font-semibold text-fg text-fg">Location</span>
         <span className="flex items-center gap-2.5 ml-auto">
-          <span className="text-[11px] text-fg-3 font-mono inline-flex items-center gap-1.5 leading-none">
+          <span className="text-micro text-fg-3 font-mono inline-flex items-center gap-1.5 leading-none">
             <span
               className="size-1.5 rounded-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)]"
               style={{
@@ -352,12 +350,12 @@ export function LocationEmulationTool({ udid, exec }: { udid: string; exec: Exec
             />
             {headerStatus}
           </span>
-          <Chevron open={open} />
         </span>
+        <Chevron open={open} />
       </button>
 
       {open && (
-        <div className="border-t border-divider px-3.5 py-3 flex flex-col gap-2">
+        <div className="px-5 pb-4 pt-1 flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
             <div className="relative block">
               <Select
@@ -365,7 +363,7 @@ export function LocationEmulationTool({ udid, exec }: { udid: string; exec: Exec
                 value={trailId}
                 options={DEFAULT_TRAILS.map((t) => ({ value: t.id, label: t.name }))}
                 onChange={onTrailChange}
-                className="lem-select bg-surface-3 rounded-card border border-divider text-fg text-[13px] py-2 pr-[28px] pl-2.5 w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
+                className="lem-select bg-surface-3 rounded-card border border-divider text-fg text-value py-2 pr-[28px] pl-2.5 w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
               />
               <span
                 className="absolute right-[10px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center"
@@ -374,7 +372,7 @@ export function LocationEmulationTool({ udid, exec }: { udid: string; exec: Exec
                 <Chevron open={false} />
               </span>
             </div>
-            <div className="text-[11px] text-fg-3 tracking-[-0.01em]">{trail.description}</div>
+            <div className="text-micro text-fg-3">{trail.description}</div>
           </div>
 
           <div className="relative w-full overflow-hidden bg-page rounded-card border border-divider [aspect-ratio:16/11]">
@@ -392,7 +390,7 @@ export function LocationEmulationTool({ udid, exec }: { udid: string; exec: Exec
             <button
               type="button"
               onClick={onPlayPause}
-              className={`lem-primary flex-1 flex items-center justify-center gap-1.5 py-2 px-4 rounded-pill border-none text-[13px] font-semibold tracking-[-0.01em] cursor-pointer font-[inherit] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)] ${playing ? "lem-primary-on bg-surface-2 text-fg" : "bg-accent-solid text-white"}`}
+              className={`lem-primary flex-1 flex items-center justify-center gap-1.5 py-2 px-4 rounded-card border-none text-value font-semibold cursor-pointer font-[inherit] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)] ${playing ? "lem-primary-on bg-surface-2 text-fg" : "bg-accent-solid text-on-accent"}`}
               aria-pressed={playing}
               title={playing ? "Pause" : "Play"}
             >
@@ -402,7 +400,7 @@ export function LocationEmulationTool({ udid, exec }: { udid: string; exec: Exec
             <button
               type="button"
               onClick={onStop}
-              className="lem-ghost flex items-center justify-center gap-1.5 py-2 px-4 rounded-pill border border-divider text-[13px] font-medium tracking-[-0.01em] bg-transparent text-fg cursor-pointer font-[inherit] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
+              className="lem-ghost flex items-center justify-center gap-1.5 py-2 px-4 rounded-card border border-divider text-value font-medium bg-transparent text-fg cursor-pointer font-[inherit] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
               disabled={playback.status === "idle" && playback.arc === 0}
               title="Stop and clear simulated location"
             >
@@ -432,7 +430,7 @@ export function LocationEmulationTool({ udid, exec }: { udid: string; exec: Exec
                 const next = SPEED_MULTIPLIERS[(idx + 1) % SPEED_MULTIPLIERS.length]!;
                 setMultiplier(next);
               }}
-              className={`lem-speed flex items-center justify-center gap-1 px-3 rounded-pill border cursor-pointer font-[inherit] text-[12px] font-semibold min-w-[56px] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1),transform_0.12s_cubic-bezier(0.4,0,0.6,1)] ${multiplier > 1 ? "lem-speed-on bg-accent-solid border-accent text-white" : "bg-panel border-divider text-fg"}`}
+              className={`lem-speed flex items-center justify-center gap-1 px-3 rounded-card border cursor-pointer font-[inherit] text-value font-semibold min-w-[56px] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1),transform_0.12s_cubic-bezier(0.4,0,0.6,1)] ${multiplier > 1 ? "lem-speed-on bg-accent-solid border-accent text-white" : "bg-panel border-divider text-fg"}`}
               aria-label={`Speed ${multiplier}× — tap to cycle`}
               title={`Speed ${multiplier}× — tap to cycle`}
             >
@@ -444,7 +442,7 @@ export function LocationEmulationTool({ udid, exec }: { udid: string; exec: Exec
           </div>
 
           {error && (
-            <div className="bg-page rounded-card border border-divider text-danger text-[11px] tracking-[-0.01em] px-2.5 py-2">
+            <div className="bg-page rounded-card border border-divider text-danger text-micro px-2.5 py-2">
               {error}
             </div>
           )}
@@ -459,8 +457,8 @@ export function LocationEmulationTool({ udid, exec }: { udid: string; exec: Exec
 const Stat = memo(function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5 bg-surface-2 rounded-sm border border-divider py-1.5 px-2 min-w-0">
-      <div className="text-[10px] text-fg-3">{label}</div>
-      <div className="text-[13px] font-mono text-fg overflow-hidden text-ellipsis whitespace-nowrap">
+      <div className="text-micro text-fg-3">{label}</div>
+      <div className="text-value font-mono text-fg overflow-hidden text-ellipsis whitespace-nowrap">
         {value}
       </div>
     </div>
@@ -482,7 +480,7 @@ function Segmented<T extends string>({
     <div
       role="group"
       aria-label={ariaLabel}
-      className="flex bg-panel rounded-pill border border-divider p-0.5 gap-0.5"
+      className="flex bg-panel rounded-card border border-divider p-0.5 gap-0.5"
     >
       {options.map((o) => {
         const active = o.value === value;
@@ -491,7 +489,7 @@ function Segmented<T extends string>({
             key={o.value}
             type="button"
             onClick={() => onChange(o.value)}
-            className={`lem-seg flex-1 flex items-center justify-center border-none py-1.5 px-2 rounded-pill text-[11px] font-medium cursor-pointer font-[inherit] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)] min-h-[28px] ${active ? "lem-seg-active bg-hover text-fg" : "bg-transparent text-fg-2"}`}
+            className={`lem-seg flex-1 flex items-center justify-center border-none py-1.5 px-2 rounded-card text-micro font-medium cursor-pointer font-[inherit] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)] min-h-[28px] ${active ? "lem-seg-active bg-hover text-fg" : "bg-transparent text-fg-2"}`}
             aria-pressed={active}
             aria-label={o.icon ? o.label : undefined}
             title={o.icon ? o.label : undefined}
@@ -508,10 +506,10 @@ function ElevationBadges({ prepared }: { prepared: PreparedTrail }) {
   if (prepared.rawMaxAlt - prepared.rawMinAlt < 5) return null;
   return (
     <>
-      <div className="absolute top-2 left-2.5 bg-panel-overlay rounded-pill text-fg text-[10px] font-mono px-2 py-0.5 flex items-center gap-0.5 tracking-[0.02em] border border-divider">
+      <div className="absolute top-2 left-2.5 bg-panel-overlay rounded-chip text-fg text-micro font-mono px-2 py-0.5 flex items-center gap-0.5 border border-divider">
         <ArrowGlyph dir="up" /> {formatElevation(prepared.rawMaxAlt)}
       </div>
-      <div className="absolute top-2 right-2.5 bg-panel-overlay rounded-pill text-fg text-[10px] font-mono px-2 py-0.5 flex items-center gap-0.5 tracking-[0.02em] border border-divider">
+      <div className="absolute top-2 right-2.5 bg-panel-overlay rounded-chip text-fg text-micro font-mono px-2 py-0.5 flex items-center gap-0.5 border border-divider">
         <ArrowGlyph dir="down" /> {formatElevation(prepared.rawMinAlt)}
       </div>
     </>

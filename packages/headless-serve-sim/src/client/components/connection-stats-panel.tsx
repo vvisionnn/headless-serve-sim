@@ -8,12 +8,12 @@ import { Panel, PanelCloseButton, PanelHeader, PanelTitle } from "../Panel";
 import { useConnectionStats } from "../hooks/use-connection-stats";
 import { StreamModeToggle } from "./stream-mode-toggle";
 
-// Per-metric trace colors — identity colors mapped to the design-system status
-// tokens so each trace reads at a glance.
-const C_FPS = "var(--color-success)"; // green
-const C_BITRATE = "var(--color-accent)"; // blue
-const C_JITTER = "var(--color-warning)"; // amber
-const C_DECODE = "var(--color-accent)"; // blue
+// Trace ink. The system has no hue, so every trace is the same grey and the
+// label above it is what tells the four charts apart.
+const C_FPS = "var(--color-fg-2)";
+const C_BITRATE = "var(--color-fg-2)";
+const C_JITTER = "var(--color-fg-2)";
+const C_DECODE = "var(--color-fg-2)";
 
 const fmt1 = (n: number) => n.toFixed(1);
 const fmt0 = (n: number) => n.toFixed(0);
@@ -144,21 +144,18 @@ function MetricCard({
   return (
     <div className="flex flex-col gap-2 border-b border-divider pb-3 last:border-b-0 last:pb-0">
       <div className="flex items-baseline justify-between">
-        <span className="text-[12px] font-semibold text-fg-3">{label}</span>
-        <span className="text-[11px] text-fg-3">{unit}</span>
+        <span className="text-value font-semibold text-fg-3">{label}</span>
+        <span className="text-micro text-fg-3">{unit}</span>
       </div>
       <div className="flex items-end gap-2.5">
-        <span
-          className="shrink-0 text-[27px] leading-none tracking-[-0.02em] [font-variant-numeric:tabular-nums]"
-          style={{ color }}
-        >
+        <span className="shrink-0 font-mono text-display leading-none text-fg [font-variant-numeric:tabular-nums]">
           {hasData ? fmtValue(current) : "—"}
         </span>
         <div className="min-w-0 flex-1 pb-0.5">
           <Sparkline values={values} color={color} gradId={gradId} />
         </div>
       </div>
-      <div className="flex items-center gap-3 text-[11px] text-fg-3 [font-variant-numeric:tabular-nums]">
+      <div className="flex items-center gap-3 text-micro text-fg-3 [font-variant-numeric:tabular-nums]">
         <span>min {hasData ? fmtStat(s.min) : "—"}</span>
         <span>avg {hasData ? fmtStat(s.avg) : "—"}</span>
         <span>max {hasData ? fmtStat(s.max) : "—"}</span>
@@ -190,13 +187,13 @@ function StatusStrip({
             }}
           />
           <span
-            className="text-[12px] font-semibold"
+            className="text-value font-semibold"
             style={{ color: live ? C_FPS : "var(--color-fg-3)" }}
           >
             {live ? "Live" : "Offline"}
           </span>
         </div>
-        <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg-2 [font-variant-numeric:tabular-nums]">
+        <div className="flex min-w-0 items-center gap-1.5 text-value text-fg-2 [font-variant-numeric:tabular-nums]">
           <span className="min-w-0 truncate">{codecLabel}</span>
           {resolution && (
             <>
@@ -207,7 +204,7 @@ function StatusStrip({
         </div>
       </div>
       {dropped > 0 && (
-        <div className="text-[11px] font-medium text-warning [font-variant-numeric:tabular-nums]">
+        <div className="text-micro font-medium text-warning [font-variant-numeric:tabular-nums]">
           {dropped} dropped
         </div>
       )}
@@ -218,9 +215,9 @@ function StatusStrip({
 function StatRow({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="text-[12px] text-fg-3">{label}</span>
+      <span className="text-value text-fg-3">{label}</span>
       <span
-        className="text-[12px] [font-variant-numeric:tabular-nums]"
+        className="text-value [font-variant-numeric:tabular-nums]"
         style={{ color: accent ?? "var(--color-fg)" }}
       >
         {value}
@@ -238,9 +235,7 @@ function AdaptiveSection({ stats }: { stats: ConnectionStats | null }) {
   const serverDrops = srv?.droppedFrames ?? 0;
   return (
     <div className="flex flex-col gap-2.5 rounded-card border border-divider bg-surface-2 px-3 py-2.5">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
-        Adaptive
-      </span>
+      <span className="text-body font-semibold text-fg text-fg">Adaptive</span>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
         <StatRow
           label="Link"
@@ -382,7 +377,7 @@ export function ConnectionStatsPanel({
               />
             </div>
           ) : (
-            <div className="flex flex-1 items-center justify-center py-10 text-center text-[13px] text-fg-3">
+            <div className="flex flex-1 items-center justify-center py-10 text-center text-value text-fg-3">
               Waiting for stream…
             </div>
           )}

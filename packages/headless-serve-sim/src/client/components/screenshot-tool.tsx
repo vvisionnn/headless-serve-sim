@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { Chevron } from "../icons";
+import { SegmentedGroup } from "./design-system";
 import {
   captureScreenshot,
   b64ToBlob,
@@ -19,10 +20,6 @@ const HOVER_CSS = `
 .lem-ghost:hover:not(:disabled) { background: var(--color-hover); }
 .lem-ghost:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); }
 .lem-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
-.lem-chip { background: transparent; color: var(--color-fg-2); }
-.lem-chip:hover:not([data-active="true"]) { background: var(--color-hover); color: var(--color-fg); }
-.lem-chip:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); }
-.lem-chip[data-active="true"] { background: var(--color-panel); color: var(--color-fg); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
 `;
 
 type Pending = "capture" | null;
@@ -74,22 +71,20 @@ export function ScreenshotTool({ udid }: { udid: string }) {
   }, [shot]);
 
   return (
-    <div className="bg-panel border border-divider rounded-card overflow-hidden">
+    <div className="border-t border-divider bg-panel overflow-hidden">
       <style>{HOVER_CSS}</style>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full cursor-pointer select-none bg-transparent border-none text-left [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
+        className="flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full cursor-pointer select-none bg-transparent border-none text-left [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
-          Screenshot
-        </span>
+        <span className="mr-auto text-body font-semibold text-fg text-fg">Screenshot</span>
         <Chevron open={open} />
       </button>
 
       {open && (
-        <div className="border-t border-divider px-3.5 py-3 flex flex-col gap-2">
+        <div className="px-5 pb-4 pt-1 flex flex-col gap-3">
           {/* ─── Options ─── */}
           <ChipGroup
             label="Display"
@@ -118,7 +113,7 @@ export function ScreenshotTool({ udid }: { udid: string }) {
             type="button"
             onClick={capture}
             disabled={pending !== null}
-            className="lem-primary inline-flex items-center justify-center gap-1.5 py-2 px-4 min-h-[32px] border-none rounded-pill text-[12px] font-semibold cursor-pointer font-[inherit] bg-accent-solid text-white w-full tracking-[-0.01em] [transition:filter_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+            className="lem-primary inline-flex items-center justify-center gap-1.5 py-2 px-4 min-h-[32px] border-none rounded-card text-value font-semibold cursor-pointer font-[inherit] bg-accent-solid text-on-accent w-full [transition:filter_0.3s_cubic-bezier(0.4,0,0.6,1)]"
           >
             {pending === "capture" ? (
               <span className="inline-flex items-center gap-1.5">
@@ -158,7 +153,7 @@ export function ScreenshotTool({ udid }: { udid: string }) {
                 <a
                   href={shot.dataUrl}
                   download="screenshot.png"
-                  className="lem-ghost flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 min-h-[32px] border border-divider rounded-pill text-[12px] font-medium bg-transparent text-fg-2 cursor-pointer font-[inherit] no-underline tracking-[-0.01em] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+                  className="lem-ghost flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 min-h-[32px] border border-divider rounded-card text-value font-medium bg-transparent text-fg-2 cursor-pointer font-[inherit] no-underline [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)]"
                 >
                   <svg
                     width="14"
@@ -182,7 +177,7 @@ export function ScreenshotTool({ udid }: { udid: string }) {
                   <button
                     type="button"
                     onClick={copy}
-                    className="lem-ghost flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 min-h-[32px] border border-divider rounded-pill text-[12px] font-medium bg-transparent text-fg-2 cursor-pointer font-[inherit] tracking-[-0.01em] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+                    className="lem-ghost flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 min-h-[32px] border border-divider rounded-card text-value font-medium bg-transparent text-fg-2 cursor-pointer font-[inherit] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)]"
                     aria-label="Copy screenshot to clipboard"
                   >
                     {copied ? (
@@ -231,7 +226,7 @@ export function ScreenshotTool({ udid }: { udid: string }) {
 
           {error && (
             <div
-              className="bg-surface-2 border border-divider rounded-card text-danger-soft text-[12px] px-3 py-2 break-words tracking-[-0.01em]"
+              className="bg-surface-2 border border-divider rounded-card text-danger-soft text-value px-3 py-2 break-words"
               role="alert"
             >
               {error}
@@ -257,21 +252,12 @@ function ChipGroup({
   options: ReadonlyArray<readonly [string, string]>;
 }) {
   return (
-    <div className="flex items-center gap-2.5" role="group" aria-label={label}>
-      <span className="text-[12px] text-fg-3 w-[48px] shrink-0 tracking-[-0.01em]">{label}</span>
-      <div className="flex gap-0.5 bg-surface-2 border border-divider rounded-pill p-0.5 flex-1">
-        {options.map(([val, text]) => (
-          <button
-            key={val}
-            type="button"
-            data-active={value === val}
-            onClick={() => onChange(val)}
-            className="lem-chip flex-1 min-w-0 truncate py-1.5 px-2 min-h-[28px] border-none rounded-pill text-[11px] font-medium cursor-pointer font-[inherit] tracking-[-0.01em] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
-          >
-            {text}
-          </button>
-        ))}
-      </div>
-    </div>
+    <SegmentedGroup
+      label={label}
+      value={value}
+      options={options.map(([val, text]) => ({ value: val, label: text }))}
+      showValue={false}
+      onChange={onChange}
+    />
   );
 }

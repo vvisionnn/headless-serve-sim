@@ -80,8 +80,9 @@ export function DevicePicker({
   const selected = devices.find((d) => d.udid === selectedUdid) ?? null;
 
   return (
-    <div ref={triggerRef} className="relative min-w-0">
+    <div ref={triggerRef} className="relative min-w-0 flex-1">
       <div
+        className="min-w-0"
         onClick={() => {
           if (!open) onRefresh();
           setOpen((o) => !o);
@@ -95,9 +96,9 @@ export function DevicePicker({
           <div
             ref={menuRef}
             style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 1000 }}
-            className="min-w-65 max-h-[min(70vh,420px)] overflow-y-auto bg-panel border border-divider rounded-card p-1.5 shadow-[0_8px_28px_rgba(0,0,0,0.18)] font-system text-[13px] tracking-[-0.01em] text-fg"
+            className="min-w-65 max-h-[min(70vh,420px)] overflow-y-auto bg-panel border border-divider rounded-card p-1.5 shadow-[0_8px_28px_rgba(0,0,0,0.18)] font-system text-value text-fg"
           >
-            <div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-fg-3">
+            <div className="flex items-center justify-between px-2.5 py-1.5 text-value text-fg-3">
               <span className="font-semibold uppercase tracking-[0.06em]">Simulators</span>
               <button
                 onClick={(e) => {
@@ -105,12 +106,12 @@ export function DevicePicker({
                   onRefresh();
                 }}
                 disabled={loading}
-                className="bg-transparent border-none text-accent text-[12px] cursor-pointer p-0 transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] rounded-sm"
+                className="bg-transparent border-none text-accent text-value cursor-pointer p-0 transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] rounded-sm"
               >
                 {loading ? "..." : "Refresh"}
               </button>
             </div>
-            {error && <div className="px-2.5 py-1.5 text-danger text-[12px]">{error}</div>}
+            {error && <div className="px-2.5 py-1.5 text-danger text-value">{error}</div>}
             {selected && (
               <>
                 <div className="flex items-center gap-2.5 px-2.5 py-2 text-accent">
@@ -129,13 +130,13 @@ export function DevicePicker({
               </>
             )}
             {devices.length === 0 && !loading && !error && (
-              <div className="p-2.5 text-fg-3 text-[12px] text-center">
+              <div className="p-2.5 text-fg-3 text-value text-center">
                 No available simulators found
               </div>
             )}
             {sortedGroups.map(([runtime, devs]) => (
               <div key={runtime}>
-                <div className="px-2.5 pt-2 pb-1 text-[12px] font-semibold text-fg-3 uppercase tracking-[0.06em]">
+                <div className="px-2.5 pt-2 pb-1 text-value font-semibold text-fg-3 uppercase tracking-[0.06em]">
                   {runtime}
                 </div>
                 {devs.map((d) => {
@@ -164,7 +165,7 @@ export function DevicePicker({
                             e.stopPropagation();
                             if (!isStopping) onStop(d.udid);
                           }}
-                          className={`text-[11px] py-0.5 px-2 rounded-pill transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] ${isStopping ? "text-fg-2 bg-transparent cursor-default" : "text-danger bg-surface-2 cursor-pointer"}`}
+                          className={`text-micro py-0.5 px-2 rounded-card transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] ${isStopping ? "text-fg-2 bg-transparent cursor-default" : "text-danger bg-surface-2 cursor-pointer"}`}
                         >
                           {isStopping ? "Stopping..." : "Stop"}
                         </span>

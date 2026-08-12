@@ -100,7 +100,7 @@ export function WebKitTargetPicker({
             return !wasOpen;
           });
         }}
-        className="w-full min-w-0 h-[32px] flex items-center justify-between gap-2 bg-surface-3 text-fg border border-divider rounded-card text-[12px] tracking-[-0.01em] px-3 cursor-pointer text-left transition-[background-color] duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+        className="w-full min-w-0 h-[32px] flex items-center justify-between gap-2 bg-surface-3 text-fg border border-divider rounded-card text-value px-3 cursor-pointer text-left transition-[background-color] duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label="WebKit target"
@@ -139,7 +139,7 @@ export function WebKitTargetPicker({
               const iconUrl = group.bundleId ? icons[group.bundleId] : null;
               return (
                 <li key={group.key} className="list-none m-0 p-0">
-                  <div className="flex items-center gap-2 px-2 pt-2 pb-1 text-[12px] font-semibold uppercase tracking-[0.06em] text-fg-3">
+                  <div className="flex items-center gap-2 px-2 pt-2 pb-1 text-body font-semibold text-fg text-fg-3">
                     {iconUrl ? (
                       <img src={iconUrl} alt="" className="w-4 h-4 shrink-0 object-cover" />
                     ) : (
@@ -161,7 +161,7 @@ export function WebKitTargetPicker({
                       ).slice(0, 90);
                       const hovered = hoveredId === target.id && !isDisabled;
                       const baseCls =
-                        "flex flex-col rounded-sm px-2.5 py-1.5 text-[12px] leading-[1.35] tracking-[-0.01em] transition-[background-color] duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]";
+                        "flex flex-col rounded-sm px-2.5 py-1.5 text-value leading-[1.35] transition-[background-color] duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]";
                       const stateCls = isDisabled
                         ? "opacity-40 cursor-not-allowed italic text-fg-2"
                         : hovered
@@ -206,7 +206,7 @@ export function WebKitTargetPicker({
                             {title}
                           </span>
                           {target.url && target.url !== "about:blank" && (
-                            <span className="block font-mono text-[10px] text-fg-3 overflow-hidden text-ellipsis whitespace-nowrap">
+                            <span className="block font-mono text-micro text-fg-3 overflow-hidden text-ellipsis whitespace-nowrap">
                               {target.url}
                             </span>
                           )}

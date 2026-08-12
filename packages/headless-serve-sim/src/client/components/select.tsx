@@ -120,7 +120,24 @@ export function Select({
         onClick={() => setOpen((o) => !o)}
         className={`text-left font-[inherit] cursor-pointer disabled:cursor-default ${className ?? ""}`}
       >
-        <span className="block truncate">{selected?.label ?? value}</span>
+        <span className="block min-w-0 flex-1 truncate">{selected?.label ?? value}</span>
+        {/* The disclosure caret is what separates a MENU from a SWITCH. Without
+            it the trigger is the same radius, border and right edge as a
+            toggle, and the two controls are indistinguishable at a glance. */}
+        <svg
+          width="11"
+          height="11"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+          className={`shrink-0 text-fg-3 [transition:transform_0.24s_cubic-bezier(0.4,0,0.6,1)] ${open ? "rotate-180" : ""}`}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
       </button>
       {open &&
         pos &&
@@ -131,7 +148,7 @@ export function Select({
             aria-label={label}
             onKeyDown={onPopupKeyDown}
             style={{ top: pos.top, left: pos.left, minWidth: pos.minWidth }}
-            className="fixed max-h-90 overflow-y-auto bg-panel border border-divider rounded-card p-1 shadow-[0_4px_24px_rgba(0,0,0,0.12)] text-[12px] text-fg font-system tracking-[-0.01em] z-50"
+            className="fixed max-h-90 overflow-y-auto bg-panel border border-divider rounded-card p-1 shadow-[0_4px_24px_rgba(0,0,0,0.12)] text-value text-fg font-system z-50"
           >
             {options.map((o) => (
               <button

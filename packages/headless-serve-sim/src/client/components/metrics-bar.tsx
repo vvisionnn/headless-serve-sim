@@ -7,9 +7,10 @@ import {
 } from "../hooks/use-app-metrics";
 import { formatGridBytes } from "../utils/grid";
 import { buildSparkline, cpuColor, memoryRange, splitValueUnit } from "../utils/metrics-chart";
+import { PanelToggleIcon, SectionGroup, SquareIconButton } from "./design-system";
 
-// Full-height left Activity rail. The two primary gauges chart the foreground
-// app's native CPU and physical footprint; compact rows expose every additional
+// The left Activity card. The two primary gauges chart the foreground app's
+// native CPU and physical footprint; compact rows expose every additional
 // native counter without conflating app performance with stream telemetry.
 
 const CHART_H = 80;
@@ -37,7 +38,8 @@ export interface MetricsBarProps {
   collapsedWidth: number;
   expandedWidth: number;
   topBarHeight: number;
-  frameHeight: number;
+  /** Full card height — the rail spans the canvas, not the device. */
+  height: number;
   metricsEndpoint?: string;
   enabled: boolean;
 }
@@ -48,17 +50,16 @@ export function MetricsBar({
   collapsedWidth,
   expandedWidth,
   topBarHeight,
-  frameHeight,
+  height,
   metricsEndpoint,
   enabled,
 }: MetricsBarProps) {
   const stream = useAppMetrics(metricsEndpoint, enabled);
-  const height = topBarHeight + frameHeight;
   const alive = stream.latest?.alive === true;
 
   return (
     <aside
-      className="relative shrink-0 overflow-hidden bg-panel border-r border-divider font-system"
+      className="relative shrink-0 overflow-hidden rounded-panel bg-panel shadow-panel font-system"
       style={{
         width: open ? expandedWidth : collapsedWidth,
         height,
@@ -67,41 +68,15 @@ export function MetricsBar({
       aria-label="Activity"
     >
       <div className="absolute top-0 left-0 flex flex-col" style={{ width: expandedWidth, height }}>
-        <div
-          className="flex items-center shrink-0 border-b border-divider bg-panel-overlay [backdrop-filter:saturate(1.8)_blur(20px)]"
-          style={{ height: topBarHeight }}
-        >
-          <div
-            className="flex shrink-0 items-center justify-center"
-            style={{ width: collapsedWidth }}
+        <div className="flex shrink-0 items-center gap-2 px-[9px]" style={{ height: topBarHeight }}>
+          <SquareIconButton
+            onClick={onToggle}
+            label={open ? "Collapse activity" : "Expand activity"}
+            title="Activity"
           >
-            <button
-              type="button"
-              onClick={onToggle}
-              className="flex size-9 items-center justify-center rounded-full bg-transparent text-fg-2 hover:bg-hover hover:text-fg [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1)] cursor-pointer focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
-              aria-label={open ? "Collapse activity" : "Expand activity"}
-              aria-expanded={open}
-              title="Activity"
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ transform: open ? "rotate(180deg)" : "none" }}
-              >
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
-            </button>
-          </div>
-          <ActivityGlyph />
-          <span className="ml-1.5 whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
-            Activity
-          </span>
+            <PanelToggleIcon side="left" open={open} />
+          </SquareIconButton>
+          <span className="ml-1 truncate text-eyebrow uppercase text-fg">Activity</span>
           {alive && (
             <span
               className="ml-auto mr-2 size-1.5 rounded-full bg-success"
@@ -112,7 +87,7 @@ export function MetricsBar({
         </div>
 
         <div
-          className="flex flex-1 min-h-0 flex-col gap-3 overflow-y-auto bg-inset p-3.5 [&>*]:shrink-0"
+          className="flex flex-1 min-h-0 flex-col overflow-y-auto bg-inset [&>*]:shrink-0"
           aria-hidden={!open}
           style={{
             opacity: open ? 1 : 0,
@@ -144,27 +119,31 @@ export function MetricsDashboard({ stream }: { stream: AppMetricsStream }) {
   return (
     <>
       <AppIdentity metrics={metrics} error={stream.error} />
-      <Gauge
-        kind="cpu"
-        label="CPU"
-        value={cpu === null ? "—" : cpu.toFixed(cpu >= 100 ? 0 : 1)}
-        unit={cpu === null ? "" : "%"}
-        color={cpuColor(cpu)}
-        values={alive ? cpuValues : null}
-        yMin={0}
-        yMax={cpuMax}
-      />
-      <Gauge
-        kind="mem"
-        label="Memory Footprint"
-        value={memoryNumber}
-        unit={memoryUnit}
-        color="var(--color-accent)"
-        values={alive ? memoryValues : null}
-        yMin={memoryMin}
-        yMax={memoryMax}
-      />
-      <MetricDetails metrics={alive ? metrics : null} />
+      <SectionGroup label="Live">
+        <Gauge
+          kind="cpu"
+          label="CPU"
+          value={cpu === null ? "—" : cpu.toFixed(cpu >= 100 ? 0 : 1)}
+          unit={cpu === null ? "" : "%"}
+          color={cpuColor(cpu)}
+          values={alive ? cpuValues : null}
+          yMin={0}
+          yMax={cpuMax}
+        />
+        <Gauge
+          kind="mem"
+          label="Memory Footprint"
+          value={memoryNumber}
+          unit={memoryUnit}
+          color="var(--color-fg-3)"
+          values={alive ? memoryValues : null}
+          yMin={memoryMin}
+          yMax={memoryMax}
+        />
+      </SectionGroup>
+      <SectionGroup label="Counters">
+        <MetricDetails metrics={alive ? metrics : null} />
+      </SectionGroup>
     </>
   );
 }
@@ -197,20 +176,20 @@ function AppIdentity({ metrics, error }: { metrics: AppMetrics | null; error: st
   const sampledAt = metrics ? new Date(metrics.sampledAtMs) : null;
 
   return (
-    <section className="rounded-card border border-divider bg-panel px-3.5 py-3">
+    <section className="px-5 py-4">
       <div className="flex items-center justify-between gap-2" role="status">
-        <span className="min-w-0 truncate text-[12px] font-semibold text-fg" title={label}>
+        <span className="min-w-0 truncate text-value font-semibold text-fg" title={label}>
           {label}
         </span>
         <span
-          className="flex shrink-0 items-center gap-1.5 text-[11px] font-medium"
+          className="flex shrink-0 items-center gap-1.5 text-micro font-medium"
           style={{ color: statusColor }}
         >
           <span className="size-1.5 rounded-full" style={{ background: statusColor }} aria-hidden />
           {status}
         </span>
       </div>
-      <div className="mt-1.5 flex items-center justify-between gap-2 text-[10px] text-fg-3 tabular-nums">
+      <div className="mt-1.5 flex items-center justify-between gap-2 text-micro text-fg-3 tabular-nums">
         <span>{alive ? `PID ${metrics.pid}` : "PID —"}</span>
         {sampledAt && (
           <span>
@@ -224,10 +203,7 @@ function AppIdentity({ metrics, error }: { metrics: AppMetrics | null; error: st
 
 function MetricDetails({ metrics }: { metrics: AppMetrics | null }) {
   return (
-    <section
-      className="grid grid-cols-2 overflow-hidden rounded-card border border-divider bg-panel"
-      aria-label="App metric details"
-    >
+    <section className="grid grid-cols-2 border-t border-divider" aria-label="App metric details">
       <Detail label="User CPU" value={formatPercent(metrics?.cpuUserPercent ?? null)} />
       <Detail label="System CPU" value={formatPercent(metrics?.cpuSystemPercent ?? null)} />
       <Detail
@@ -248,8 +224,8 @@ function MetricDetails({ metrics }: { metrics: AppMetrics | null }) {
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 border-b border-r border-divider px-3 py-2.5 even:border-r-0 [&:nth-last-child(-n+2)]:border-b-0">
-      <div className="text-[10px] font-medium text-fg-3">{label}</div>
-      <div className="mt-0.5 truncate text-[13px] font-semibold text-fg tabular-nums" title={value}>
+      <div className="text-micro text-fg-3">{label}</div>
+      <div className="mt-0.5 truncate text-value font-semibold text-fg tabular-nums" title={value}>
         {value}
       </div>
     </div>
@@ -305,21 +281,21 @@ function Gauge({
   const paths = values ? buildSparkline(values, yMin, yMax, width, CHART_H, MAX_SAMPLES) : null;
 
   return (
-    <div className="flex flex-col rounded-card border border-divider bg-panel p-3.5">
+    <div className="flex flex-col border-t border-divider px-5 py-4">
       <div className="flex items-center gap-2">
-        <GlyphIcon kind={kind} color={color} />
-        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
-          {label}
-        </span>
-      </div>
-      <div className="mt-2 flex items-baseline gap-1">
+        <GlyphIcon kind={kind} color="var(--color-fg-3)" />
+        <span className="text-body font-semibold text-fg">{label}</span>
+        {/* The threshold signal lives in a small dot — the number stays neutral,
+            because a value is data and data has no colour in this system. */}
         <span
-          className="text-[30px] leading-none font-semibold tabular-nums tracking-[-0.02em]"
-          style={{ color } as CSSProperties}
-        >
-          {value}
-        </span>
-        {unit ? <span className="text-[14px] font-medium text-fg-3">{unit}</span> : null}
+          className="ml-auto size-1.5 shrink-0 rounded-full"
+          style={{ background: color } as CSSProperties}
+          aria-hidden
+        />
+      </div>
+      <div className="mt-2.5 flex items-baseline gap-1">
+        <span className="font-mono text-display leading-none tabular-nums text-fg">{value}</span>
+        {unit ? <span className="font-mono text-value text-fg-3">{unit}</span> : null}
       </div>
       <div ref={chartRef} className="mt-3" style={{ height: CHART_H }}>
         {width > 0 ? (
@@ -332,8 +308,8 @@ function Gauge({
           >
             <defs>
               <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={color} stopOpacity={0.26} />
-                <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+                <stop offset="0%" stopColor="var(--color-fg-3)" stopOpacity={0.22} />
+                <stop offset="100%" stopColor="var(--color-fg-3)" stopOpacity={0.02} />
               </linearGradient>
             </defs>
             <line
@@ -341,9 +317,8 @@ function Gauge({
               y1={CHART_H - 4}
               x2={width}
               y2={CHART_H - 4}
-              stroke={color}
+              stroke="var(--color-divider)"
               strokeWidth="1"
-              strokeOpacity={0.22}
             />
             {paths ? (
               <>
@@ -351,19 +326,19 @@ function Gauge({
                 <path
                   d={paths.line}
                   fill="none"
-                  stroke={color}
+                  stroke="var(--color-fg-2)"
                   strokeWidth="2"
                   strokeLinejoin="round"
                   strokeLinecap="round"
                 />
-                <circle cx={paths.tip[0]} cy={paths.tip[1]} r="2.6" fill={color} />
+                <circle cx={paths.tip[0]} cy={paths.tip[1]} r="2.6" fill="var(--color-fg)" />
                 <circle
                   cx={paths.tip[0]}
                   cy={paths.tip[1]}
                   r="2.6"
                   fill="none"
-                  stroke={color}
-                  strokeOpacity={0.28}
+                  stroke="var(--color-fg)"
+                  strokeOpacity={0.22}
                   strokeWidth="3.5"
                 />
               </>
@@ -402,25 +377,6 @@ function GlyphIcon({ kind, color }: { kind: "cpu" | "mem"; color: string }) {
           <path d="M7 9.5v0M7 16v0" />
         </>
       )}
-    </svg>
-  );
-}
-
-function ActivityGlyph() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="var(--color-fg-2)"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="shrink-0"
-      aria-hidden
-    >
-      <polyline points="3 12 7 12 10 5 14 19 17 12 21 12" />
     </svg>
   );
 }

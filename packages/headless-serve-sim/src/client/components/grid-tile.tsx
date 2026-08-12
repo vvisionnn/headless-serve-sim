@@ -55,7 +55,7 @@ export function GridTile({
             onShutdown();
           }}
           disabled={shuttingDown}
-          className="grid-shutdown-btn absolute top-2 right-2 w-7 h-7 rounded-full border border-divider bg-panel text-fg text-[14px] leading-none cursor-pointer flex items-center justify-center p-0 z-[2] pointer-events-auto [transition:background-color_0.3s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+          className="grid-shutdown-btn absolute top-2 right-2 w-7 h-7 rounded-full border border-divider bg-panel text-fg text-body leading-none cursor-pointer flex items-center justify-center p-0 z-[2] pointer-events-auto [transition:background-color_0.3s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
         >
           ×
         </button>
@@ -70,7 +70,7 @@ export function GridTile({
           />
         </div>
       ) : (
-        <div className="flex-1 min-h-0 flex items-center justify-center p-3 flex-col gap-3 text-fg-2 text-[12px] text-center">
+        <div className="flex-1 min-h-0 flex items-center justify-center p-3 flex-col gap-3 text-fg-2 text-value text-center">
           {starting ? (
             <span
               aria-hidden
@@ -78,10 +78,10 @@ export function GridTile({
               style={{ borderTopColor: "var(--color-accent)" }}
             />
           ) : (
-            <div className="text-[28px] text-fg-3">{isBooted ? "▣" : "▢"}</div>
+            <div className="text-display text-fg-3">{isBooted ? "▣" : "▢"}</div>
           )}
           {error ? (
-            <div className="max-w-full break-words text-danger text-[11px] font-mono">{error}</div>
+            <div className="max-w-full break-words text-danger text-micro font-mono">{error}</div>
           ) : null}
           <button
             type="button"
@@ -91,7 +91,7 @@ export function GridTile({
               onStart();
             }}
             disabled={starting}
-            className={`px-3 py-1.5 rounded-pill border border-divider text-[12px] font-mono [transition:background-color_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] ${starting ? "bg-surface-2 text-fg-2 cursor-default" : "bg-panel text-success cursor-pointer hover:bg-hover"}`}
+            className={`px-3 py-1.5 rounded-card border border-divider text-value font-mono [transition:background-color_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] ${starting ? "bg-surface-2 text-fg-2 cursor-default" : "bg-panel text-success cursor-pointer hover:bg-hover"}`}
           >
             {starting
               ? isBooted
@@ -103,7 +103,7 @@ export function GridTile({
           </button>
         </div>
       )}
-      <div className="px-3 py-2 border-t border-divider text-[12px] font-mono text-fg-2 flex justify-between gap-2">
+      <div className="px-3 py-2 border-t border-divider text-value font-mono text-fg-2 flex justify-between gap-2">
         <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
           {device.name}
         </span>

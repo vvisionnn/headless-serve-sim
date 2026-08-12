@@ -18,7 +18,7 @@ export function GridCapacityBanner({ report }: { report: MemoryReport | null }) 
         ? "var(--color-warning)"
         : "var(--color-success)";
   return (
-    <div className="inline-flex items-center gap-1.5 rounded-pill px-2.5 py-1 bg-surface-3 border border-divider font-mono text-[11px] text-fg-2 leading-none tracking-[-0.01em]">
+    <div className="inline-flex items-center gap-1.5 rounded-chip px-2.5 py-1 bg-surface-3 border border-divider font-mono text-micro text-fg-2 leading-none">
       <span className="size-1.5 shrink-0 rounded-full" style={{ background: dotColor }} />
       <span>
         {runningSimulators}/{capacity} sims

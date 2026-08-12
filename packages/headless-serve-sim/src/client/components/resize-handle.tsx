@@ -18,9 +18,9 @@ export function ResizeHandle({
   const [hover, setHover] = useState(false);
   const [active, setActive] = useState(false);
   const hot = hover || active;
-  // Panel sits at right:12 with the given width — its left border is at
-  // right:(12 + panelWidth - 1). Centering the 16px hit target there:
-  const handleRight = 12 + panelWidth - 9;
+  // Panel sits at right:24 with the given width — its left edge is at
+  // right:(24 + panelWidth). Centering the 16px hit target there:
+  const handleRight = 24 + panelWidth - 8;
   return (
     <div
       role="separator"
@@ -35,7 +35,7 @@ export function ResizeHandle({
       onPointerCancel={() => setActive(false)}
       onPointerEnter={() => setHover(true)}
       onPointerLeave={() => setHover(false)}
-      className={`fixed top-3 bottom-3 w-4 z-36 cursor-col-resize touch-none transition-opacity duration-[240ms] ease-[cubic-bezier(0.4,0,0.6,1)] ${visible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
+      className={`fixed top-6 bottom-6 w-4 z-36 cursor-col-resize touch-none transition-opacity duration-[240ms] ease-[cubic-bezier(0.4,0,0.6,1)] ${visible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
       style={{ right: handleRight }}
     >
       {/* Hairline that brightens the panel's existing border while the edge

@@ -44,7 +44,7 @@ export function EventLogPanel({ open }: { open: boolean }) {
         const el = event.currentTarget;
         pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
       }}
-      className="flex-1 min-h-0 overflow-y-auto font-mono text-[11px] leading-[1.6]"
+      className="flex-1 min-h-0 overflow-y-auto font-mono text-micro leading-[1.6]"
     >
       {entries.length === 0 ? (
         <div className="px-3 py-4 text-fg-3">No input yet.</div>

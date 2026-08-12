@@ -49,7 +49,7 @@ export function SimLogRows({ entries }: { entries: readonly SimLogEntry[] }) {
         return (
           <div
             key={entry.id}
-            className="grid grid-cols-[104px_72px_minmax(112px,0.42fr)_minmax(0,1fr)] items-start gap-2 border-b border-divider px-3 py-1.5 font-mono text-[11px] leading-[1.45] last:border-b-0"
+            className="grid grid-cols-[104px_72px_minmax(112px,0.42fr)_minmax(0,1fr)] items-start gap-2 border-b border-divider px-3 py-1.5 font-mono text-micro leading-[1.45] last:border-b-0"
             data-log-level={entry.level}
           >
             <time
@@ -149,7 +149,7 @@ export function LogsPanel({
           <PanelTitle>
             {/* Two views of the same panel: what the app printed, and what we
                 sent it. They're read together when diagnosing a gesture. */}
-            <div className="flex gap-0.5 rounded-pill border border-divider bg-surface-2 p-0.5">
+            <div className="flex gap-0.5 rounded-chip border border-divider bg-surface-2 p-0.5">
               {(["logs", "input"] as const).map((value) => (
                 <button
                   key={value}
@@ -157,7 +157,7 @@ export function LogsPanel({
                   role="tab"
                   aria-selected={tab === value}
                   onClick={() => setTab(value)}
-                  className={`min-h-6 cursor-pointer rounded-pill border-none px-2.5 text-[11px] font-semibold ${
+                  className={`min-h-6 cursor-pointer rounded-chip border-none px-2.5 text-micro font-semibold ${
                     tab === value ? "bg-panel shadow-sm" : "bg-transparent text-fg-3 hover:bg-hover"
                   }`}
                 >
@@ -167,7 +167,7 @@ export function LogsPanel({
             </div>
           </PanelTitle>
           <span
-            className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-fg-2"
+            className="inline-flex min-w-0 items-center gap-1.5 text-micro font-medium text-fg-2"
             role="status"
           >
             <span
@@ -207,14 +207,14 @@ export function LogsPanel({
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search message or source"
-                className="h-8 w-full rounded-card border border-divider bg-panel pl-8 pr-2.5 text-[12px] text-fg outline-none placeholder:text-fg-3 focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+                className="h-8 w-full rounded-card border border-divider bg-panel pl-8 pr-2.5 text-value text-fg outline-none placeholder:text-fg-3 focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
               />
             </label>
             <select
               aria-label="Capture level"
               value={logs.level}
               onChange={(event) => logs.setLevel(event.target.value as SimLogLevel)}
-              className="h-8 rounded-card border border-divider bg-panel px-2 text-[12px] text-fg outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+              className="h-8 rounded-card border border-divider bg-panel px-2 text-value text-fg outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
             >
               <option value="default">Default</option>
               <option value="info">Info</option>
@@ -224,7 +224,7 @@ export function LogsPanel({
               aria-label="Filter by process"
               value={process}
               onChange={(event) => setProcess(event.target.value)}
-              className="h-8 max-w-[180px] rounded-card border border-divider bg-panel px-2 text-[12px] text-fg outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+              className="h-8 max-w-[180px] rounded-card border border-divider bg-panel px-2 text-value text-fg outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
             >
               <option value="">All processes</option>
               {processes.map((name) => (
@@ -233,7 +233,7 @@ export function LogsPanel({
                 </option>
               ))}
             </select>
-            <label className="flex h-8 cursor-pointer items-center gap-2 rounded-pill border border-divider bg-panel px-3 text-[12px] font-medium text-fg-2 hover:bg-hover">
+            <label className="flex h-8 cursor-pointer items-center gap-2 rounded-card border border-divider bg-panel px-3 text-value font-medium text-fg-2 hover:bg-hover">
               <input
                 type="checkbox"
                 aria-label="Include system logs"
@@ -248,7 +248,7 @@ export function LogsPanel({
               onClick={() => logs.setPaused((paused) => !paused)}
               disabled={!endpoint}
               aria-pressed={logs.paused}
-              className="h-8 cursor-pointer rounded-pill border border-divider bg-panel px-3 text-[12px] font-medium text-fg-2 hover:bg-hover disabled:cursor-not-allowed disabled:text-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+              className="h-8 cursor-pointer rounded-card border border-divider bg-panel px-3 text-value font-medium text-fg-2 hover:bg-hover disabled:cursor-not-allowed disabled:text-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
             >
               {logs.paused ? "Resume" : "Pause"}
             </button>
@@ -256,13 +256,13 @@ export function LogsPanel({
               type="button"
               onClick={clear}
               disabled={logs.entries.length === 0}
-              className="h-8 cursor-pointer rounded-pill border border-divider bg-panel px-3 text-[12px] font-medium text-fg-2 hover:bg-hover disabled:cursor-not-allowed disabled:text-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+              className="h-8 cursor-pointer rounded-card border border-divider bg-panel px-3 text-value font-medium text-fg-2 hover:bg-hover disabled:cursor-not-allowed disabled:text-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
             >
               Clear
             </button>
           </div>
 
-          <div className="flex shrink-0 items-center justify-between border-b border-divider px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.05em] text-fg-3">
+          <div className="flex shrink-0 items-center justify-between border-b border-divider px-3 py-1.5 text-micro font-medium uppercase tracking-[0.05em] text-fg-3">
             <span>
               {filtered.length} shown · {logs.entries.length} retained
             </span>
@@ -282,14 +282,14 @@ export function LogsPanel({
             className="min-h-0 flex-1 overflow-auto bg-panel-deep"
           >
             {omitted > 0 && (
-              <div className="border-b border-divider px-3 py-2 text-center text-[11px] text-fg-3">
+              <div className="border-b border-divider px-3 py-2 text-center text-micro text-fg-3">
                 {omitted} older matching rows hidden for performance
               </div>
             )}
             {rendered.length > 0 ? (
               <SimLogRows entries={rendered} />
             ) : (
-              <div className="flex h-full min-h-[180px] items-center justify-center px-6 text-center text-[12px] text-fg-3">
+              <div className="flex h-full min-h-[180px] items-center justify-center px-6 text-center text-value text-fg-3">
                 {logs.entries.length > 0
                   ? "No logs match the current filters."
                   : logs.status === "waiting"

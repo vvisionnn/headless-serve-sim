@@ -120,22 +120,20 @@ export function AppActionsTool({ udid, bundleId }: { udid: string; bundleId: str
   }, [cliPrefix, udid]);
 
   return (
-    <div className="bg-panel border border-divider rounded-card overflow-hidden">
+    <div className="border-t border-divider bg-panel overflow-hidden">
       <style>{HOVER_CSS}</style>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="lem-toggle flex items-center justify-between gap-2.5 px-3.5 min-h-[44px] w-full text-left bg-transparent border-none cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
+        className="lem-toggle flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full text-left bg-transparent border-none cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-2">
-          App Actions
-        </span>
+        <span className="mr-auto text-body font-semibold text-fg text-fg">App Actions</span>
         <Chevron open={open} />
       </button>
 
       {open && (
-        <div className="border-t border-divider px-3.5 py-3 flex flex-col gap-2">
+        <div className="px-5 pb-4 pt-1 flex flex-col gap-3">
           {/* ─── Open URL ─── */}
           <Section label="Open URL">
             <div className="flex items-end gap-2">
@@ -148,14 +146,14 @@ export function AppActionsTool({ udid, bundleId }: { udid: string; bundleId: str
                 }}
                 placeholder="https://example.com or myapp://path"
                 spellCheck={false}
-                className="lem-input flex-1 min-w-0 appearance-none rounded-card bg-surface-3 border border-divider text-fg text-[12px] font-mono py-2 px-2.5 font-[inherit] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+                className="lem-input flex-1 min-w-0 appearance-none rounded-card bg-surface-3 border border-divider text-fg text-value font-mono py-2 px-2.5 font-[inherit] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
                 aria-label="URL to open"
               />
               <button
                 type="button"
                 onClick={openUrl}
                 disabled={pending !== null || !urlText.trim()}
-                className="lem-primary inline-flex items-center justify-center rounded-pill py-2 px-4 border-none text-[12px] font-semibold cursor-pointer font-[inherit] bg-accent-solid text-white min-h-[32px] [transition:filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+                className="lem-primary inline-flex items-center justify-center rounded-card py-2 px-4 border-none text-value font-semibold cursor-pointer font-[inherit] bg-accent-solid text-on-accent min-h-[32px] [transition:filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
               >
                 {pending === "open" ? "…" : "Open"}
               </button>
@@ -172,7 +170,7 @@ export function AppActionsTool({ udid, bundleId }: { udid: string; bundleId: str
               onChange={(e) => setPushBundle((e.target as HTMLInputElement).value)}
               placeholder="com.example.app"
               spellCheck={false}
-              className="lem-input appearance-none rounded-card bg-surface-3 border border-divider text-fg text-[12px] font-mono py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+              className="lem-input appearance-none rounded-card bg-surface-3 border border-divider text-fg text-value font-mono py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
               aria-label="Push target bundle id"
             />
             <textarea
@@ -180,7 +178,7 @@ export function AppActionsTool({ udid, bundleId }: { udid: string; bundleId: str
               onChange={(e) => setPayloadText((e.target as HTMLTextAreaElement).value)}
               rows={3}
               spellCheck={false}
-              className="lem-input appearance-none resize-y rounded-card bg-surface-3 border border-divider text-fg text-[12px] font-mono leading-[1.5] py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+              className="lem-input appearance-none resize-y rounded-card bg-surface-3 border border-divider text-fg text-value font-mono leading-[1.5] py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
               aria-label="Push payload JSON"
             />
             <div className="flex">
@@ -188,7 +186,7 @@ export function AppActionsTool({ udid, bundleId }: { udid: string; bundleId: str
                 type="button"
                 onClick={sendPush}
                 disabled={pending !== null || !pushBundle.trim()}
-                className="lem-primary inline-flex items-center justify-center rounded-pill py-2 px-4 border-none text-[12px] font-semibold cursor-pointer font-[inherit] bg-accent-solid text-white min-h-[32px] [transition:filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+                className="lem-primary inline-flex items-center justify-center rounded-card py-2 px-4 border-none text-value font-semibold cursor-pointer font-[inherit] bg-accent-solid text-on-accent min-h-[32px] [transition:filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
               >
                 {pending === "push" ? "…" : "Send"}
               </button>
@@ -201,14 +199,14 @@ export function AppActionsTool({ udid, bundleId }: { udid: string; bundleId: str
           <Section label="Keychain">
             {confirmReset ? (
               <div className="flex items-center gap-2 rounded-card bg-surface-2 border border-divider px-3 py-2.5">
-                <span className="flex-1 min-w-0 text-[12px] text-danger leading-[1.4]">
+                <span className="flex-1 min-w-0 text-value text-danger leading-[1.4]">
                   Reset the device keychain? This clears all stored credentials.
                 </span>
                 <button
                   type="button"
                   onClick={resetKeychain}
                   disabled={pending !== null}
-                  className="lem-danger shrink-0 inline-flex items-center justify-center rounded-pill py-1.5 px-3 text-[12px] font-semibold cursor-pointer font-[inherit] bg-transparent border border-divider text-danger min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+                  className="lem-danger shrink-0 inline-flex items-center justify-center rounded-card py-1.5 px-3 text-value font-semibold cursor-pointer font-[inherit] bg-transparent border border-divider text-danger min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
                 >
                   {pending === "keychain" ? "…" : "Reset"}
                 </button>
@@ -216,7 +214,7 @@ export function AppActionsTool({ udid, bundleId }: { udid: string; bundleId: str
                   type="button"
                   onClick={() => setConfirmReset(false)}
                   disabled={pending !== null}
-                  className="lem-ghost shrink-0 inline-flex items-center justify-center rounded-pill py-1.5 px-3 border border-divider text-[12px] font-medium bg-transparent text-fg cursor-pointer font-[inherit] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+                  className="lem-ghost shrink-0 inline-flex items-center justify-center rounded-card py-1.5 px-3 border border-divider text-value font-medium bg-transparent text-fg cursor-pointer font-[inherit] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)]"
                 >
                   Cancel
                 </button>
@@ -229,7 +227,7 @@ export function AppActionsTool({ udid, bundleId }: { udid: string; bundleId: str
                   setConfirmReset(true);
                 }}
                 disabled={pending !== null}
-                className="lem-ghost inline-flex items-center gap-1.5 rounded-pill py-2 px-3 border border-divider text-[12px] font-medium bg-transparent text-fg cursor-pointer font-[inherit] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)] self-start"
+                className="lem-ghost inline-flex items-center gap-1.5 rounded-card py-2 px-3 border border-divider text-value font-medium bg-transparent text-fg cursor-pointer font-[inherit] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.3s_cubic-bezier(0.4,0,0.6,1)] self-start"
               >
                 <svg
                   width="14"
@@ -253,7 +251,7 @@ export function AppActionsTool({ udid, bundleId }: { udid: string; bundleId: str
 
           {error && (
             <div
-              className="rounded-card bg-surface-2 border border-divider text-danger text-[12px] px-3 py-2.5 break-words"
+              className="rounded-card bg-surface-2 border border-divider text-danger text-value px-3 py-2.5 break-words"
               role="alert"
             >
               {error}
@@ -270,7 +268,7 @@ export function AppActionsTool({ udid, bundleId }: { udid: string; bundleId: str
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-2" role="group" aria-label={label}>
-      <span className="text-[12px] uppercase tracking-[0.06em] text-fg-3">{label}</span>
+      <span className="text-value uppercase tracking-[0.06em] text-fg-3">{label}</span>
       {children}
     </div>
   );
