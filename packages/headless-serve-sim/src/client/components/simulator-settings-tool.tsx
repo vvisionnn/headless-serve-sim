@@ -80,27 +80,6 @@ function SettingLabel({ icon, label }: { icon: ReactNode; label: string }) {
   );
 }
 
-function SettingRow({
-  icon,
-  label,
-  children,
-}: {
-  icon: ReactNode;
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 min-h-[38px]" data-setting-row={label}>
-      <span className="flex shrink-0 items-center text-body text-fg whitespace-nowrap">
-        <SettingLabel icon={icon} label={label} />
-      </span>
-      {/* min-w-0 lets the control shrink instead of overflowing the panel
-          when it's resized to its narrow end. */}
-      <span className="flex min-w-0 justify-end text-fg">{children}</span>
-    </div>
-  );
-}
-
 function TextSizeSlider({
   value,
   disabled,
@@ -376,14 +355,10 @@ export function SimulatorSettingsTool({
   udid,
   execToken,
   refreshKey,
-  hardware,
 }: {
   udid: string;
   execToken?: string;
   refreshKey?: unknown;
-  /** Hardware-button controls, rendered as the section's first row. Passed in
-   *  rather than built here so this component stays free of the input socket. */
-  hardware?: ReactNode;
 }) {
   const [open, setOpen] = useState(true);
   const [state, setState] = useState<SettingsState | null>(null);
@@ -498,11 +473,6 @@ export function SimulatorSettingsTool({
       )}
 
       <div className="flex flex-col gap-4">
-        {hardware && (
-          <SettingRow icon={I.hardware} label="Buttons">
-            {hardware}
-          </SettingRow>
-        )}
         <SettingSelect
           icon={I.appearance}
           label="Appearance"

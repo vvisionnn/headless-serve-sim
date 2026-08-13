@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { DeviceFrameArtworkAsset, DeviceFrameSpec } from "headless-serve-sim-client/simulator";
 import {
   deviceFrameControlRect,
+  deviceFrameControlRectAt,
   paintDeviceFrameArtwork,
   prepareDeviceFrameArtwork,
 } from "../client/device-frame-artwork";
@@ -228,5 +229,51 @@ describe("DeviceKit frame artwork", () => {
       deviceTypeIdentifier: "iphone-17-pro",
       chromeIdentifier: "phone11",
     });
+  });
+});
+
+// The bezel's hoverable buttons ride on this: DeviceKit ships each control at
+// two offsets, and the live view slides between them under the pointer the way
+// Simulator.app does. If the two rects ever collapse to the same place the
+// hover has no visible effect, so pin the direction of travel per edge.
+describe("deviceFrameControlRectAt", () => {
+  const artwork = {
+    width: 400,
+    height: 800,
+    chromeRectPx: { x: 20, y: 0, width: 360, height: 800 },
+    slices: {} as never,
+    controls: [],
+  };
+
+  const control = (anchor: "left" | "right", normal: number, rollover: number) => ({
+    name: "volume-up",
+    image: { pngDataUrl: "data:image/png;base64,", width: 40, height: 100 },
+    onTop: false,
+    anchor,
+    align: "leading" as const,
+    normalOffsetPx: { x: normal, y: 200 },
+    rolloverOffsetPx: { x: rollover, y: 200 },
+  });
+
+  test("a left-edge control moves further left when it pops out", () => {
+    const c = control("left", 24, 9);
+    const rest = deviceFrameControlRectAt(c, artwork, c.normalOffsetPx);
+    const out = deviceFrameControlRectAt(c, artwork, c.rolloverOffsetPx);
+    expect(out.x).toBeLessThan(rest.x);
+    expect(out.y).toBe(rest.y);
+    expect(out.width).toBe(40);
+  });
+
+  test("a right-edge control moves further right when it pops out", () => {
+    const c = control("right", -24, -9);
+    const rest = deviceFrameControlRectAt(c, artwork, c.normalOffsetPx);
+    const out = deviceFrameControlRectAt(c, artwork, c.rolloverOffsetPx);
+    expect(out.x).toBeGreaterThan(rest.x);
+  });
+
+  test("offsets are measured from the chrome, not the artwork bounds", () => {
+    const c = control("left", 24, 9);
+    // left anchor centres the image on the offset: chrome.x + offset - width/2
+    expect(deviceFrameControlRectAt(c, artwork, c.normalOffsetPx).x).toBe(20 + 24 - 20);
   });
 });

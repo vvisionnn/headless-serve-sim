@@ -1,6 +1,10 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
-import { prepareDeviceFrameArtwork } from "../device-frame-artwork";
+import type {
+  DeviceFrameArtworkControl,
+  DeviceFrameSpec,
+} from "headless-serve-sim-client/simulator";
+import { deviceFrameControlRectAt, prepareDeviceFrameArtwork } from "../device-frame-artwork";
+import { hardwareButtonAction, type HardwareButtonPress } from "../utils/hardware-buttons";
 import type { BezelGeometry } from "../utils/bezel-geometry";
 
 // The device as it looks in Simulator.app — because it IS what Simulator.app
@@ -37,7 +41,9 @@ function useFrameArtwork(spec: DeviceFrameSpec | null): string | null {
       return;
     }
     let cancelled = false;
-    void prepareDeviceFrameArtwork(spec).then((prepared) => {
+    // Composite the body WITHOUT its controls: they are drawn separately below
+    // so each one can move under the pointer and be pressed.
+    void prepareDeviceFrameArtwork(spec, undefined, false).then((prepared) => {
       if (cancelled || !prepared) return;
       const canvas = prepared.source as HTMLCanvasElement;
       if (typeof canvas.toDataURL !== "function") return;
@@ -58,16 +64,23 @@ export function DeviceBezel({
   geometry,
   children,
   screenRef,
+  onPressButton,
   ...dropProps
 }: {
   spec: DeviceFrameSpec;
   geometry: BezelGeometry;
   children: ReactNode;
   screenRef?: (node: HTMLDivElement | null) => void;
+  /** Press a physical control on the bezel. */
+  onPressButton?: (press: HardwareButtonPress) => void;
 } & Record<string, unknown>) {
   const artwork = useFrameArtwork(spec);
   const { screen, screenRadii, rotation } = geometry;
   const sideways = Math.abs(rotation) === 90;
+  const bodyWidth = sideways ? geometry.artworkHeight : geometry.artworkWidth;
+  const bodyHeight = sideways ? geometry.artworkWidth : geometry.artworkHeight;
+  const bodyLeft = (geometry.width - bodyWidth) / 2;
+  const bodyTop = (geometry.height - bodyHeight) / 2;
 
   return (
     <div
@@ -78,25 +91,29 @@ export function DeviceBezel({
         filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.10)) drop-shadow(0 14px 40px rgba(0,0,0,0.18))",
       }}
     >
-      {/* The device body, painted under the screen. */}
+      {/* The device body and its controls share one rotated layer, so turning
+          the device keeps every button on the edge it physically lives on. */}
       {artwork ? (
-        <img
-          src={artwork}
-          alt=""
-          aria-hidden
-          draggable={false}
-          className="pointer-events-none absolute select-none"
+        <div
+          className="pointer-events-none absolute"
           style={{
             width: geometry.artworkWidth,
             height: geometry.artworkHeight,
-            left:
-              (geometry.width - (sideways ? geometry.artworkHeight : geometry.artworkWidth)) / 2,
-            top:
-              (geometry.height - (sideways ? geometry.artworkWidth : geometry.artworkHeight)) / 2,
+            left: bodyLeft + (bodyWidth - geometry.artworkWidth) / 2,
+            top: bodyTop + (bodyHeight - geometry.artworkHeight) / 2,
             transform: rotation ? `rotate(${rotation}deg)` : undefined,
             transformOrigin: "center",
           }}
-        />
+        >
+          <img
+            src={artwork}
+            alt=""
+            aria-hidden
+            draggable={false}
+            className="absolute inset-0 size-full select-none"
+          />
+          <BezelControls spec={spec} scale={geometry.scale} onPressButton={onPressButton} />
+        </div>
       ) : (
         // Until the artwork is composited (and for profiles that ship none),
         // a plain dark shell at the profile's own outer radius.
@@ -124,6 +141,112 @@ export function DeviceBezel({
         {children}
       </div>
     </div>
+  );
+}
+
+/**
+ * The physical controls on the device body.
+ *
+ * DeviceKit gives every control two positions — `normalOffsetPx` at rest and
+ * `rolloverOffsetPx` pushed out from the body — which is exactly the hover
+ * behaviour Simulator.app shows. Each control is its own image so it can slide
+ * between the two under the pointer and be pressed; they are excluded from the
+ * composited body above so nothing is drawn twice.
+ *
+ * Controls that are not presses (the digital crown rotates; the Action button
+ * has no usage of its own) are drawn but stay inert — `hardwareButtonAction`
+ * decides, so a new device body needs no table here.
+ */
+function BezelControls({
+  spec,
+  scale,
+  onPressButton,
+}: {
+  spec: DeviceFrameSpec;
+  scale: number;
+  onPressButton?: (press: HardwareButtonPress) => void;
+}) {
+  const artwork = spec.artwork;
+  if (!artwork) return null;
+  return (
+    <>
+      {artwork.controls.map((control) => (
+        <BezelControl
+          key={`${control.name}-${control.anchor}-${control.normalOffsetPx.y}`}
+          control={control}
+          artwork={artwork}
+          scale={scale}
+          onPressButton={onPressButton}
+        />
+      ))}
+    </>
+  );
+}
+
+function BezelControl({
+  control,
+  artwork,
+  scale,
+  onPressButton,
+}: {
+  control: DeviceFrameArtworkControl;
+  artwork: NonNullable<DeviceFrameSpec["artwork"]>;
+  scale: number;
+  onPressButton?: (press: HardwareButtonPress) => void;
+}) {
+  const [hover, setHover] = useState(false);
+  const [held, setHeld] = useState(false);
+  const action = hardwareButtonAction(control.name);
+  const pressable = action !== null && onPressButton !== undefined;
+
+  const rest = deviceFrameControlRectAt(control, artwork, control.normalOffsetPx);
+  const out = deviceFrameControlRectAt(control, artwork, control.rolloverOffsetPx);
+  const shown = hover || held ? out : rest;
+
+  const press = () => {
+    if (!action || !onPressButton) return;
+    onPressButton(
+      action.button
+        ? { button: action.button }
+        : { usagePage: action.usagePage, usage: action.usage },
+    );
+  };
+
+  return (
+    <img
+      src={control.image.pngDataUrl}
+      alt=""
+      draggable={false}
+      aria-hidden={!pressable}
+      role={pressable ? "button" : undefined}
+      aria-label={pressable ? action.label : undefined}
+      tabIndex={pressable ? 0 : -1}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => {
+        setHover(false);
+        setHeld(false);
+      }}
+      onPointerDown={() => pressable && setHeld(true)}
+      onPointerUp={() => {
+        if (!pressable) return;
+        setHeld(false);
+        press();
+      }}
+      onKeyDown={(e) => {
+        if (!pressable || (e.key !== "Enter" && e.key !== " ")) return;
+        e.preventDefault();
+        press();
+      }}
+      className={`absolute select-none outline-none ${
+        pressable ? "pointer-events-auto cursor-pointer" : "pointer-events-none"
+      } [transition:left_0.16s_cubic-bezier(0.4,0,0.6,1),top_0.16s_cubic-bezier(0.4,0,0.6,1)] focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]`}
+      style={{
+        left: shown.x * scale,
+        top: shown.y * scale,
+        width: shown.width * scale,
+        height: shown.height * scale,
+      }}
+    />
   );
 }
 

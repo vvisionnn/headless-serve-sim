@@ -11,6 +11,14 @@ import { HIDUsage } from "./hid-usage";
  * volume-down, volume-up.
  */
 
+/** What the helper is asked to do when a physical control is pressed. */
+export interface HardwareButtonPress {
+  button?: string;
+  usagePage?: number;
+  usage?: number;
+  phase?: "down" | "up" | "press";
+}
+
 export interface HardwareButtonAction {
   /** Existing named button the CLI/helper already understands, if any. */
   button?: string;
@@ -50,11 +58,6 @@ const ACTIONS: Record<string, HardwareButtonAction> = {
  */
 export function hardwareButtonAction(controlName: string): HardwareButtonAction | null {
   return ACTIONS[controlName.toLowerCase()] ?? null;
-}
-
-/** Every DeviceKit control name that maps to a press. */
-export function pressableControlNames(): string[] {
-  return Object.keys(ACTIONS);
 }
 
 /** Whether a DeviceKit control should be rendered as a pressable button. */

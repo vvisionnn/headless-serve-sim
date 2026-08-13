@@ -35,7 +35,6 @@ import { BootEmptyState } from "./components/boot-empty-state";
 import { PanelCard } from "./components/design-system";
 import { BareScreen, DeviceBezel } from "./components/device-bezel";
 import { SimulatorDisconnected } from "./components/simulator-disconnected";
-import { DeviceHardwareButtons } from "./components/device-hardware-buttons";
 import { DevicePicker } from "./components/device-picker";
 import { GridPanel } from "./components/grid-panel";
 import { MetricsBar } from "./components/metrics-bar";
@@ -55,6 +54,7 @@ import { avccFallbackReducer, initialAvccFallback, AVCC_FRAME_TIMEOUT_MS } from 
 import { parseSimctlList, type SimDevice } from "./utils/devices";
 import { fileExtension } from "./utils/drop";
 import { execOnHost } from "./utils/exec";
+import { type HardwareButtonPress } from "./utils/hardware-buttons";
 import { hidUsageForCode, reactNativeReloadKeys } from "./utils/hid";
 import { isSoftwareKeyboardShortcut, isTextEntryTarget } from "./utils/shortcuts";
 import {
@@ -1076,6 +1076,16 @@ function AppWithConfig({
   const attachScreen = useCallback((node: HTMLDivElement | null) => {
     simContainerRef.current = node;
   }, []);
+  const pressHardwareButton = useCallback(
+    (press: HardwareButtonPress) => {
+      sendWs(0x04, press);
+      logEvent({
+        kind: "button",
+        details: { button: press.button ?? `usage:0x${(press.usage ?? 0).toString(16)}` },
+      });
+    },
+    [sendWs, logEvent],
+  );
   const screenContent = (
     <>
       <SimulatorView
@@ -1220,6 +1230,7 @@ function AppWithConfig({
               spec={bezelSpec}
               geometry={bezelGeom}
               screenRef={attachScreen}
+              onPressButton={pressHardwareButton}
               {...mediaDrop.dropZoneProps}
             >
               {screenContent}
@@ -1239,20 +1250,6 @@ function AppWithConfig({
         {/* Right card — inspector. */}
         <InspectorBar
           open={inspectorOpen}
-          hardwareButtons={
-            <DeviceHardwareButtons
-              frame={config.deviceFrameSpec ?? null}
-              onPress={(press) => {
-                sendWs(0x04, press);
-                logEvent({
-                  kind: "button",
-                  details: {
-                    button: press.button ?? `usage:0x${(press.usage ?? 0).toString(16)}`,
-                  },
-                });
-              }}
-            />
-          }
           onToggle={() => setInspectorOpen((o) => !o)}
           collapsedWidth={RAIL_COLLAPSED_WIDTH}
           expandedWidth={RAIL_EXPANDED_WIDTH}

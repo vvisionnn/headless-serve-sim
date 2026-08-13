@@ -37,9 +37,21 @@ export function deviceFrameControlRect(
   control: DeviceFrameArtworkControl,
   artwork: DeviceFrameArtwork,
 ): DeviceFrameArtworkRect {
+  return deviceFrameControlRectAt(control, artwork, restingOffset(control));
+}
+
+/**
+ * Where a control sits for a given offset. DeviceKit ships two per control:
+ * `normalOffsetPx` (resting) and `rolloverOffsetPx` (pushed out under the
+ * pointer) — the same pair Simulator.app animates between on hover.
+ */
+export function deviceFrameControlRectAt(
+  control: DeviceFrameArtworkControl,
+  artwork: DeviceFrameArtwork,
+  offset: { x: number; y: number },
+): DeviceFrameArtworkRect {
   const chrome = artwork.chromeRectPx;
   const image = control.image;
-  const offset = restingOffset(control);
   if (control.anchor === "left") {
     return {
       x: chrome.x + offset.x - image.width / 2,
@@ -87,6 +99,7 @@ export function paintDeviceFrameArtwork(
   context: CanvasRenderingContext2D,
   frame: DeviceFrameSpec,
   images: ReadonlyMap<string, CanvasImageSource>,
+  includeControls = true,
 ): boolean {
   const artwork = frame.artwork;
   if (!artwork) return false;
@@ -97,6 +110,7 @@ export function paintDeviceFrameArtwork(
   if (assets.some((asset) => !images.has(asset.pngDataUrl))) return false;
 
   for (const control of artwork.controls) {
+    if (!includeControls) break;
     if (!control.onTop) {
       drawAsset(context, images, control.image, deviceFrameControlRect(control, artwork));
     }
@@ -156,6 +170,7 @@ export function paintDeviceFrameArtwork(
   });
 
   for (const control of artwork.controls) {
+    if (!includeControls) break;
     if (control.onTop) {
       drawAsset(context, images, control.image, deviceFrameControlRect(control, artwork));
     }
@@ -183,16 +198,21 @@ const browserArtworkPlatform: DeviceFrameArtworkPlatform = {
 const preparedArtworkCache = new Map<string, Promise<PreparedDeviceFrameArtwork | null>>();
 const MAX_PREPARED_ARTWORK_CACHE_ENTRIES = 2;
 
-function preparationKey(frame: DeviceFrameSpec): string {
+function preparationKey(frame: DeviceFrameSpec, includeControls: boolean): string {
   const artwork = frame.artwork!;
-  return [frame.deviceTypeIdentifier, frame.chromeIdentifier, artwork.width, artwork.height].join(
-    ":",
-  );
+  return [
+    frame.deviceTypeIdentifier,
+    frame.chromeIdentifier,
+    artwork.width,
+    artwork.height,
+    includeControls ? "controls" : "bare",
+  ].join(":");
 }
 
 async function prepare(
   frame: DeviceFrameSpec,
   platform: DeviceFrameArtworkPlatform,
+  includeControls: boolean,
 ): Promise<PreparedDeviceFrameArtwork | null> {
   const artwork = frame.artwork;
   if (!artwork) return null;
@@ -210,7 +230,7 @@ async function prepare(
     if (!context) return null;
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
-    if (!paintDeviceFrameArtwork(context, frame, new Map(loaded))) return null;
+    if (!paintDeviceFrameArtwork(context, frame, new Map(loaded), includeControls)) return null;
     return {
       source: canvas,
       width: artwork.width,
@@ -226,13 +246,14 @@ async function prepare(
 export function prepareDeviceFrameArtwork(
   frame: DeviceFrameSpec,
   platform: DeviceFrameArtworkPlatform = browserArtworkPlatform,
+  includeControls = true,
 ): Promise<PreparedDeviceFrameArtwork | null> {
-  if (platform !== browserArtworkPlatform) return prepare(frame, platform);
+  if (platform !== browserArtworkPlatform) return prepare(frame, platform, includeControls);
   if (!frame.artwork) return Promise.resolve(null);
-  const key = preparationKey(frame);
+  const key = preparationKey(frame, includeControls);
   const cached = preparedArtworkCache.get(key);
   if (cached) return cached;
-  const pending = prepare(frame, platform);
+  const pending = prepare(frame, platform, includeControls);
   preparedArtworkCache.set(key, pending);
   if (preparedArtworkCache.size > MAX_PREPARED_ARTWORK_CACHE_ENTRIES) {
     const oldestKey = preparedArtworkCache.keys().next().value;
