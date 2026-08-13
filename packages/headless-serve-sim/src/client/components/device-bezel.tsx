@@ -3,7 +3,12 @@ import type {
   DeviceFrameArtworkControl,
   DeviceFrameSpec,
 } from "headless-serve-sim-client/simulator";
-import { deviceFrameControlRectAt, prepareDeviceFrameArtwork } from "../device-frame-artwork";
+import {
+  controlHoverOffset,
+  deviceFrameControlRectAt,
+  prepareDeviceFrameArtwork,
+  restingControlOffset,
+} from "../device-frame-artwork";
 import { hardwareButtonAction, type HardwareButtonPress } from "../utils/hardware-buttons";
 import type { BezelGeometry } from "../utils/bezel-geometry";
 
@@ -105,14 +110,20 @@ export function DeviceBezel({
             transformOrigin: "center",
           }}
         >
+          <BezelControls
+            spec={spec}
+            scale={geometry.scale}
+            onTop={false}
+            onPressButton={onPressButton}
+          />
           <img
             src={artwork}
             alt=""
             aria-hidden
             draggable={false}
-            className="absolute inset-0 size-full select-none"
+            className="pointer-events-none absolute inset-0 size-full select-none"
           />
-          <BezelControls spec={spec} scale={geometry.scale} onPressButton={onPressButton} />
+          <BezelControls spec={spec} scale={geometry.scale} onTop onPressButton={onPressButton} />
         </div>
       ) : (
         // Until the artwork is composited (and for profiles that ship none),
@@ -160,25 +171,30 @@ export function DeviceBezel({
 function BezelControls({
   spec,
   scale,
+  onTop,
   onPressButton,
 }: {
   spec: DeviceFrameSpec;
   scale: number;
+  /** Render the layer that sits above the body, or the one beneath it. */
+  onTop: boolean;
   onPressButton?: (press: HardwareButtonPress) => void;
 }) {
   const artwork = spec.artwork;
   if (!artwork) return null;
   return (
     <>
-      {artwork.controls.map((control) => (
-        <BezelControl
-          key={`${control.name}-${control.anchor}-${control.normalOffsetPx.y}`}
-          control={control}
-          artwork={artwork}
-          scale={scale}
-          onPressButton={onPressButton}
-        />
-      ))}
+      {artwork.controls
+        .filter((control) => control.onTop === onTop)
+        .map((control) => (
+          <BezelControl
+            key={`${control.name}-${control.anchor}-${control.normalOffsetPx.y}`}
+            control={control}
+            artwork={artwork}
+            scale={scale}
+            onPressButton={onPressButton}
+          />
+        ))}
     </>
   );
 }
@@ -199,8 +215,8 @@ function BezelControl({
   const action = hardwareButtonAction(control.name);
   const pressable = action !== null && onPressButton !== undefined;
 
-  const rest = deviceFrameControlRectAt(control, artwork, control.normalOffsetPx);
-  const out = deviceFrameControlRectAt(control, artwork, control.rolloverOffsetPx);
+  const rest = deviceFrameControlRectAt(control, artwork, restingControlOffset(control));
+  const out = deviceFrameControlRectAt(control, artwork, controlHoverOffset(control));
   const shown = hover || held ? out : rest;
 
   const press = () => {

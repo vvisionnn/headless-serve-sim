@@ -25,6 +25,46 @@ export interface DeviceFrameArtworkPlatform {
   loadImage(dataUrl: string): Promise<CanvasImageSource>;
 }
 
+/**
+ * Where a control sits when nothing is hovering it — the position the device
+ * body has always been composited with.
+ */
+export function restingControlOffset(control: DeviceFrameArtworkControl) {
+  return restingOffset(control);
+}
+
+/**
+ * How far a control travels outward on hover, along the edge it sits on.
+ *
+ * DeviceKit's two offsets bound the travel, but only a fraction of it can be
+ * used: the button image is wider than the visible nub, and moving it the full
+ * separation lifts the nub clear of the body, leaving it floating beside the
+ * device with a gap. A quarter of the throw keeps the inner half of the nub
+ * under the body edge, so it reads as a button pushing out of the case.
+ */
+const HOVER_TRAVEL_FRACTION = 0.25;
+
+export function controlHoverOffset(control: DeviceFrameArtworkControl) {
+  const rest = restingOffset(control);
+  const throwPx =
+    HOVER_TRAVEL_FRACTION *
+    Math.abs(
+      control.anchor === "left" || control.anchor === "right"
+        ? control.normalOffsetPx.x - control.rolloverOffsetPx.x
+        : control.normalOffsetPx.y - control.rolloverOffsetPx.y,
+    );
+  switch (control.anchor) {
+    case "left":
+      return { x: rest.x - throwPx, y: rest.y };
+    case "right":
+      return { x: rest.x + throwPx, y: rest.y };
+    case "top":
+      return { x: rest.x, y: rest.y - throwPx };
+    default:
+      return { x: rest.x, y: rest.y + throwPx };
+  }
+}
+
 function restingOffset(control: DeviceFrameArtworkControl) {
   if (control.anchor === "left") return control.rolloverOffsetPx;
   return {
