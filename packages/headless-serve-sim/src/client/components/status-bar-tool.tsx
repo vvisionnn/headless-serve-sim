@@ -157,7 +157,7 @@ export function StatusBarTool({ udid }: { udid: string }) {
         className="lem-toggle flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full bg-transparent border-none text-left cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="mr-auto text-body font-semibold text-fg text-fg">Status Bar</span>
+        <span className="mr-auto text-body font-semibold text-fg">Status Bar</span>
         <Chevron open={open} />
       </button>
 
@@ -327,21 +327,13 @@ function Select({
   ariaLabel: string;
 }) {
   return (
-    <div className="relative block">
-      <SelectMenu
-        label={ariaLabel}
-        value={value}
-        options={[{ value: "", label: "unset" }, ...options.map((o) => ({ value: o, label: o }))]}
-        onChange={onChange}
-        className="lem-select bg-surface-3 rounded-card border border-divider text-fg text-value py-2 pr-[28px] pl-2.5 w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
-      />
-      <span
-        className="absolute right-[10px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center"
-        aria-hidden="true"
-      >
-        <Chevron open={false} />
-      </span>
-    </div>
+    <SelectMenu
+      label={ariaLabel}
+      value={value}
+      options={[{ value: "", label: "unset" }, ...options.map((o) => ({ value: o, label: o }))]}
+      onChange={onChange}
+      className="lem-select bg-surface-3 rounded-card border border-divider text-fg text-value py-2 px-2.5 w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+    />
   );
 }
 

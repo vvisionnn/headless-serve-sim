@@ -335,7 +335,7 @@ export function LocationEmulationTool({ udid, exec }: { udid: string; exec: Exec
         className="lem-toggle flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full cursor-pointer select-none bg-transparent border-none text-fg text-left [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="mr-auto text-body font-semibold text-fg text-fg">Location</span>
+        <span className="mr-auto text-body font-semibold text-fg">Location</span>
         <span className="flex items-center gap-2.5 ml-auto">
           <span className="text-micro text-fg-3 font-mono inline-flex items-center gap-1.5 leading-none">
             <span
@@ -357,21 +357,13 @@ export function LocationEmulationTool({ udid, exec }: { udid: string; exec: Exec
       {open && (
         <div className="px-5 pb-4 pt-1 flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
-            <div className="relative block">
-              <Select
-                label="Trail"
-                value={trailId}
-                options={DEFAULT_TRAILS.map((t) => ({ value: t.id, label: t.name }))}
-                onChange={onTrailChange}
-                className="lem-select bg-surface-3 rounded-card border border-divider text-fg text-value py-2 pr-[28px] pl-2.5 w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
-              />
-              <span
-                className="absolute right-[10px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center"
-                aria-hidden="true"
-              >
-                <Chevron open={false} />
-              </span>
-            </div>
+            <Select
+              label="Trail"
+              value={trailId}
+              options={DEFAULT_TRAILS.map((t) => ({ value: t.id, label: t.name }))}
+              onChange={onTrailChange}
+              className="lem-select bg-surface-3 rounded-card border border-divider text-fg text-value py-2 px-2.5 w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
+            />
             <div className="text-micro text-fg-3">{trail.description}</div>
           </div>
 
@@ -430,7 +422,7 @@ export function LocationEmulationTool({ udid, exec }: { udid: string; exec: Exec
                 const next = SPEED_MULTIPLIERS[(idx + 1) % SPEED_MULTIPLIERS.length]!;
                 setMultiplier(next);
               }}
-              className={`lem-speed flex items-center justify-center gap-1 px-3 rounded-card border cursor-pointer font-[inherit] text-value font-semibold min-w-[56px] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1),transform_0.12s_cubic-bezier(0.4,0,0.6,1)] ${multiplier > 1 ? "lem-speed-on bg-accent-solid border-accent text-white" : "bg-panel border-divider text-fg"}`}
+              className={`lem-speed flex items-center justify-center gap-1 px-3 rounded-card border cursor-pointer font-[inherit] text-value font-semibold min-w-[56px] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1),transform_0.12s_cubic-bezier(0.4,0,0.6,1)] ${multiplier > 1 ? "lem-speed-on bg-accent-solid border-accent text-on-accent" : "bg-panel border-divider text-fg"}`}
               aria-label={`Speed ${multiplier}× — tap to cycle`}
               title={`Speed ${multiplier}× — tap to cycle`}
             >

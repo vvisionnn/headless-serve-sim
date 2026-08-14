@@ -118,7 +118,10 @@ export function Select({
         aria-expanded={open}
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
-        className={`text-left font-[inherit] cursor-pointer disabled:cursor-default ${className ?? ""}`}
+        // `flex` is part of the component, not the caller's job: the trigger owns
+        // a caret now, and under the default `inline-block` that caret wraps onto
+        // its own line and doubles the control's height.
+        className={`flex cursor-pointer items-center justify-between gap-2 text-left font-[inherit] disabled:cursor-default ${className ?? ""}`}
       >
         <span className="block min-w-0 flex-1 truncate">{selected?.label ?? value}</span>
         {/* The disclosure caret is what separates a MENU from a SWITCH. Without
