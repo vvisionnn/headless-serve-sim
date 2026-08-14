@@ -217,7 +217,15 @@ function BezelControl({
 
   const rest = deviceFrameControlRectAt(control, artwork, restingControlOffset(control));
   const out = deviceFrameControlRectAt(control, artwork, controlHoverOffset(control));
-  const shown = hover || held ? out : rest;
+  // Layout stays at the resting rect so it tracks `scale` in lockstep with the
+  // body, which has no transition of its own. The hover throw rides on a
+  // transform instead — and in PERCENT, which resolves against the button's own
+  // box, so a resize rescales the travel for free and never animates it.
+  const travel = {
+    x: ((out.x - rest.x) / rest.width) * 100,
+    y: ((out.y - rest.y) / rest.height) * 100,
+  };
+  const extended = hover || held;
 
   const press = () => {
     if (!action || !onPressButton) return;
@@ -255,12 +263,13 @@ function BezelControl({
       }}
       className={`absolute select-none outline-none ${
         pressable ? "pointer-events-auto cursor-pointer" : "pointer-events-none"
-      } [transition:left_0.16s_cubic-bezier(0.4,0,0.6,1),top_0.16s_cubic-bezier(0.4,0,0.6,1)] focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]`}
+      } [transition:transform_0.16s_cubic-bezier(0.4,0,0.6,1)] focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]`}
       style={{
-        left: shown.x * scale,
-        top: shown.y * scale,
-        width: shown.width * scale,
-        height: shown.height * scale,
+        left: rest.x * scale,
+        top: rest.y * scale,
+        width: rest.width * scale,
+        height: rest.height * scale,
+        transform: extended ? `translate(${travel.x}%, ${travel.y}%)` : undefined,
       }}
     />
   );
