@@ -55,7 +55,7 @@ export function GridTile({
             onShutdown();
           }}
           disabled={shuttingDown}
-          className="grid-shutdown-btn absolute top-2 right-2 w-7 h-7 rounded-full border border-divider bg-panel text-fg text-body leading-none cursor-pointer flex items-center justify-center p-0 z-[2] pointer-events-auto [transition:background-color_0.3s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+          className="grid-shutdown-btn absolute top-2 right-2 w-7 h-7 rounded-sm border border-divider bg-panel text-fg text-body leading-none cursor-pointer flex items-center justify-center p-0 z-[2] pointer-events-auto [transition:background-color_0.3s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
         >
           ×
         </button>
@@ -91,7 +91,7 @@ export function GridTile({
               onStart();
             }}
             disabled={starting}
-            className={`px-3 py-1.5 rounded-card border border-divider text-value font-mono [transition:background-color_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] ${starting ? "bg-surface-2 text-fg-2 cursor-default" : "bg-panel text-success cursor-pointer hover:bg-hover"}`}
+            className={`px-3 py-1.5 rounded-card border border-divider text-value font-mono [transition:background-color_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] ${starting ? "bg-surface-2 text-fg-2 cursor-default" : "bg-panel text-fg cursor-pointer hover:bg-hover"}`}
           >
             {starting
               ? isBooted

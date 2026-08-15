@@ -79,7 +79,7 @@ export function ScreenshotTool({ udid }: { udid: string }) {
         className="flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full cursor-pointer select-none bg-transparent border-none text-left [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="mr-auto text-body font-semibold text-fg text-fg">Screenshot</span>
+        <span className="mr-auto text-body font-semibold text-fg">Screenshot</span>
         <Chevron open={open} />
       </button>
 
@@ -117,7 +117,7 @@ export function ScreenshotTool({ udid }: { udid: string }) {
           >
             {pending === "capture" ? (
               <span className="inline-flex items-center gap-1.5">
-                <span className="size-1.5 rounded-full bg-white/80 animate-pulse" />
+                <span className="size-1.5 rounded-full bg-current opacity-80 animate-pulse" />
                 Capturing…
               </span>
             ) : (

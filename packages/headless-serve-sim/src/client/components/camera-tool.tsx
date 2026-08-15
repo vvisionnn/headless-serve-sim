@@ -819,7 +819,7 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
         className="lem-toggle flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full bg-transparent border-none text-left cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="mr-auto text-body font-semibold text-fg text-fg">Camera</span>
+        <span className="mr-auto text-body font-semibold text-fg">Camera</span>
         <CameraStatusPill state={pillState} />
         <Chevron open={open} />
       </button>
@@ -882,7 +882,7 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
                   e.stopPropagation();
                   clearMedia();
                 }}
-                className="shrink-0 w-6 h-6 flex items-center justify-center bg-transparent rounded-full border-none text-fg-2 hover:text-fg hover:bg-hover cursor-pointer p-0 transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+                className="shrink-0 w-6 h-6 flex items-center justify-center bg-transparent rounded-sm border-none text-fg-2 hover:text-fg hover:bg-hover cursor-pointer p-0 transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
                 aria-label="Clear source"
                 title="Clear → placeholder"
               >
@@ -980,7 +980,7 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
                           void refreshWebcams();
                         }}
                         disabled={webcamLoading}
-                        className="flex items-center justify-center w-6 h-6 bg-transparent rounded-full border-none text-fg-2 hover:text-fg hover:bg-hover cursor-pointer p-0 disabled:opacity-50 transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)]"
+                        className="flex items-center justify-center w-6 h-6 bg-transparent rounded-sm border-none text-fg-2 hover:text-fg hover:bg-hover cursor-pointer p-0 disabled:opacity-50 transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)]"
                         aria-label="Refresh cameras"
                         title="Refresh cameras"
                       >
@@ -1017,7 +1017,7 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
                 "flex-1 flex items-center justify-center gap-1.5 py-2 px-4 text-value font-medium rounded-card cursor-pointer disabled:opacity-50 min-h-[36px] transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]",
                 primary.kind === "stop"
                   ? "lem-primary lem-primary-on bg-panel border border-divider text-fg hover:bg-hover"
-                  : "lem-primary bg-accent-solid border border-accent-solid text-white",
+                  : "lem-primary bg-accent-solid border border-accent-solid text-on-accent",
               ].join(" ")}
               title={
                 primary.kind === "stop"
