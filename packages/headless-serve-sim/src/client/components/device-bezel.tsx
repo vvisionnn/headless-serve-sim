@@ -26,6 +26,8 @@ import type { BezelGeometry } from "../utils/bezel-geometry";
 
 const dataUrls = new Map<string, string>();
 
+const SHADOW = "drop-shadow(0 2px 6px rgba(0,0,0,0.10)) drop-shadow(0 14px 40px rgba(0,0,0,0.18))";
+
 function artworkKey(spec: DeviceFrameSpec): string {
   return `${spec.deviceTypeIdentifier}:${spec.chromeIdentifier}:${spec.artwork?.width}x${spec.artwork?.height}`;
 }
@@ -88,17 +90,13 @@ export function DeviceBezel({
   const bodyTop = (geometry.height - bodyHeight) / 2;
 
   return (
-    <div
-      className="relative shrink-0"
-      style={{
-        width: geometry.width,
-        height: geometry.height,
-        filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.10)) drop-shadow(0 14px 40px rgba(0,0,0,0.18))",
-      }}
-    >
+    <div className="relative shrink-0" style={{ width: geometry.width, height: geometry.height }}>
       {/* The device body and its controls share one rotated layer, so turning
-          the device keeps every button on the edge it physically lives on. */}
-      {artwork ? (
+          the device keeps every button on the edge it physically lives on. The
+          drop shadow lives HERE rather than on the wrapper: the wrapper also
+          contains the live screen, and a filter forces its whole subtree to be
+          re-rasterized — every decoded frame would pay for the shadow. */}
+      {spec.artwork ? (
         <div
           className="pointer-events-none absolute"
           style={{
@@ -108,6 +106,7 @@ export function DeviceBezel({
             top: bodyTop + (bodyHeight - geometry.artworkHeight) / 2,
             transform: rotation ? `rotate(${rotation}deg)` : undefined,
             transformOrigin: "center",
+            filter: SHADOW,
           }}
         >
           <BezelControls
@@ -116,22 +115,27 @@ export function DeviceBezel({
             onTop={false}
             onPressButton={onPressButton}
           />
-          <img
-            src={artwork}
-            alt=""
-            aria-hidden
-            draggable={false}
-            className="pointer-events-none absolute inset-0 size-full select-none"
-          />
+          {/* The composited body. The controls above and below it stand on their
+              own, so a slow or failed composite costs the device its skin — not
+              its buttons. */}
+          {artwork && (
+            <img
+              src={artwork}
+              alt=""
+              aria-hidden
+              draggable={false}
+              className="pointer-events-none absolute inset-0 size-full select-none"
+            />
+          )}
           <BezelControls spec={spec} scale={geometry.scale} onTop onPressButton={onPressButton} />
         </div>
       ) : (
-        // Until the artwork is composited (and for profiles that ship none),
-        // a plain dark shell at the profile's own outer radius.
+        // Profiles that ship no artwork at all: a plain dark shell at the
+        // profile's own outer radius.
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 bg-[#09090b]"
-          style={{ borderRadius: geometry.outerRadius }}
+          style={{ borderRadius: geometry.outerRadius, filter: SHADOW }}
         />
       )}
 
@@ -257,7 +261,9 @@ function BezelControl({
         press();
       }}
       onKeyDown={(e) => {
-        if (!pressable || (e.key !== "Enter" && e.key !== " ")) return;
+        // `repeat` guard: a held Enter would otherwise send one HID press per
+        // key-repeat tick. A real <button> fires click once.
+        if (!pressable || e.repeat || (e.key !== "Enter" && e.key !== " ")) return;
         e.preventDefault();
         press();
       }}
