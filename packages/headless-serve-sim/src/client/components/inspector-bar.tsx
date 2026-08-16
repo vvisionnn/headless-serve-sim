@@ -111,6 +111,7 @@ export function InspectorBar({
             onClick={onToggle}
             label={open ? "Collapse inspector" : "Expand inspector"}
             title="Inspector"
+            expanded={open}
           >
             <PanelToggleIcon side="right" open={open} />
           </SquareIconButton>

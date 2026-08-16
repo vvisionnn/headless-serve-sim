@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 
 // The design system's meta components — the shapes the whole UI is assembled
 // from. Presentation only: none of these own state, fetch, or talk to a device.
@@ -40,12 +40,15 @@ export function SquareIconButton({
   label,
   title,
   disabled = false,
+  expanded,
   children,
 }: {
   onClick: () => void;
   label: string;
   title?: string;
   disabled?: boolean;
+  /** For a button that discloses something — the rail toggles need this. */
+  expanded?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -54,6 +57,7 @@ export function SquareIconButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
+      aria-expanded={expanded}
       title={title ?? label}
       className="flex size-[34px] shrink-0 cursor-pointer items-center justify-center rounded-sm border border-control-border bg-surface-3 text-fg-3 hover:bg-hover hover:text-fg disabled:cursor-default disabled:opacity-45 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
     >
@@ -165,11 +169,14 @@ export function FieldLabel({
   value?: ReactNode;
   htmlFor?: string;
 }) {
+  // A <label> with nothing to point at is not a label — several callers name a
+  // composite control (a segmented group) that has no single form element.
+  const Text = htmlFor ? "label" : "span";
   return (
     <div className="flex items-center justify-between gap-3">
-      <label htmlFor={htmlFor} className="min-w-0 truncate text-body text-fg">
+      <Text htmlFor={htmlFor} className="min-w-0 truncate text-body text-fg">
         {label}
-      </label>
+      </Text>
       {value !== undefined &&
         (typeof value === "string" || typeof value === "number" ? (
           <span className="shrink-0 font-mono text-value leading-none text-fg-3">{value}</span>
@@ -213,6 +220,22 @@ export function SegmentedGroup<T extends string>({
   showValue?: boolean;
 }) {
   const selected = options.find((o) => o.value === value);
+  // A radiogroup promises arrow-key navigation and a single tab stop. Announcing
+  // the role without implementing either leaves assistive tech describing a
+  // keyboard model that doesn't work, so the group owns both.
+  const step = (event: ReactKeyboardEvent<HTMLDivElement>, delta: number) => {
+    const pickable = options.filter((o) => !o.disabled && !disabled);
+    if (pickable.length === 0) return;
+    event.preventDefault();
+    const at = pickable.findIndex((o) => o.value === value);
+    const next =
+      pickable[
+        (((at < 0 ? 0 : at + delta) % pickable.length) + pickable.length) % pickable.length
+      ]!;
+    onChange(next.value);
+    const buttons = event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]');
+    buttons[options.indexOf(next)]?.focus();
+  };
   return (
     <div className="flex flex-col gap-2.5">
       <FieldLabel
@@ -227,6 +250,10 @@ export function SegmentedGroup<T extends string>({
       <div
         role="radiogroup"
         aria-label={ariaLabel ?? (typeof label === "string" ? label : undefined)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowRight" || e.key === "ArrowDown") step(e, 1);
+          else if (e.key === "ArrowLeft" || e.key === "ArrowUp") step(e, -1);
+        }}
         className={
           options.length <= 3 && options.every((o) => String(o.label).length <= 10)
             ? `grid gap-1.5 ${options.length === 2 ? "grid-cols-2" : "grid-cols-3"}`
@@ -241,6 +268,7 @@ export function SegmentedGroup<T extends string>({
               type="button"
               role="radio"
               aria-checked={active}
+              tabIndex={active ? 0 : -1}
               disabled={disabled || option.disabled}
               onClick={() => onChange(option.value)}
               className={`min-h-[40px] cursor-pointer rounded-sm px-4 text-body disabled:cursor-default disabled:opacity-45 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)] ${

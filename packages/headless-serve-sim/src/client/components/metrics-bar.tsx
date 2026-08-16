@@ -73,6 +73,7 @@ export function MetricsBar({
             onClick={onToggle}
             label={open ? "Collapse activity" : "Expand activity"}
             title="Activity"
+            expanded={open}
           >
             <PanelToggleIcon side="left" open={open} />
           </SquareIconButton>
