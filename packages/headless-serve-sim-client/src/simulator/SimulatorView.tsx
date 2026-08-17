@@ -33,11 +33,6 @@ import {
 // Custom round cursor matching the finger dot indicator
 const FINGER_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='9' fill='rgba(255,255,255,0.45)' stroke='rgba(0,0,0,0.55)' stroke-width='1.25' filter='drop-shadow(0 1px 2px rgba(0,0,0,0.45))'/%3E%3C/svg%3E") 12 12, pointer`;
 
-// Scale applied to the AVCC <canvas> so its antialiased layer edge overshoots
-// the surface's overflow:hidden clip (see canvasStyle below). ~0.4% covers a
-// 1px seam at any window size while cropping only a sub-pixel of content.
-const CANVAS_SEAM_OVERSHOOT = 1.004;
-
 const WS_MSG_TOUCH = 0x03;
 const WS_MSG_BUTTON = 0x04;
 const WS_MSG_MULTI_TOUCH = 0x05;
@@ -1147,19 +1142,6 @@ export function SimulatorView({
     ...(rotationDegrees === 0 ? {} : { borderRadius: 0, cornerShape: undefined }),
   } as CSSProperties;
 
-  // A <canvas> is composited as its own GPU layer; when that layer lands on a
-  // fractional device-pixel offset (the surface is centered in the viewport at
-  // a sub-pixel x), its downscaled texture edge antialiases against the
-  // backdrop and shows as a ~1px light seam along the top/right. The <img>
-  // paths paint into the parent layer and never seam, so this only affects the
-  // AVCC canvas. Overshoot by a hair so the seam falls outside the surface's
-  // overflow:hidden clip; the crop is a sub-pixel of content, invisible next
-  // to the rounded-corner mask.
-  const canvasStyle: CSSProperties = {
-    ...streamImageStyle,
-    transform: `${streamImageStyle.transform ?? ""} scale(${CANVAS_SEAM_OVERSHOOT})`,
-  };
-
   return (
     <div
       style={{
@@ -1200,7 +1182,7 @@ export function SimulatorView({
           }
         >
           {useAvcc ? (
-            <canvas ref={canvasRef} style={canvasStyle} />
+            <canvas ref={canvasRef} style={streamImageStyle} />
           ) : (
             <img
               ref={imgRef}
