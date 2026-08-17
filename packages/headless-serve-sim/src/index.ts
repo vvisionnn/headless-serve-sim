@@ -15,6 +15,7 @@ import { createHash } from "crypto";
 import { homedir, networkInterfaces } from "os";
 import { join, resolve } from "path";
 import { STATE_DIR, stateFileForDevice, listStateFiles } from "./state";
+import { reapOrphanHelpers } from "./orphan-helpers";
 import { textToKeyEvents, UnsupportedCharacterError, sendKeyEventsToWs } from "./text-to-keys";
 import { dirnameOf, sleepSync, isPortFree, servePreview } from "./runtime";
 import { findBootedDevice, pickDefaultStreamDevices, resolveDevice } from "./device";
@@ -211,6 +212,14 @@ function readAllStates(): ServerState[] {
     if (state) states.push(state);
   }
   return states;
+}
+
+/**
+ * Pids named by a live state file. Anything else running the helper binary is
+ * an orphan no cleanup path can reach by name.
+ */
+function trackedHelperPids(): Set<number> {
+  return new Set(readAllStates().map((state) => state.pid));
 }
 
 function writeState(state: ServerState) {
@@ -774,6 +783,19 @@ async function follow(devices: string[], startPort: number, quiet: boolean, head
   for (let index = 0; index < udids.length; index++) {
     const udid = udids[index]!;
     const defaultCandidate = defaultCandidates?.find((candidate) => candidate.udid === udid);
+    // Reap before anything else, and unconditionally: orphans accumulate
+    // ALONGSIDE a healthy helper (the observed workstation had 21 orphans and
+    // one valid state file), so gating this on "no existing state" would never
+    // clean the case that actually happens. Tracked pids are excluded, so the
+    // live helper is never a candidate. See orphan-helpers.
+    reapOrphanHelpers(hostCommands, trackedHelperPids(), {
+      udid,
+      onReap: (helper) => {
+        console.error(
+          `[headless-serve-sim] Reaped orphaned helper pid ${helper.pid} for device ${helper.udid} (no state file).`,
+        );
+      },
+    });
     // Return existing server if already running
     const existing = readState(udid);
     if (existing) {
@@ -950,6 +972,18 @@ async function detach(
 
   for (let index = 0; index < udids.length; index++) {
     const udid = udids[index]!;
+    // Same unconditional reap as the attached path: orphans accumulate
+    // alongside a healthy helper, and `--detach` is the flow that creates them
+    // (each start that cannot see a state file spawns another helper on the
+    // next port). Tracked pids are excluded. See orphan-helpers.
+    reapOrphanHelpers(hostCommands, trackedHelperPids(), {
+      udid,
+      onReap: (helper) => {
+        console.error(
+          `[headless-serve-sim] Reaped orphaned helper pid ${helper.pid} for device ${helper.udid} (no state file).`,
+        );
+      },
+    });
     const existing = readState(udid);
     if (existing) {
       states.push(existing);
