@@ -45,18 +45,69 @@ print("[main] Device UDID: \(deviceUDID)")
 print("[main] Port: \(port)")
 print("[main] Stream mode: \(streamMode.rawValue)")
 
+// How many H.264 frames may be inside VideoToolbox at once. One slot makes the
+// delivered frame rate exactly 1/round-trip; see FrameAdmissionController.
+var h264InFlightDepth = 3
+if let raw = ProcessInfo.processInfo.environment["SERVE_SIM_H264_INFLIGHT"],
+   let parsed = Int(raw) {
+    h264InFlightDepth = max(1, min(8, parsed))
+}
+print("[main] H.264 in-flight depth: \(h264InFlightDepth)")
+
+// Temporal-layer fraction; nil disables the hierarchy. See H264Encoder.
+var temporalLayerFraction: Double?
+if let raw = ProcessInfo.processInfo.environment["SERVE_SIM_H264_BASE_LAYER"],
+   let parsed = Double(raw), parsed > 0, parsed < 1 {
+    temporalLayerFraction = parsed
+}
+let temporalLayerDescription = temporalLayerFraction.map { "\($0)" } ?? "off"
+print("[main] H.264 base-layer fraction: \(temporalLayerDescription)")
+
+let useLowLatency = ProcessInfo.processInfo.environment["SERVE_SIM_H264_LOW_LATENCY"] != "0"
+var expectedFrameRateOverride: Int?
+if let raw = ProcessInfo.processInfo.environment["SERVE_SIM_H264_EXPECTED_FPS"],
+   let parsed = Int(raw), parsed > 0 {
+    expectedFrameRateOverride = parsed
+}
+print("[main] H.264 low-latency: \(useLowLatency), expectedFps: \(expectedFrameRateOverride ?? 60)")
+
+// Longest edge the H.264 stream is encoded at; larger frames are downscaled.
+var h264MaxDimension = 1280
+if let raw = ProcessInfo.processInfo.environment["SERVE_SIM_H264_MAX_DIMENSION"],
+   let parsed = Int(raw), parsed >= 64 {
+    h264MaxDimension = parsed
+}
+print("[main] H.264 max encoded dimension: \(h264MaxDimension)")
+
 let avccHighWaterBytes = 256 * 1024
 let httpServer = HTTPServer(deviceUDID: deviceUDID, port: port)
 let frameCapture = FrameCapture()
 let frameSnapshotter = FrameSnapshotter()
-let frameAdmission = FrameAdmissionController()
+let frameAdmission = FrameAdmissionController(maxH264InFlight: h264InFlightDepth)
 let keyframeRequest = KeyframeRequest()
 let jpegSeedRequest = KeyframeRequest()
 let videoEncoder = VideoEncoder(quality: 0.7)
-let h264Encoder = H264Encoder(fps: 60, maxQP: streamMode == .quality ? 40 : 48)
+let h264Encoder = H264Encoder(
+    fps: 60,
+    maxQP: streamMode == .quality ? 40 : 48,
+    baseLayerFrameRateFraction: temporalLayerFraction,
+    useLowLatencyRateControl: useLowLatency,
+    expectedFrameRate: expectedFrameRateOverride
+)
 let hidInjector = HIDInjector()
 let encodeQueue = DispatchQueue(label: "encode", qos: .userInteractive)
 let h264Queue = DispatchQueue(label: "encode.h264", qos: .userInteractive)
+// Downscale before encoding. The preview canvas shows the stream at a fraction
+// of the framebuffer's size, so encoding it natively pays for ~40x the pixels
+// the display can use — at every stage including the browser's decoder. See
+// FrameScaler. Input mapping is unaffected: /config and setScreenSize still
+// report the real device size, and touches are normalized 0..1.
+let frameScaler = FrameScaler(maxDimension: h264MaxDimension)
+let h264Pump = H264Pump(maxInFlight: h264InFlightDepth) { buffer, forceKeyframe, done in
+    h264Queue.async {
+        h264Encoder.encode(frameScaler.scale(buffer), forceKeyframe: forceKeyframe, completion: done)
+    }
+}
 
 httpServer.clientManager.avccHighWaterBytes = avccHighWaterBytes
 let adaptiveDriver = AdaptiveDriver(
@@ -121,6 +172,25 @@ httpServer.onStreamMetrics = {
         "h264Admitted": stats.h264Admitted,
         "h264BusyDrops": stats.h264BusyDrops,
         "idleAvccHeartbeats": stats.idleAvccHeartbeats,
+        "h264Completions": stats.h264Completions,
+        "h264InFlightNanoseconds": stats.h264InFlightNanoseconds,
+        "h264PeakInFlight": stats.h264PeakInFlight,
+        "h264Submitted": h264Encoder.counters().submitted,
+        "h264SubmitFailed": h264Encoder.counters().submitFailed,
+        "h264Emitted": h264Encoder.counters().emitted,
+        "h264DroppedByEncoder": h264Encoder.counters().droppedByEncoder,
+        "h264NilSampleBuffer": h264Encoder.counters().nilSampleBuffer,
+        "h264Unextractable": h264Encoder.counters().unextractable,
+        "h264PumpOffered": h264Pump.stats().offered,
+        "h264PumpSubmitted": h264Pump.stats().submitted,
+        "h264PumpSuperseded": h264Pump.stats().supersededPending,
+        "h264PumpPeakInFlight": h264Pump.stats().peakInFlight,
+        "h264PumpCompletions": h264Pump.stats().completions,
+        "h264PumpInFlightNanoseconds": h264Pump.stats().inFlightNanoseconds,
+        "scaledFrames": frameScaler.stats().scaled,
+        "scalePassedThrough": frameScaler.stats().passedThrough,
+        "scaleFailures": frameScaler.stats().failed,
+        "scaleNanoseconds": frameScaler.stats().nanoseconds,
         "snapshotsCompleted": snapshotStats.snapshots,
         "snapshotNanoseconds": snapshotStats.nanoseconds,
         "failedSnapshots": snapshotStats.failedSnapshots,
@@ -244,22 +314,22 @@ let frameHandler: (CVPixelBuffer, CMTime, Bool) -> Void = { pixelBuffer, timesta
         || lastJpegEncodeMs == 0
     let wantsJpegNow = encoderReady && wantsJpeg && jpegDue
 
-    // Reserve asynchronous encoder capacity before copying 12+ MB of BGRA.
-    // When both encoders are busy the frame is intentionally dropped here,
-    // keeping latency bounded without spending memory bandwidth on pixels that
-    // cannot be consumed.
+    // JPEG keeps a strict busy flag; H.264 is governed by the pump, so it is not
+    // claimed here. Passing it would double-count the same frame as both
+    // "admitted" and "pump submitted" and report a 99% busy-drop rate that is
+    // pure bookkeeping.
+    let wantsH264Now = hasAvccClients && (contentChanged || keyframePending)
     let claims = frameAdmission.claim(
         wantsJpeg: wantsJpegNow,
-        wantsH264: hasAvccClients && (contentChanged || keyframePending)
+        wantsH264: false
     )
 
     // Close the recycled-IOSurface lifetime boundary synchronously, before any
     // encoder queueing or first-use VideoToolbox setup. Both encoders share this
     // one owned copy; neither can observe SimulatorKit painting the next frame.
-    guard claims.requiresSnapshot else { return }
+    guard claims.jpeg || wantsH264Now else { return }
     guard let snapshot = frameSnapshotter.snapshot(pixelBuffer) else {
         if claims.jpeg { frameAdmission.completeJpeg() }
-        if claims.h264 { frameAdmission.completeH264() }
         return
     }
 
@@ -277,15 +347,9 @@ let frameHandler: (CVPixelBuffer, CMTime, Bool) -> Void = { pixelBuffer, timesta
     }
 
     // H.264 path runs only while at least one AVCC viewer is connected, so an
-    // all-MJPEG session pays no VideoToolbox cost. Its own backpressure flag
-    // lets it skip independently of the JPEG encoder.
-    if claims.h264 {
-        h264Queue.async {
-            let force = keyframeRequest.consume()
-            h264Encoder.encode(snapshot, forceKeyframe: force) {
-                frameAdmission.completeH264()
-            }
-        }
+    // all-MJPEG session pays no VideoToolbox cost.
+    if wantsH264Now {
+        h264Pump.offer(snapshot, forceKeyframe: keyframeRequest.consume())
     }
 }
 

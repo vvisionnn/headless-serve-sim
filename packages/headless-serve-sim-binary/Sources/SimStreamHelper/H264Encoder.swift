@@ -24,6 +24,43 @@ final class H264Encoder {
 
     var onEncoded: ((Encoded) -> Void)?
 
+    /// Submission accounting. VideoToolbox may accept a frame and then produce no
+    /// output for it — the callback fires with a nil sample buffer. That is a
+    /// silent frame loss: admission is released, the viewer simply never sees the
+    /// picture. Counting it separates "we never offered the frame" from "the
+    /// encoder swallowed it", which look identical in a delivered-FPS number.
+    struct Counters {
+        let submitted: UInt64
+        let submitFailed: UInt64
+        let emitted: UInt64
+        let droppedByEncoder: UInt64
+        /// Callback fired with no sample buffer — VideoToolbox discarded it.
+        let nilSampleBuffer: UInt64
+        /// Sample buffer arrived but carried no extractable data.
+        let unextractable: UInt64
+    }
+
+    private let countersLock = NSLock()
+    private var submittedCount: UInt64 = 0
+    private var submitFailedCount: UInt64 = 0
+    private var emittedCount: UInt64 = 0
+    private var droppedByEncoderCount: UInt64 = 0
+    private var nilSampleBufferCount: UInt64 = 0
+    private var unextractableCount: UInt64 = 0
+
+    func counters() -> Counters {
+        countersLock.lock()
+        defer { countersLock.unlock() }
+        return Counters(
+            submitted: submittedCount,
+            submitFailed: submitFailedCount,
+            emitted: emittedCount,
+            droppedByEncoder: droppedByEncoderCount,
+            nilSampleBuffer: nilSampleBufferCount,
+            unextractable: unextractableCount
+        )
+    }
+
     private let lock = NSLock()
     private var session: VTCompressionSession?
     private var width: Int32 = 0
@@ -32,15 +69,36 @@ final class H264Encoder {
     private var bitrate: Int
     private var maxQP: Int
     private let keyframeIntervalSeconds: Int
+    /// Fraction of the frame rate carried by the reference base layer. `nil`
+    /// disables the temporal hierarchy entirely.
+    private let baseLayerFrameRateFraction: Double?
+    /// Whether to request VideoToolbox's low-latency rate control.
+    private let useLowLatencyRateControl: Bool
+    /// What we tell VideoToolbox to expect. The simulator can offer more than
+    /// this (a ProMotion iPad produced ~69 changed frames/s), and an
+    /// under-declared rate makes the rate controller budget bits for a slower
+    /// stream than it is actually being handed.
+    private let expectedFrameRate: Int32
     private let stateQueue = DispatchQueue(label: "H264Encoder.state")
     private var emittedDescription = false
     private var frameCount: Int64 = 0
 
-    init(fps: Int = 60, bitrate: Int = 8_000_000, maxQP: Int = 48, keyframeIntervalSeconds: Int = 2) {
+    init(
+        fps: Int = 60,
+        bitrate: Int = 8_000_000,
+        maxQP: Int = 48,
+        keyframeIntervalSeconds: Int = 2,
+        baseLayerFrameRateFraction: Double? = nil,
+        useLowLatencyRateControl: Bool = true,
+        expectedFrameRate: Int? = nil
+    ) {
         self.fps = Int32(fps)
         self.bitrate = bitrate
         self.maxQP = maxQP
         self.keyframeIntervalSeconds = keyframeIntervalSeconds
+        self.baseLayerFrameRateFraction = baseLayerFrameRateFraction
+        self.useLowLatencyRateControl = useLowLatencyRateControl
+        self.expectedFrameRate = Int32(expectedFrameRate ?? fps)
     }
 
     deinit {
@@ -64,7 +122,17 @@ final class H264Encoder {
         }
 
         frameCount += 1
-        let pts = CMTime(value: frameCount, timescale: fps)
+        // Presentation time is the HOST CLOCK, not a frame counter.
+        //
+        // A counter at `timescale: fps` asserts every frame is exactly 1/60 s
+        // after the last one. Real captures are not evenly spaced — a scrolling
+        // simulator hands over 67-81 changed frames/s in clumps — so the counter
+        // drifts away from wall clock and VideoToolbox's real-time rate control
+        // is modelling a stream that does not exist. Measured effect: it silently
+        // discarded ~25% of accepted frames (the callback fires with a nil sample
+        // buffer). Stamping the real capture instant also lets the viewer present
+        // on true timing instead of assuming a fixed cadence.
+        let pts = CMClockGetTime(CMClockGetHostTimeClock())
         let frameProps: NSDictionary? = forceKeyframe
             ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue!] as NSDictionary
             : nil
@@ -79,9 +147,29 @@ final class H264Encoder {
             infoFlagsOut: nil
         ) { [weak self] status, _, sampleBuffer in
             defer { completion?() }
-            guard let self, status == noErr, let sb = sampleBuffer else { return }
-            if let encoded = self.extract(from: sb) { self.onEncoded?(encoded) }
+            guard let self else { return }
+            guard status == noErr, let sb = sampleBuffer else {
+                self.countersLock.lock()
+                self.droppedByEncoderCount += 1
+                self.nilSampleBufferCount += 1
+                self.countersLock.unlock()
+                return
+            }
+            if let encoded = self.extract(from: sb) {
+                self.countersLock.lock()
+                self.emittedCount += 1
+                self.countersLock.unlock()
+                self.onEncoded?(encoded)
+            } else {
+                self.countersLock.lock()
+                self.droppedByEncoderCount += 1
+                self.unextractableCount += 1
+                self.countersLock.unlock()
+            }
         }
+        countersLock.lock()
+        if status == noErr { submittedCount += 1 } else { submitFailedCount += 1 }
+        countersLock.unlock()
         if status != noErr {
             completion?()
         }
@@ -157,11 +245,16 @@ final class H264Encoder {
                 compressionSessionOut: &sess
             )
         }
-        var status = create(spec: lowLatencySpec)
-        var lowLatency = true
-        if status != noErr || sess == nil {
-            lowLatency = false
-            sess = nil
+        var status: OSStatus
+        var lowLatency = useLowLatencyRateControl
+        if useLowLatencyRateControl {
+            status = create(spec: lowLatencySpec)
+            if status != noErr || sess == nil {
+                lowLatency = false
+                sess = nil
+                status = create(spec: nil)
+            }
+        } else {
             status = create(spec: nil)
         }
         guard status == noErr, let sess else { return }
@@ -174,11 +267,7 @@ final class H264Encoder {
             (kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel),
             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse!),
             (kVTCompressionPropertyKey_AverageBitRate, NSNumber(value: bitrate)),
-            (kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: fps)),
-            // Split the 60fps stream into a 30fps reference base layer and
-            // disposable enhancement frames. Under pressure we can discard the
-            // enhancement layer without breaking prediction or forcing an IDR.
-            (kVTCompressionPropertyKey_BaseLayerFrameRateFraction, NSNumber(value: 0.5)),
+            (kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: expectedFrameRate)),
             // NOTE: deliberately NO kVTCompressionPropertyKey_DataRateLimits. It
             // is a HARD cap over a 1s window; a fast/erratic scroll produces a
             // burst of large frames that blow past it, and VideoToolbox obeys the
@@ -193,6 +282,20 @@ final class H264Encoder {
         ]
         for (key, value) in props {
             VTSessionSetProperty(sess, key: key, value: value as CFTypeRef)
+        }
+        // Split the stream into a reference base layer plus disposable
+        // enhancement frames, so congestion can shed the enhancement layer
+        // without breaking prediction. OFF by default: under RealTime pressure
+        // VideoToolbox sheds that layer ITSELF, which pins the delivered rate at
+        // the base-layer fraction — measured 60 fps in, ~33 fps out on a 5.7 MP
+        // framebuffer. The send queue already drops plain deltas under backlog,
+        // so the hierarchy costs frame rate to buy a redundant safety valve.
+        if let fraction = baseLayerFrameRateFraction {
+            VTSessionSetProperty(
+                sess,
+                key: kVTCompressionPropertyKey_BaseLayerFrameRateFraction,
+                value: NSNumber(value: fraction)
+            )
         }
         // Sharpness ceiling for screen-content text; the adaptive controller
         // relaxes this under congestion to protect frame rate over sharpness.
