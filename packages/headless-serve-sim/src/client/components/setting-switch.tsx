@@ -34,27 +34,49 @@ export function SettingSwitch({
         >
           {checked ? "on" : "off"}
         </span>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={checked}
-          aria-label={label}
-          disabled={disabled}
-          onClick={() => onChange(!checked)}
-          className={`relative h-[24px] w-[44px] shrink-0 rounded-sm border p-0 disabled:opacity-45 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)] ${
-            disabled ? "cursor-default" : "cursor-pointer"
-          } ${
-            checked
-              ? "border-accent-solid bg-accent-solid"
-              : "border-control-border bg-track hover:bg-hover"
-          }`}
-        >
-          <span
-            className="absolute top-[2px] size-[18px] rounded-[5px] bg-thumb [box-shadow:0_1px_3px_rgba(0,0,0,0.16)] [transition:left_0.3s_cubic-bezier(0.4,0,0.6,1)]"
-            style={{ left: checked ? 22 : 2 }}
-          />
-        </button>
+        <SwitchControl label={label} checked={checked} disabled={disabled} onChange={onChange} />
       </span>
     </div>
+  );
+}
+
+/**
+ * The switch itself, without the label row — for the places a boolean lives
+ * inside a denser layout (a key/value table) and can't take a full row. Shared
+ * so there is exactly one switch shape in the system: a soft rectangle with a
+ * rounded-square knob, near-black when on. Never a stadium, never colored.
+ */
+export function SwitchControl({
+  label,
+  checked,
+  disabled = false,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative h-[24px] w-[44px] shrink-0 rounded-sm border p-0 disabled:opacity-45 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)] ${
+        disabled ? "cursor-default" : "cursor-pointer"
+      } ${
+        checked
+          ? "border-accent-solid bg-accent-solid"
+          : "border-control-border bg-track hover:bg-hover"
+      }`}
+    >
+      <span
+        className="absolute top-[2px] size-[18px] rounded-[5px] bg-thumb [box-shadow:0_1px_3px_rgba(0,0,0,0.16)] [transition:left_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+        style={{ left: checked ? 22 : 2 }}
+      />
+    </button>
   );
 }

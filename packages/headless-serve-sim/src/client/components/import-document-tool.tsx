@@ -148,7 +148,7 @@ export function ImportDocumentTool({ udid }: { udid: string }) {
         className="lem-toggle flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full bg-transparent border-none text-left cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="mr-auto text-body font-semibold text-fg text-fg">Documents</span>
+        <span className="mr-auto text-body font-semibold text-fg">Documents</span>
         <DocStatusPill
           active={activeCount}
           done={doneCount}

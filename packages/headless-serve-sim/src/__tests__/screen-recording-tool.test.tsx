@@ -60,10 +60,13 @@ describe("ScreenRecordingTool", () => {
     );
 
     expect(html).toContain("Generic iPhone frame");
-    const frameStart = html.indexOf("Device frame");
-    const frameControl = html.slice(frameStart, html.indexOf("/>", frameStart) + 2);
-    expect(frameControl).toContain('type="checkbox"');
-    expect(frameControl).not.toContain("disabled");
+    // The row is a design-system switch now, not a bare checkbox — same intent:
+    // a generic frame stays selectable when DeviceKit ships no metadata.
+    const frameStart = html.indexOf('data-setting-row="Device frame"');
+    const frameControl = html.slice(frameStart, html.indexOf("</button>", frameStart));
+    expect(frameControl).toContain('role="switch"');
+    // The attribute, not the substring — `disabled:opacity-45` is a variant class.
+    expect(frameControl).not.toContain('disabled=""');
   });
 
   test("renders format, touch, frame, capture, and unsupported-browser states", () => {

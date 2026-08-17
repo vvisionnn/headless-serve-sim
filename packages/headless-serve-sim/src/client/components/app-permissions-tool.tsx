@@ -86,7 +86,7 @@ export function AppPermissionsTool({ udid, bundleId }: { udid: string; bundleId:
         className="lem-toggle flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full cursor-pointer select-none bg-transparent border-none text-left [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="mr-auto text-body font-semibold text-fg text-fg">Permissions</span>
+        <span className="mr-auto text-body font-semibold text-fg">Permissions</span>
         <Chevron open={open} />
       </button>
 
@@ -217,7 +217,7 @@ function PermBtn({
       disabled={pending}
       title={title}
       aria-label={title}
-      className="w-8 h-8 flex items-center justify-center border-none p-0 cursor-pointer rounded-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+      className="w-8 h-8 flex items-center justify-center border-none p-0 cursor-pointer rounded-sm [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
       style={{
         background: active ? `color-mix(in srgb, ${accent} 14%, transparent)` : "transparent",
         color: active ? accent : "var(--color-fg-2)",

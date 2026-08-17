@@ -139,7 +139,7 @@ export function WebKitTargetPicker({
               const iconUrl = group.bundleId ? icons[group.bundleId] : null;
               return (
                 <li key={group.key} className="list-none m-0 p-0">
-                  <div className="flex items-center gap-2 px-2 pt-2 pb-1 text-body font-semibold text-fg text-fg-3">
+                  <div className="flex items-center gap-2 px-2 pt-2 pb-1 text-body font-semibold text-fg-3">
                     {iconUrl ? (
                       <img src={iconUrl} alt="" className="w-4 h-4 shrink-0 object-cover" />
                     ) : (

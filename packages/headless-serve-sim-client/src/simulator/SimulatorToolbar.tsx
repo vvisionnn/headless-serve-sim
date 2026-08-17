@@ -62,6 +62,10 @@ const toolbarStyle: CSSProperties = {
   justifyContent: "space-between",
   gap: "0 8px",
   height: "100%",
+  // `100%` needs a definite parent height. This component is exported, so a
+  // consumer rendering it in an auto-height parent would otherwise get a
+  // zero-height toolbar; the floor is the height it shipped at.
+  minHeight: 44,
   padding: "0 12px",
   background: "transparent",
   minWidth: 0,

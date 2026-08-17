@@ -235,7 +235,7 @@ function AdaptiveSection({ stats }: { stats: ConnectionStats | null }) {
   const serverDrops = srv?.droppedFrames ?? 0;
   return (
     <div className="flex flex-col gap-2.5 rounded-card border border-divider bg-surface-2 px-3 py-2.5">
-      <span className="text-body font-semibold text-fg text-fg">Adaptive</span>
+      <span className="text-body font-semibold text-fg">Adaptive</span>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
         <StatRow
           label="Link"

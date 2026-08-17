@@ -5,6 +5,8 @@ import type {
   SimulatorRecordingSource,
 } from "headless-serve-sim-client/simulator";
 import { Chevron } from "../icons";
+import { SegmentedGroup } from "./design-system";
+import { SettingSwitch } from "./setting-switch";
 import { StreamModeToggle, type StreamMode } from "./stream-mode-toggle";
 import {
   CanvasScreenRecorder,
@@ -282,14 +284,14 @@ export function ScreenRecordingTool({
   const busy = phase !== "idle";
 
   return (
-    <div className="overflow-hidden rounded-card border border-divider bg-panel">
+    <div className="overflow-hidden border-t border-divider bg-panel">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="flex min-h-[56px] w-full cursor-pointer select-none items-center justify-between gap-2.5 border-none bg-transparent px-3.5 text-left hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
+        className="flex min-h-[56px] w-full cursor-pointer select-none items-center justify-between gap-2.5 border-none bg-transparent px-5 text-left hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="mr-auto flex items-center gap-2 text-body font-semibold text-fg text-fg">
+        <span className="mr-auto flex items-center gap-2 text-body font-semibold text-fg">
           {busy && <span className="size-2 rounded-full bg-danger" aria-hidden="true" />}
           Screen Recording
         </span>
@@ -298,28 +300,19 @@ export function ScreenRecordingTool({
 
       {open && (
         <div className="flex flex-col gap-3 px-5 pb-4 pt-1">
-          <div
-            className="flex items-center gap-2.5"
-            role="radiogroup"
-            aria-label="Recording format"
-          >
-            <span className="w-[48px] shrink-0 text-value text-fg-3">Format</span>
-            <div className="flex flex-1 gap-0.5 rounded-card border border-divider bg-surface-2 p-0.5">
-              {(["auto", "mp4", "webm"] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  role="radio"
-                  aria-checked={format === option}
-                  disabled={busy || !support[option]}
-                  onClick={() => setFormat(option)}
-                  className={`min-h-7 flex-1 cursor-pointer rounded-card border-none px-2 text-micro font-medium focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] ${format === option ? "bg-panel text-fg shadow-sm" : "bg-transparent text-fg-2 hover:bg-hover"} disabled:cursor-not-allowed disabled:text-fg-3`}
-                >
-                  {option === "auto" ? "Auto" : option === "mp4" ? "MP4" : "WebM"}
-                </button>
-              ))}
-            </div>
-          </div>
+          <SegmentedGroup
+            label="Format"
+            ariaLabel="Recording format"
+            value={format}
+            showValue={false}
+            disabled={busy}
+            options={[
+              { value: "auto", label: "Auto", disabled: !support.auto },
+              { value: "mp4", label: "MP4", disabled: !support.mp4 },
+              { value: "webm", label: "WebM", disabled: !support.webm },
+            ]}
+            onChange={setFormat}
+          />
 
           {streamModeAvailable && (
             <StreamModeToggle
@@ -330,37 +323,32 @@ export function ScreenRecordingTool({
             />
           )}
 
-          <label className="flex min-h-8 cursor-pointer items-center justify-between gap-3 text-value text-fg-2">
-            <span>Show touches</span>
-            <input
-              type="checkbox"
-              checked={includeTouches}
-              disabled={busy}
-              onChange={(event) => setIncludeTouches(event.target.checked)}
-              className="size-4 accent-[var(--color-accent-solid)]"
-            />
-          </label>
-          <label className="flex min-h-8 cursor-pointer items-center justify-between gap-3 text-value text-fg-2 has-[:disabled]:cursor-not-allowed">
-            <span className="flex min-w-0 flex-col">
-              <span>Device frame</span>
-              <span className="truncate text-micro text-fg-3">
-                {recordingFrameDescription(
-                  deviceFrameSpec,
-                  artworkLoading,
-                  includeFrame &&
-                    ((exactDeviceFrame != null && !exactDeviceFrame.artwork) ||
-                      (frameArtwork.key === artworkKey && frameArtwork.failed)),
-                )}
+          <SettingSwitch
+            label="Show touches"
+            checked={includeTouches}
+            disabled={busy}
+            onChange={setIncludeTouches}
+          />
+          <SettingSwitch
+            label="Device frame"
+            decoratedLabel={
+              <span className="flex min-w-0 flex-col">
+                <span>Device frame</span>
+                <span className="truncate text-micro text-fg-3">
+                  {recordingFrameDescription(
+                    deviceFrameSpec,
+                    artworkLoading,
+                    includeFrame &&
+                      ((exactDeviceFrame != null && !exactDeviceFrame.artwork) ||
+                        (frameArtwork.key === artworkKey && frameArtwork.failed)),
+                  )}
+                </span>
               </span>
-            </span>
-            <input
-              type="checkbox"
-              checked={includeFrame}
-              disabled={busy || !deviceFrameSpec}
-              onChange={(event) => setIncludeFrame(event.target.checked)}
-              className="size-4 accent-[var(--color-accent-solid)]"
-            />
-          </label>
+            }
+            checked={includeFrame}
+            disabled={busy || !deviceFrameSpec}
+            onChange={setIncludeFrame}
+          />
 
           {busy ? (
             <div className="flex items-center gap-2">
@@ -375,7 +363,7 @@ export function ScreenRecordingTool({
                 type="button"
                 onClick={() => void stop()}
                 disabled={phase === "stopping"}
-                className="h-8 cursor-pointer rounded-card border-none bg-danger px-4 text-value font-semibold text-white hover:brightness-105 disabled:cursor-not-allowed disabled:bg-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+                className="h-8 cursor-pointer rounded-card border-none bg-danger px-4 text-value font-semibold text-on-accent hover:brightness-105 disabled:cursor-not-allowed disabled:bg-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
               >
                 Stop recording
               </button>
@@ -385,9 +373,9 @@ export function ScreenRecordingTool({
               type="button"
               onClick={start}
               disabled={!support[format] || !streaming || artworkLoading}
-              className="inline-flex min-h-8 w-full cursor-pointer items-center justify-center gap-2 rounded-card border-none bg-accent-solid px-4 text-value font-semibold text-white hover:brightness-105 disabled:cursor-not-allowed disabled:bg-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+              className="inline-flex min-h-8 w-full cursor-pointer items-center justify-center gap-2 rounded-card border-none bg-accent-solid px-4 text-value font-semibold text-on-accent hover:brightness-105 disabled:cursor-not-allowed disabled:bg-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
             >
-              <span className="size-2 rounded-full border-2 border-white" aria-hidden="true" />
+              <span className="size-2 rounded-full border-2 border-current" aria-hidden="true" />
               {artworkLoading ? "Preparing frame…" : "Start recording"}
             </button>
           )}

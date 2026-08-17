@@ -109,7 +109,7 @@ export function BootEmptyState({
         </p>
         <div className="w-full max-w-90 mt-2 bg-panel rounded-panel shadow-panel font-mono text-value text-fg text-left max-h-[70vh] overflow-y-auto min-h-0">
           <div className="flex items-center justify-between px-3 py-2.5 text-value text-fg-3 border-b border-divider">
-            <span className="text-body font-semibold text-fg text-fg">Simulators</span>
+            <span className="text-body font-semibold text-fg">Simulators</span>
             <button
               onClick={onRefresh}
               disabled={loading}

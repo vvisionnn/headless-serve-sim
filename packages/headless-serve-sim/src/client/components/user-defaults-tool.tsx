@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Chevron, ReloadIcon } from "../icons";
 import { Select } from "./select";
+import { SwitchControl } from "./setting-switch";
 import { execOnHost, shellEscape } from "../utils/exec";
 
 // Drives the `headless-serve-sim defaults` passthrough: Load runs `defaults read`
@@ -206,7 +207,7 @@ export function UserDefaultsTool({ udid, bundleId }: { udid: string; bundleId: s
         className="lem-toggle flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full bg-transparent border-none text-left cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="mr-auto text-body font-semibold text-fg text-fg">User Defaults</span>
+        <span className="mr-auto text-body font-semibold text-fg">User Defaults</span>
         <Chevron open={open} />
       </button>
 
@@ -395,7 +396,7 @@ function DefaultsRow({
         disabled={busy}
         aria-label={`Delete ${row.key}`}
         title="Delete key"
-        className="lem-trash shrink-0 flex items-center justify-center w-7 h-7 border-none rounded-full p-0 bg-transparent text-fg-2 cursor-pointer [transition:color_0.3s_cubic-bezier(0.4,0,0.6,1),background_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+        className="lem-trash shrink-0 flex items-center justify-center w-7 h-7 border-none rounded-sm p-0 bg-transparent text-fg-2 cursor-pointer [transition:color_0.3s_cubic-bezier(0.4,0,0.6,1),background_0.3s_cubic-bezier(0.4,0,0.6,1)]"
       >
         <svg
           width="14"
@@ -425,22 +426,7 @@ function BoolToggle({
   disabled: boolean;
   onChange: (v: boolean) => void;
 }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={value}
-      disabled={disabled}
-      onClick={() => onChange(!value)}
-      className="relative inline-flex h-[20px] w-[36px] items-center rounded-chip border border-divider cursor-pointer [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)] disabled:opacity-40 disabled:cursor-not-allowed"
-      style={{ background: value ? "var(--color-success)" : "var(--color-hover)" }}
-    >
-      <span
-        className="inline-block h-[14px] w-[14px] rounded-full bg-white [transition:transform_0.3s_cubic-bezier(0.4,0,0.6,1)]"
-        style={{ transform: value ? "translateX(18px)" : "translateX(3px)" }}
-      />
-    </button>
-  );
+  return <SwitchControl label="Value" checked={value} disabled={disabled} onChange={onChange} />;
 }
 
 function TypeSelect({
@@ -451,20 +437,12 @@ function TypeSelect({
   onChange: (v: DefaultsType) => void;
 }) {
   return (
-    <div className="relative block">
-      <Select
-        label="New value type"
-        value={value}
-        options={SCALAR_TYPES.map((t) => ({ value: t, label: t }))}
-        onChange={(v) => onChange(v as DefaultsType)}
-        className="lem-select bg-surface-3 border border-divider rounded-card text-fg text-value py-2 pr-[26px] pl-2.5 [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
-      />
-      <span
-        className="absolute right-[9px] top-1/2 -translate-y-1/2 pointer-events-none flex items-center"
-        aria-hidden="true"
-      >
-        <Chevron open={false} />
-      </span>
-    </div>
+    <Select
+      label="New value type"
+      value={value}
+      options={SCALAR_TYPES.map((t) => ({ value: t, label: t }))}
+      onChange={(v) => onChange(v as DefaultsType)}
+      className="lem-select bg-surface-3 border border-divider rounded-card text-fg text-value py-2 px-2.5 [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+    />
   );
 }

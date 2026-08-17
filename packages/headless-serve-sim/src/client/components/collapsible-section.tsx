@@ -42,7 +42,7 @@ export function CollapsibleSection({
       {...dataProps}
     >
       <summary
-        className={`lem-toggle flex items-center gap-2.5 cursor-pointer select-none px-5 min-h-[56px] text-body font-semibold text-fg text-fg [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)] ${summaryClassName}`}
+        className={`lem-toggle flex items-center gap-2.5 cursor-pointer select-none px-5 min-h-[56px] text-body font-semibold text-fg [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)] ${summaryClassName}`}
       >
         <Chevron open={open} />
         <span className="mr-auto min-w-0 truncate">{summary}</span>

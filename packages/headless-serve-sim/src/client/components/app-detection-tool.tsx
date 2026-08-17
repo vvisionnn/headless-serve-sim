@@ -61,7 +61,7 @@ export function AppDetectionTool({
             icon appears only when there is one — an empty placeholder box is
             just a hole in the layout. */}
         <div className="min-w-0 flex-1">
-          <div className="text-body font-semibold text-fg text-fg">Current App</div>
+          <div className="text-body font-semibold text-fg">Current App</div>
           <div className="mt-1 truncate text-body text-fg-2">
             {details.displayName ?? details.bundleId}
             {details.loading && <span className="text-fg-3"> …</span>}
@@ -161,7 +161,7 @@ function Row({
               onClick={action.onClick}
               title={action.title}
               aria-label={action.title}
-              className="w-6 h-6 flex items-center justify-center bg-transparent border-none text-accent rounded-full cursor-pointer p-0 [transition:background-color_0.3s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
+              className="w-6 h-6 flex items-center justify-center bg-transparent border-none text-accent rounded-sm cursor-pointer p-0 [transition:background-color_0.3s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
             >
               {action.icon}
             </button>

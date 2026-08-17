@@ -3,8 +3,8 @@ import type { AxElement } from "../../ax-shared";
 import { useAxSelectionContext, useAxSnapshotContext } from "../hooks/use-ax-snapshot";
 import { axElementKey, axElementsEqual, axNodeForElement, isAxeUnavailable } from "../utils/ax";
 
-const SECTION = "bg-panel overflow-hidden";
-const SECTION_TITLE = "text-body font-semibold text-fg text-fg m-0";
+const SECTION = "border-t border-divider bg-panel overflow-hidden";
+const SECTION_TITLE = "text-body font-semibold text-fg m-0";
 const EMPTY_BLOCK =
   "bg-surface-3 border border-divider rounded-card px-3 py-2.5 text-fg-3 text-value text-center";
 

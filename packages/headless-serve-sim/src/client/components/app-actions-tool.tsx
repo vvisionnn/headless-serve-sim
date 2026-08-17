@@ -128,7 +128,7 @@ export function AppActionsTool({ udid, bundleId }: { udid: string; bundleId: str
         className="lem-toggle flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full text-left bg-transparent border-none cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
         aria-expanded={open}
       >
-        <span className="mr-auto text-body font-semibold text-fg text-fg">App Actions</span>
+        <span className="mr-auto text-body font-semibold text-fg">App Actions</span>
         <Chevron open={open} />
       </button>
 
