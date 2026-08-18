@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import {
   chmodSync,
   existsSync,
@@ -11,7 +11,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "fs";
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { homedir, networkInterfaces } from "os";
 import { join, resolve } from "path";
 import { STATE_DIR, stateFileForDevice, listStateFiles } from "./state";
@@ -536,6 +536,7 @@ interface SpawnHelperOptions {
   udid: string;
   port: number;
   host: string;
+  listenHost?: string;
   logFile: string;
 }
 
@@ -625,7 +626,7 @@ async function spawnHelperDetached(opts: SpawnHelperOptions): Promise<{
   ensureStateDir();
   const child = hostCommands.start({
     executable: helperPath,
-    args: [udid, "--port", String(port)],
+    args: [udid, "--port", String(port), ...(opts.listenHost ? ["--host", opts.listenHost] : [])],
     detached: true,
     stdio: { logFile },
     env: helperSpawnEnv(),
@@ -665,7 +666,7 @@ async function spawnHelperAttached(opts: SpawnHelperOptions): Promise<{
   ensureStateDir();
   const child = hostCommands.start({
     executable: helperPath,
-    args: [udid, "--port", String(port)],
+    args: [udid, "--port", String(port), ...(opts.listenHost ? ["--host", opts.listenHost] : [])],
     detached: false,
     stdio: { logFile },
     env: helperSpawnEnv(),
@@ -696,7 +697,7 @@ async function spawnHelperAttached(opts: SpawnHelperOptions): Promise<{
 async function startHelper(
   udid: string,
   port: number,
-  opts: { detach: boolean; headed: boolean; attachOnly?: boolean },
+  opts: { detach: boolean; headed: boolean; attachOnly?: boolean; helperHost?: string },
 ): Promise<{ pid: number; child?: CommandTask }> {
   debugHelper(
     "startHelper udid=%s port=%d detach=%s headed=%s",
@@ -712,7 +713,14 @@ async function startHelper(
   const helperPath = findHelperBinary();
   const logFile = join(STATE_DIR, `server-${udid}.log`);
   debugHelper("helper binary=%s logFile=%s", helperPath, logFile);
-  const spawnOpts: SpawnHelperOptions = { helperPath, udid, port, host, logFile };
+  const spawnOpts: SpawnHelperOptions = {
+    helperPath,
+    udid,
+    port,
+    host,
+    listenHost: opts.helperHost,
+    logFile,
+  };
 
   let lastLog = "";
   const MAX_ATTEMPTS = 2;
@@ -949,6 +957,7 @@ async function detach(
   startPort: number,
   headed: boolean,
   attachOnly = false,
+  helperHost?: string,
 ): Promise<ServerState[]> {
   debugCli("detach devices=%o startPort=%d headed=%s", devices, startPort, headed);
   const existingDefault = devices.length === 0 ? readState() : null;
@@ -993,7 +1002,7 @@ async function detach(
 
     port = await findAvailablePort(port);
     try {
-      await startHelper(udid, port, { detach: true, headed, attachOnly });
+      await startHelper(udid, port, { detach: true, headed, attachOnly, helperHost });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (defaultCandidates) {
@@ -2110,13 +2119,14 @@ async function serve(
   devices: string[],
   portExplicit: boolean,
   host: string,
+  allowRemoteAdmin: boolean,
   headed: boolean,
   launch?: { panes?: PreviewPane[]; theme?: SimulatorTheme; codec?: "auto" | "mjpeg" },
 ) {
   let targetDevice: string | undefined;
 
   if (devices.length > 0) {
-    const states = await detach(devices, 3100, headed);
+    const states = await detach(devices, 3100, headed, false, "127.0.0.1");
     targetDevice = states[0]?.device;
   }
 
@@ -2131,15 +2141,10 @@ async function serve(
   }
 
   const { simMiddleware } = await import("./middleware");
-  const middleware = simMiddleware({
-    basePath: "/",
-    device: targetDevice,
-    // The standalone server owns its upgrade handling, so it can proxy the
-    // helpers and keep a remote viewer down to one reachable port.
-    proxyHelpers: true,
-    ...(launch?.codec ? { codec: launch.codec } : {}),
-    ...(launch?.panes ? { initialState: { panes: launch.panes } } : {}),
-  });
+  const networkIP = getLocalNetworkIP();
+  const phoneToken = randomBytes(32).toString("base64url");
+  const phoneAvailable =
+    !!networkIP && host !== "127.0.0.1" && host !== "localhost" && host !== "::1";
 
   // Try requested port; if busy and the user didn't pin it, scan forward.
   const maxScan = portExplicit ? 1 : 50;
@@ -2148,6 +2153,25 @@ async function serve(
   let bound = false;
   for (let i = 0; i < maxScan; i++) {
     const p = servePort + i;
+    const middleware = simMiddleware({
+      basePath: "/",
+      device: targetDevice,
+      // The standalone server owns its upgrade handling, so it can proxy the
+      // helpers and keep every browser on this one port.
+      proxyHelpers: true,
+      helperHost: "127.0.0.1",
+      allowRemoteAdmin,
+      ...(phoneAvailable
+        ? {
+            phonePreview: {
+              token: phoneToken,
+              origin: `http://${networkIP}:${p}`,
+            },
+          }
+        : {}),
+      ...(launch?.codec ? { codec: launch.codec } : {}),
+      ...(launch?.panes ? { initialState: { panes: launch.panes } } : {}),
+    });
     try {
       await bindPreviewServer(p, middleware, host);
       boundPort = p;
@@ -2173,18 +2197,14 @@ async function serve(
     process.exit(1);
   }
 
-  const exposedToLan = host !== "127.0.0.1" && host !== "localhost" && host !== "::1";
-  const networkIP = getLocalNetworkIP();
   console.log("");
   console.log(`  - Local:   http://localhost:${boundPort}`);
-  if (exposedToLan && networkIP) {
+  if (allowRemoteAdmin && networkIP) {
     console.log(`  - Network: http://${networkIP}:${boundPort}`);
-  } else if (networkIP) {
-    console.log(
-      `  - Network: \x1b[2muse --host 0.0.0.0 to expose on http://${networkIP}:${boundPort}\x1b[0m`,
-    );
+  } else if (phoneAvailable) {
+    console.log(`  - Phone:   open the QR code from the preview toolbar`);
   } else {
-    console.log("  - Network: \x1b[2muse --host 0.0.0.0 to expose on the LAN\x1b[0m");
+    console.log("  - Phone:   unavailable on this bind address");
   }
   console.log("");
 
@@ -2287,13 +2307,13 @@ program
   )
   .option(
     "--host <addr>",
-    "Interface to bind the preview server to. Use 0.0.0.0 to expose on the " +
-      "LAN — only on trusted networks: the preview exposes a token-gated " +
-      "shell-exec route.",
-    "127.0.0.1",
+    "Interface to bind. By default the phone viewer is reachable on the LAN while " +
+      "desktop controls stay local. An explicit routable host also exposes the " +
+      "desktop UI and its token-gated shell-exec route.",
   )
   .option("--detach", "Spawn helper and exit (daemon mode)")
   .option("--attach-only", "Attach to an already-booted simulator; never boot it")
+  .addOption(new Option("--helper-host <addr>").hideHelp())
   .option("-q, --quiet", "Suppress human-readable output, JSON only")
   .option("--no-preview", "Skip the web preview server; stream in foreground only")
   .option(
@@ -2371,16 +2391,36 @@ Examples:
       return;
     }
     if (opts.detach) {
-      const states = await detach(devices, startPort ?? 3100, headed, !!opts.attachOnly);
+      const states = await detach(
+        devices,
+        startPort ?? 3100,
+        headed,
+        !!opts.attachOnly,
+        opts.helperHost,
+      );
       printStatesJSON(states);
     } else if (opts.preview === false) {
       await follow(devices, startPort ?? 3100, !!opts.quiet, headed);
     } else {
-      await serve(startPort ?? 3200, devices, startPort !== undefined, opts.host, headed, {
-        panes: launchPanes,
-        theme: launchTheme,
-        codec: launchCodec,
-      });
+      const host = typeof opts.host === "string" ? opts.host : "0.0.0.0";
+      const allowRemoteAdmin =
+        typeof opts.host === "string" &&
+        host !== "127.0.0.1" &&
+        host !== "localhost" &&
+        host !== "::1";
+      await serve(
+        startPort ?? 3200,
+        devices,
+        startPort !== undefined,
+        host,
+        allowRemoteAdmin,
+        headed,
+        {
+          panes: launchPanes,
+          theme: launchTheme,
+          codec: launchCodec,
+        },
+      );
     }
   });
 

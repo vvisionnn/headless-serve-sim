@@ -28,6 +28,7 @@ https://github.com/user-attachments/assets/fbf890f4-c8c7-4684-82be-d677b8a188f8
 ## Features
 
 - Full 60 FPS video stream in the browser.
+- Fullscreen phone preview over the same LAN via a per-run QR link.
 - Swipe from the bottom to go home.
 - gestures like pinch to zoom by holding the option key.
 - Simulator logs are forwarded to the browser for browser-use MCP tools to read from.
@@ -61,7 +62,7 @@ Add the `PATH` export to your shell profile to keep it available in future termi
 ## CLI
 
 ```
-headless-serve-sim [device...]                 Start preview server (default: localhost:3200)
+headless-serve-sim [device...]                 Start desktop + LAN phone preview (port 3200)
 headless-serve-sim --no-preview [device...]    Stream in foreground without a preview server
 headless-serve-sim gesture '<json>' [-d udid]  Send a touch gesture
 headless-serve-sim button [name] [-d udid]     Send a button press (default: home)
@@ -92,6 +93,8 @@ headless-serve-sim document import <file...> [-d udid]
 
 Options:
   -p, --port <port>   Starting port (preview default: 3200, stream default: 3100)
+      --host <addr>   Bind interface. Setting a routable host explicitly also
+                      exposes the full desktop UI; default LAN access is phone-only
   -d, --detach        Spawn helper and exit (daemon mode)
   -q, --quiet         JSON-only output
       --no-preview    Skip the web UI; stream in foreground only
@@ -163,6 +166,12 @@ headless-serve-sim document import ~/report.pdf                     # land at th
 headless-serve-sim document import ~/a.pdf ~/b.epub ~/c.txt         # multiple files
 headless-serve-sim document import ~/report.pdf --into Reports/2026 # into a subfolder
 ```
+
+### Phone preview
+
+Start `headless-serve-sim`, select a Simulator, then click the phone button in the desktop toolbar. Scan the QR code from a phone on the same LAN. The link is pinned to that Simulator and remains valid until the preview server stops.
+
+The phone page contains only the stream, app-level touch input, and a small draggable fullscreen control. Browsers with element fullscreen keep the interactive view; iPhone Safari/Chrome fall back to a live native fullscreen video and return to the interactive preview on exit. Desktop controls and shell-backed tools remain available only from loopback unless `--host` is set explicitly. Pass `--host 127.0.0.1` to disable LAN phone access and keep the entire server local.
 
 Multiple booted simulators are supported — pass several device names, or leave it empty to attach to all of them.
 

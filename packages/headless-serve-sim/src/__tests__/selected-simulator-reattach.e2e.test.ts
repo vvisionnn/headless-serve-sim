@@ -72,4 +72,43 @@ describe("selected simulator attach-only reconnect", () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
+
+  test("keeps preview-started helpers on loopback", async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), "selected-reattach-loopback-"));
+    createdDirs.push(stateDir);
+    const host = createScriptedHostCommands([
+      devices("Booted"),
+      { result: { stdout: "/test/headless-serve-sim\n" } },
+      {},
+    ]);
+    const handler = createSimMiddleware(host, {
+      basePath: "/",
+      serveSimBin: "/test/headless-serve-sim",
+      stateDir,
+      helperHost: "127.0.0.1",
+    });
+    const server = createServer((req, res) => handler(req, res, () => res.end("Not found")));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    try {
+      const response = await fetch(`${origin}/grid/api/attach`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ udid: SELECTED }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(host.calls.at(-1)?.request.args).toEqual([
+        "--detach",
+        "--attach-only",
+        "--helper-host",
+        "127.0.0.1",
+        SELECTED,
+      ]);
+    } finally {
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
 });

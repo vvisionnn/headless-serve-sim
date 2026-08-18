@@ -113,9 +113,9 @@ const faviconTag = `<link rel="icon" type="image/x-icon" href="data:image/x-icon
 console.log(`favicon           ${kb(faviconBytes.length)}`);
 
 const html = `<!doctype html>
-<html><head>
+<html lang="en"><head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Simulator Preview</title>
 ${faviconTag}
 <style>*,*::before,*::after{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden}</style>

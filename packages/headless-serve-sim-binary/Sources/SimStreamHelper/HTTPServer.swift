@@ -11,15 +11,17 @@ final class HTTPServer {
     private let processPidResolver: SimulatorAppPidResolver
     private let port: UInt16
     private let deviceUDID: String
+    private let listenHost: String?
     private let corsHeaders = [
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
     ]
 
-    init(deviceUDID: String, port: UInt16 = 3100) {
+    init(deviceUDID: String, port: UInt16 = 3100, listenHost: String? = nil) {
         self.deviceUDID = deviceUDID
         self.port = port
+        self.listenHost = listenHost
         self.processPidResolver = SimulatorAppPidResolver(deviceUDID: deviceUDID)
     }
 
@@ -234,8 +236,13 @@ final class HTTPServer {
             return nil
         }
 
-        try server.start(port, forceIPv4: false, priority: .userInteractive)
-        print("[server] Listening on http://0.0.0.0:\(port)")
+        if let listenHost {
+            server.listenAddressIPv4 = listenHost
+            try server.start(port, forceIPv4: true, priority: .userInteractive)
+        } else {
+            try server.start(port, forceIPv4: false, priority: .userInteractive)
+        }
+        print("[server] Listening on http://\(listenHost ?? "0.0.0.0"):\(port)")
     }
 
     func stop() {

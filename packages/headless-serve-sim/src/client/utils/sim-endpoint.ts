@@ -23,6 +23,10 @@ declare global {
       codec?: "auto" | "mjpeg";
       /** One-shot UI state from the CLI launch flags (--panes / --fit). */
       initialState?: PreviewInitialState;
+      /** Restricted full-viewport phone page. */
+      mode?: "phone";
+      /** Per-run, selected-device LAN link shown by the desktop toolbar. */
+      phonePreviewUrl?: string;
       devtoolsEndpoint?: string;
       gridApiEndpoint?: string;
       gridStartEndpoint?: string;

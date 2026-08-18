@@ -10,6 +10,7 @@
   --color-panel: #ffffff; /* every floating card */
   --color-panel-bg: #ffffff;
   --color-panel-overlay: rgba(255, 255, 255, 0.92);
+  --color-scrim: rgba(0, 0, 0, 0.2);
   --color-panel-deep: #f7f7f7; /* unselected segment / recessed control fill */
   --color-surface-2: #f7f7f7;
   --color-surface-3: #fbfbfb; /* inputs */
@@ -113,6 +114,7 @@
     --color-panel: #1c1c1c;
     --color-panel-bg: #1c1c1c;
     --color-panel-overlay: rgba(28, 28, 28, 0.92);
+    --color-scrim: rgba(0, 0, 0, 0.55);
     --color-panel-deep: #242424;
     --color-surface-2: #242424;
     --color-surface-3: #1f1f1f;

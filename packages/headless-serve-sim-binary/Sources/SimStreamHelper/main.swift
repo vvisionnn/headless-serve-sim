@@ -15,17 +15,21 @@ app.setActivationPolicy(.accessory)
 let args = CommandLine.arguments
 
 guard args.count >= 2 else {
-    fputs("Usage: headless-serve-sim-bin <device-udid> [--port 3100]\n", stderr)
+    fputs("Usage: headless-serve-sim-bin <device-udid> [--port 3100] [--host 127.0.0.1]\n", stderr)
     exit(1)
 }
 
 let deviceUDID = args[1]
 var port: UInt16 = 3100
+var listenHost: String? = "127.0.0.1"
 
-// Parse optional --port flag
+// Parse optional network flags.
 if let portIdx = args.firstIndex(of: "--port"), portIdx + 1 < args.count,
    let p = UInt16(args[portIdx + 1]) {
     port = p
+}
+if let hostIdx = args.firstIndex(of: "--host"), hostIdx + 1 < args.count {
+    listenHost = args[hostIdx + 1]
 }
 
 // Streaming quality mode: perf (default) favors smoothness on weak links;
@@ -43,6 +47,7 @@ if let modeIdx = args.firstIndex(of: "--mode"), modeIdx + 1 < args.count,
 print("[main] Starting headless-serve-sim-bin")
 print("[main] Device UDID: \(deviceUDID)")
 print("[main] Port: \(port)")
+print("[main] Host: \(listenHost ?? "all interfaces")")
 print("[main] Stream mode: \(streamMode.rawValue)")
 
 // How many H.264 frames may be inside VideoToolbox at once. One slot makes the
@@ -80,7 +85,7 @@ if let raw = ProcessInfo.processInfo.environment["SERVE_SIM_H264_MAX_DIMENSION"]
 print("[main] H.264 max encoded dimension: \(h264MaxDimension)")
 
 let avccHighWaterBytes = 256 * 1024
-let httpServer = HTTPServer(deviceUDID: deviceUDID, port: port)
+let httpServer = HTTPServer(deviceUDID: deviceUDID, port: port, listenHost: listenHost)
 let frameCapture = FrameCapture()
 let frameSnapshotter = FrameSnapshotter()
 let frameAdmission = FrameAdmissionController(maxH264InFlight: h264InFlightDepth)

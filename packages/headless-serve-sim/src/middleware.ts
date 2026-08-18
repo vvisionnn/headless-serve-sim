@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, existsSync, unlinkSync, watch, type FSWatche
 import { tmpdir } from "os";
 import { join } from "path";
 import { createServer as createNetServer } from "net";
-import { randomBytes, timingSafeEqual } from "crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { IncomingMessage, ServerResponse } from "http";
 import type { Duplex } from "stream";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
@@ -335,6 +335,46 @@ function queryDevice(rawUrl: string): string | null {
   return new URLSearchParams(rawUrl.slice(qIndex + 1)).get("device");
 }
 
+type PhonePreviewRoute = {
+  device: string;
+  basePath: string;
+  endpoint: "page" | "stream.avcc" | "stream.mjpeg" | "ws";
+};
+
+export function phonePreviewToken(secret: string, device: string): string {
+  return createHmac("sha256", secret).update(device).digest("base64url");
+}
+
+export function parsePhonePreviewPath(path: string, secret: string): PhonePreviewRoute | null {
+  const parts = path.split("/");
+  if (parts[1] !== "phone") return null;
+  let device: string;
+  try {
+    device = decodeURIComponent(parts[3] ?? "");
+  } catch {
+    return null;
+  }
+  if (!/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i.test(device)) {
+    return null;
+  }
+  const token = phonePreviewToken(secret, device);
+  if (!safeEqualString(parts[2] ?? "", token)) return null;
+  const endpoint = parts.length === 4 ? "page" : parts.length === 5 ? parts[4] : null;
+  if (
+    endpoint !== "page" &&
+    endpoint !== "stream.avcc" &&
+    endpoint !== "stream.mjpeg" &&
+    endpoint !== "ws"
+  ) {
+    return null;
+  }
+  return {
+    device,
+    basePath: `/phone/${encodeURIComponent(token)}/${encodeURIComponent(device)}`,
+    endpoint,
+  };
+}
+
 /**
  * Parse `/grid/api` pagination params.
  *
@@ -470,6 +510,7 @@ export function previewConfigForState(
   initialState?: PreviewInitialState | null,
   proxy?: { base: string; host: string; secure: boolean } | null,
   codec?: "auto" | "mjpeg",
+  phonePreview?: { token: string; origin: string } | null,
 ): ServeSimState & {
   basePath: string;
   logsEndpoint: string;
@@ -489,6 +530,7 @@ export function previewConfigForState(
   execToken: string;
   initialState?: PreviewInitialState;
   codec?: "auto" | "mjpeg";
+  phonePreviewUrl?: string;
   screenConfig?: HelperScreenConfig;
   deviceName?: string;
   deviceTypeIdentifier?: string;
@@ -527,6 +569,11 @@ export function previewConfigForState(
     execToken,
     ...(initialState ? { initialState } : {}),
     ...(codec && codec !== "auto" ? { codec } : {}),
+    ...(phonePreview
+      ? {
+          phonePreviewUrl: `${phonePreview.origin}/phone/${phonePreviewToken(phonePreview.token, state.device)}/${encodeURIComponent(state.device)}`,
+        }
+      : {}),
   };
 }
 
@@ -943,6 +990,15 @@ export interface SimMiddlewareOptions {
    * the browser can decode it.
    */
   codec?: "auto" | "mjpeg";
+  /** Restricted same-server phone preview. The secret is valid for this process only. */
+  phonePreview?: {
+    token: string;
+    origin: string;
+  };
+  /** Preserve the explicit `--host` opt-in to the full desktop UI over the network. */
+  allowRemoteAdmin?: boolean;
+  /** Bind helpers spawned from this preview to a specific interface. */
+  helperHost?: string;
 }
 
 function safeEqualString(a: string, b: string): boolean {
@@ -960,7 +1016,26 @@ function safeEqualString(a: string, b: string): boolean {
  * user's own shell — but require the token once the preview is bound to a
  * routable interface via `--host`.
  */
+function upgradeOriginMatchesHost(req: IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch {
+    return false;
+  }
+}
+
 function isLoopbackRequest(req: SimReq): boolean {
+  if (
+    req.headers.forwarded ||
+    req.headers["x-forwarded-for"] ||
+    req.headers["x-forwarded-host"] ||
+    req.headers["x-forwarded-proto"] ||
+    req.headers["x-real-ip"]
+  ) {
+    return false;
+  }
   const address = (req.socket as { remoteAddress?: string } | undefined)?.remoteAddress;
   if (!address) return false;
   return (
@@ -998,6 +1073,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
   const eventLog = options?.eventLog ?? createEventLog();
   const proxyHelpers = options?.proxyHelpers ?? false;
   const codec = options?.codec ?? "auto";
+  const phonePreview = options?.phonePreview ?? null;
   /** Per-request proxy descriptor, or null when proxying is off. */
   const proxyFor = (req: SimReq): { base: string; host: string; secure: boolean } | null => {
     if (!proxyHelpers) return null;
@@ -1047,6 +1123,78 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
     const url = qIndex === -1 ? rawUrl : rawUrl.slice(0, qIndex);
     const selectedDevice = queryDevice(rawUrl) ?? options?.device ?? null;
     const devtoolsFrontendBase = base === "/" ? "/devtools-frontend" : `${base}/devtools-frontend`;
+    const phoneRoute = phonePreview ? parsePhonePreviewPath(url, phonePreview.token) : null;
+
+    if (phoneRoute?.endpoint === "page" && req.method === "GET") {
+      const state = selectServeSimState(readStates(), phoneRoute.device);
+      if (!state) {
+        res.writeHead(404, {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-store",
+        });
+        res.end("Simulator unavailable");
+        return;
+      }
+      const host = req.headers.host;
+      if (!host) {
+        res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Missing Host header");
+        return;
+      }
+      const secure = requestIsSecure(req.headers as Record<string, unknown>);
+      const httpOrigin = `${secure ? "https" : "http"}://${host}`;
+      const wsOrigin = `${secure ? "wss" : "ws"}://${host}`;
+      const config = htmlSafeJson({
+        mode: "phone",
+        device: state.device,
+        url: `${httpOrigin}${phoneRoute.basePath}`,
+        wsUrl: `${wsOrigin}${phoneRoute.basePath}/ws`,
+        ...(codec !== "auto" ? { codec } : {}),
+      });
+      const html = loadHtml().replace(
+        "<!--__SIM_PREVIEW_CONFIG__-->",
+        `<script>window.__SIM_PREVIEW__=${config}</script>`,
+      );
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy":
+          "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
+          `img-src 'self' data: blob:; connect-src 'self' ${wsOrigin}; frame-ancestors 'none'`,
+      });
+      res.end(html);
+      return;
+    }
+
+    if (
+      phoneRoute &&
+      (phoneRoute.endpoint === "stream.avcc" || phoneRoute.endpoint === "stream.mjpeg") &&
+      req.method === "GET"
+    ) {
+      const state = selectServeSimState(readStates(), phoneRoute.device);
+      if (!state) {
+        res.writeHead(404, {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-store",
+        });
+        res.end("Not found");
+        return;
+      }
+      const query = qIndex === -1 ? "" : rawUrl.slice(qIndex);
+      void proxyHelperRequest(state.url, `/${phoneRoute.endpoint}${query}`, req, res);
+      return;
+    }
+
+    if (options?.allowRemoteAdmin === false && !isLoopbackRequest(req)) {
+      res.writeHead(404, {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      res.end("Not found");
+      return;
+    }
 
     // Same-origin proxy for Chrome DevTools frontend assets. Loading the
     // appspot-hosted frontend directly works as a top-level tab, but is flaky
@@ -1133,6 +1281,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
             options?.initialState,
             proxyFor(req),
             codec,
+            phonePreview,
           ),
         );
         sendHtml(
@@ -1369,6 +1518,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
             ...resolved.baseArgs,
             "--detach",
             ...(isAttachOnly ? ["--attach-only"] : []),
+            ...(options?.helperHost ? ["--helper-host", options.helperHost] : []),
             udid,
           ],
           stdio: "stream",
@@ -1572,6 +1722,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
                   null,
                   proxyFor(req),
                   codec,
+                  phonePreview,
                 )
               : null,
           ),
@@ -1604,6 +1755,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
                 null,
                 proxyFor(req),
                 codec,
+                phonePreview,
               )
             : null,
         );
@@ -2146,13 +2298,35 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
 
   return Object.assign(middleware, {
     handleUpgrade: (req: IncomingMessage, socket: Duplex, head: Buffer): boolean => {
-      if (handleExecUpgrade(req, socket, head)) return true;
-      if (!proxyHelpers) return false;
       const rawUrl = req.url ?? "";
       const qIndex = rawUrl.indexOf("?");
       const path = qIndex === -1 ? rawUrl : rawUrl.slice(0, qIndex);
+      const phoneRoute = phonePreview ? parsePhonePreviewPath(path, phonePreview.token) : null;
+      if (phoneRoute?.endpoint === "ws") {
+        if (!upgradeOriginMatchesHost(req)) {
+          socket.destroy();
+          return true;
+        }
+        const helper = readStates().find((state) => state.device === phoneRoute.device);
+        if (!helper) {
+          socket.destroy();
+          return true;
+        }
+        tunnelHelperSocket(helper.wsUrl, req, socket, head);
+        return true;
+      }
+      if (options?.allowRemoteAdmin === false && !isLoopbackRequest(req)) {
+        socket.destroy();
+        return true;
+      }
+      if (handleExecUpgrade(req, socket, head)) return true;
+      if (!proxyHelpers) return false;
       const target = parseHelperProxyPath(base, path);
       if (!target) return false;
+      if (!upgradeOriginMatchesHost(req)) {
+        socket.destroy();
+        return true;
+      }
       const helper = readStates().find((state) => state.device === target.device);
       if (!helper) {
         socket.destroy();

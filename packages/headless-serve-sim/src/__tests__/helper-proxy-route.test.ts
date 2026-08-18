@@ -135,6 +135,33 @@ describe("helper proxy", () => {
     expect(reply).toBe("echo:hello");
   }, 15_000);
 
+  test("rejects a cross-origin helper WebSocket", async () => {
+    const helper = await startFakeHelper();
+    const origin = await startPreview(helper);
+    const socket = new WebSocket(`${origin.replace("http", "ws")}/helper/${DEVICE}/ws`, {
+      headers: { Origin: "http://evil.example" },
+    });
+    cleanups.push(() => socket.close());
+
+    const opened = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), 2_000);
+      socket.on("open", () => {
+        clearTimeout(timer);
+        resolve(true);
+      });
+      socket.on("error", () => {
+        clearTimeout(timer);
+        resolve(false);
+      });
+      socket.on("close", () => {
+        clearTimeout(timer);
+        resolve(false);
+      });
+    });
+
+    expect(opened).toBe(false);
+  });
+
   test("the exec channel still upgrades with proxying on", async () => {
     // The helper tunnel must not swallow upgrades that belong to /exec-ws.
     const helper = await startFakeHelper();

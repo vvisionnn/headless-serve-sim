@@ -34,6 +34,8 @@ import { AxToolbarButton } from "./components/ax-toolbar-button";
 import { BootEmptyState } from "./components/boot-empty-state";
 import { PanelCard } from "./components/design-system";
 import { BareScreen, DeviceBezel } from "./components/device-bezel";
+import { PhonePreview } from "./components/phone-preview";
+import { PhonePreviewLink } from "./components/phone-preview-link";
 import { SimulatorDisconnected } from "./components/simulator-disconnected";
 import { DevicePicker } from "./components/device-picker";
 import { GridPanel } from "./components/grid-panel";
@@ -1193,6 +1195,7 @@ function AppWithConfig({
                 trigger={<SimulatorToolbar.Title />}
               />
               <SimulatorToolbar.Actions>
+                {config.phonePreviewUrl && <PhonePreviewLink url={config.phonePreviewUrl} />}
                 {currentApp?.isReactNative && (
                   <SimulatorToolbar.Button
                     aria-label="Reload React Native bundle"
@@ -1427,4 +1430,7 @@ function AppWithConfig({
   );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+const initialPreview = window.__SIM_PREVIEW__;
+createRoot(document.getElementById("root")!).render(
+  initialPreview?.mode === "phone" ? <PhonePreview config={initialPreview} /> : <App />,
+);

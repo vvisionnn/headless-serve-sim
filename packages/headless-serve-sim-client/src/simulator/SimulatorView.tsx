@@ -1187,6 +1187,7 @@ export function SimulatorView({
             <img
               ref={imgRef}
               crossOrigin="anonymous"
+              alt="Simulator screen"
               src={relayMode ? undefined : streamUrl}
               draggable={false}
               onLoad={(e) => {
@@ -1202,6 +1203,7 @@ export function SimulatorView({
             <img
               ref={relayImgRef}
               crossOrigin="anonymous"
+              alt="Simulator screen"
               draggable={false}
               onLoad={(e) => {
                 const el = e.currentTarget;

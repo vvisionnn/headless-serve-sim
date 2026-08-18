@@ -48,10 +48,9 @@ export async function servePreview(opts: {
   port: number;
   middleware: ConnectMiddleware;
   /**
-   * Interface to bind. Defaults to `127.0.0.1` so the preview is reachable
-   * only from the developer's machine — the middleware exposes shell-exec
-   * routes that must not be reachable from other hosts. Pass an explicit
-   * value (e.g. `"0.0.0.0"`) to opt in to LAN exposure.
+   * Interface to bind. Defaults to `127.0.0.1` for embedded callers that omit
+   * it. The standalone CLI passes its chosen interface and lets middleware
+   * restrict remote requests to the token-scoped phone routes.
    */
   host?: string;
 }): Promise<PreviewServer> {
