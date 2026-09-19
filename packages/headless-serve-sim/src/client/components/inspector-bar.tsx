@@ -106,63 +106,55 @@ export function InspectorBar({
         </div>
       }
     >
-          {/* Context, not a tool — what everything below is currently acting on. */}
-          <AppDetectionTool udid={udid} currentApp={currentApp} />
+      {/* Context, not a tool — what everything below is currently acting on. */}
+      <AppDetectionTool udid={udid} currentApp={currentApp} />
 
-          <SectionGroup label="Device">
-            <SimulatorSettingsTool
-              udid={udid}
-              execToken={execToken}
-              refreshKey={uiSettingsRevision}
-            />
-            <StatusBarTool udid={udid} />
-            <LocationEmulationTool udid={udid} exec={execOnHost} />
-            <CameraTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
-          </SectionGroup>
+      <SectionGroup label="Device">
+        <SimulatorSettingsTool udid={udid} execToken={execToken} refreshKey={uiSettingsRevision} />
+        <StatusBarTool udid={udid} />
+        <LocationEmulationTool udid={udid} exec={execOnHost} />
+        <CameraTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
+      </SectionGroup>
 
-          <SectionGroup label="App">
-            <AppActionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
-            <AppPermissionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
-            <UserDefaultsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
-            <ImportDocumentTool udid={udid} />
-          </SectionGroup>
+      <SectionGroup label="App">
+        <AppActionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
+        <AppPermissionsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
+        <UserDefaultsTool udid={udid} bundleId={currentApp?.bundleId ?? null} />
+        <ImportDocumentTool udid={udid} />
+      </SectionGroup>
 
-          <SectionGroup label="Capture">
-            <ScreenshotTool udid={udid} />
-            <ScreenRecordingTool
-              sourceRef={recordingSourceRef}
-              deviceFrameSpec={deviceFrameSpec}
-              deviceKey={udid}
-              streaming={streaming}
-              streamMode={streamMode}
-              streamModeAvailable={streamModeAvailable}
-              onStreamModeChange={onStreamModeChange}
-            />
-          </SectionGroup>
+      <SectionGroup label="Capture">
+        <ScreenshotTool udid={udid} />
+        <ScreenRecordingTool
+          sourceRef={recordingSourceRef}
+          deviceFrameSpec={deviceFrameSpec}
+          deviceKey={udid}
+          streaming={streaming}
+          streamMode={streamMode}
+          streamModeAvailable={streamModeAvailable}
+          onStreamModeChange={onStreamModeChange}
+        />
+      </SectionGroup>
 
-          <SectionGroup label="Inspect">
-            <AxTreeTool overlayEnabled={axOverlayEnabled} onToggleOverlay={onToggleAxOverlay} />
-            <InspectorLauncher
-              label="Connection Stats"
-              onClick={onOpenStats}
-              expanded={openOverlay === "stats"}
-            />
-            <InspectorLauncher
-              label="Logs"
-              onClick={onOpenLogs}
-              expanded={openOverlay === "logs"}
-            />
-            <InspectorLauncher
-              label="WebKit DevTools"
-              onClick={onOpenDevtools}
-              expanded={openOverlay === "devtools"}
-            />
-            <InspectorLauncher
-              label="Simulators"
-              onClick={onOpenGrid}
-              expanded={openOverlay === "grid"}
-            />
-          </SectionGroup>
+      <SectionGroup label="Inspect">
+        <AxTreeTool overlayEnabled={axOverlayEnabled} onToggleOverlay={onToggleAxOverlay} />
+        <InspectorLauncher
+          label="Connection Stats"
+          onClick={onOpenStats}
+          expanded={openOverlay === "stats"}
+        />
+        <InspectorLauncher label="Logs" onClick={onOpenLogs} expanded={openOverlay === "logs"} />
+        <InspectorLauncher
+          label="WebKit DevTools"
+          onClick={onOpenDevtools}
+          expanded={openOverlay === "devtools"}
+        />
+        <InspectorLauncher
+          label="Simulators"
+          onClick={onOpenGrid}
+          expanded={openOverlay === "grid"}
+        />
+      </SectionGroup>
     </RailCard>
   );
 }

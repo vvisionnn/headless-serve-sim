@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Panel } from "../client/Panel";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createElement } from "react";
 
 const cssPath = new URL("../client/global.css", import.meta.url);
 
@@ -21,7 +20,9 @@ describe("panel motion tokens", () => {
 
   test("overlay Panel uses origin-aware open state instead of a hardcoded 0.3s ease", () => {
     const html = renderToStaticMarkup(
-      createElement(Panel, { open: true, width: 420, children: "stats" }),
+      <Panel open width={420}>
+        stats
+      </Panel>,
     );
     expect(html).toContain("ds-overlay-panel");
     expect(html).toContain('data-open="true"');

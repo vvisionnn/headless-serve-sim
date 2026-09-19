@@ -33,7 +33,10 @@ export function RailCard({
         height,
       }}
     >
-      <div className="absolute top-0 flex flex-col" style={{ width: expandedWidth, height, ...edge }}>
+      <div
+        className="absolute top-0 flex flex-col"
+        style={{ width: expandedWidth, height, ...edge }}
+      >
         {header}
         <div
           className={`ds-rail-body ds-rail-from-${from} flex flex-1 min-h-0 flex-col overflow-y-auto overflow-x-hidden bg-inset [&>*]:shrink-0`}
