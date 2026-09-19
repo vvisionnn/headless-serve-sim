@@ -17,12 +17,10 @@ export function Panel({
 }) {
   return (
     <aside
-      className="fixed top-6 right-6 bottom-6 z-35 min-w-0 overflow-hidden rounded-panel bg-panel text-fg shadow-overlay font-system [transition:transform_0.3s_cubic-bezier(0.4,0,0.6,1),opacity_0.24s_cubic-bezier(0.4,0,0.6,1)] flex flex-col"
+      className="ds-overlay-panel fixed top-6 right-6 bottom-6 z-35 min-w-0 overflow-hidden rounded-panel bg-panel text-fg shadow-overlay font-system flex flex-col"
+      data-open={open ? "true" : "false"}
       style={{
         width,
-        transform: open ? "translateX(0)" : "translateX(calc(100% + 24px))",
-        opacity: open ? 1 : 0,
-        pointerEvents: open ? "auto" : "none",
         ...style,
       }}
       aria-hidden={!open}

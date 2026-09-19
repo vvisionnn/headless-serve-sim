@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -1017,10 +1018,24 @@ function AppWithConfig({
   // Cards fill the canvas height minus its margin; the device gets what's left
   // of the width once both rails and the three gutters are reserved.
   const cardHeight = Math.max(0, viewportHeight - 2 * PAGE_PAD);
-  const deviceAvailWidth = Math.max(
+  const computedBayWidth = Math.max(
     0,
     viewportWidth - 2 * PAGE_PAD - metricsWidth - inspectorWidth - 2 * CARD_GAP,
   );
+  // Measure the live centre column so the device scales with the rail width
+  // transition instead of jumping to the open/closed size on click.
+  const centerRef = useRef<HTMLDivElement>(null);
+  const [measuredBayWidth, setMeasuredBayWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = centerRef.current;
+    if (!el) return;
+    const update = () => setMeasuredBayWidth(Math.round(el.getBoundingClientRect().width));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const deviceAvailWidth = measuredBayWidth > 0 ? measuredBayWidth : computedBayWidth;
   const deviceAvailHeight = Math.max(0, cardHeight - TOP_BAR_HEIGHT - DEVICE_GAP);
 
   // Which way the device is turned. Prefer the reported orientation; fall back
@@ -1161,15 +1176,15 @@ function AppWithConfig({
 
         {/* Centre — the toolbar card, then the device itself on the canvas. */}
         <div
+          ref={centerRef}
           className="flex min-w-0 flex-1 flex-col items-center justify-center"
           style={{ gap: DEVICE_GAP, height: cardHeight }}
         >
           <PanelCard
-            className="shrink-0"
+            className="ds-toolbar-card shrink-0"
             style={{
               width: toolbarWidth,
               height: TOP_BAR_HEIGHT,
-              transition: "width 320ms cubic-bezier(0.4, 0, 0.6, 1)",
             }}
           >
             <SimulatorToolbar

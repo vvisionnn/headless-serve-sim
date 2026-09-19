@@ -8,13 +8,13 @@ import {
 import { formatGridBytes } from "../utils/grid";
 import { buildSparkline, cpuColor, memoryRange, splitValueUnit } from "../utils/metrics-chart";
 import { PanelToggleIcon, SectionGroup, SquareIconButton } from "./design-system";
+import { RailCard } from "./rail-card";
 
 // The left Activity card. The two primary gauges chart the foreground app's
 // native CPU and physical footprint; compact rows expose every additional
 // native counter without conflating app performance with stream telemetry.
 
 const CHART_H = 80;
-const EASE = "cubic-bezier(0.4, 0, 0.6, 1)";
 
 function useElementWidth(): [React.RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -58,16 +58,14 @@ export function MetricsBar({
   const alive = stream.latest?.alive === true;
 
   return (
-    <aside
-      className="relative shrink-0 overflow-hidden rounded-panel bg-panel shadow-panel font-system"
-      style={{
-        width: open ? expandedWidth : collapsedWidth,
-        height,
-        transition: `width 320ms ${EASE}`,
-      }}
-      aria-label="Activity"
-    >
-      <div className="absolute top-0 left-0 flex flex-col" style={{ width: expandedWidth, height }}>
+    <RailCard
+      open={open}
+      collapsedWidth={collapsedWidth}
+      expandedWidth={expandedWidth}
+      height={height}
+      label="Activity"
+      from="left"
+      header={
         <div className="flex shrink-0 items-center gap-2 px-[9px]" style={{ height: topBarHeight }}>
           <SquareIconButton
             onClick={onToggle}
@@ -79,28 +77,13 @@ export function MetricsBar({
           </SquareIconButton>
           <span className="ml-1 truncate text-eyebrow uppercase text-fg">Activity</span>
           {alive && (
-            <span
-              className="ml-auto mr-2 size-1.5 rounded-full bg-success"
-              style={{ animation: "hud-pulse 1.8s cubic-bezier(0.4,0,0.6,1) infinite" }}
-              aria-hidden
-            />
+            <span className="hud-pulse ml-auto mr-2 size-1.5 rounded-full bg-success" aria-hidden />
           )}
         </div>
-
-        <div
-          className="flex flex-1 min-h-0 flex-col overflow-y-auto bg-inset [&>*]:shrink-0"
-          aria-hidden={!open}
-          style={{
-            opacity: open ? 1 : 0,
-            transform: open ? "translateX(0)" : "translateX(-28px)",
-            pointerEvents: open ? "auto" : "none",
-            transition: `opacity 260ms ${EASE}, transform 320ms ${EASE}`,
-          }}
-        >
-          <MetricsDashboard stream={stream} />
-        </div>
-      </div>
-    </aside>
+      }
+    >
+      <MetricsDashboard stream={stream} />
+    </RailCard>
   );
 }
 

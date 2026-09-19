@@ -12,6 +12,7 @@ import { AppPermissionsTool } from "./app-permissions-tool";
 import { AxTreeTool } from "./ax-tree-tool";
 import { CameraTool } from "./camera-tool";
 import { PanelToggleIcon, SectionGroup, SquareIconButton } from "./design-system";
+import { RailCard } from "./rail-card";
 import { ImportDocumentTool } from "./import-document-tool";
 import { ScreenshotTool } from "./screenshot-tool";
 import { ScreenRecordingTool } from "./screen-recording-tool";
@@ -55,10 +56,6 @@ export interface InspectorBarProps {
   onOpenDevtools: () => void;
 }
 
-// Restrained decelerate curve, shared with the device so the two animate in
-// lockstep when the inspector expands/collapses. No spring/overshoot.
-const EASE = "cubic-bezier(0.4, 0, 0.6, 1)";
-
 export function InspectorBar({
   open,
   onToggle,
@@ -85,23 +82,14 @@ export function InspectorBar({
   onOpenDevtools,
 }: InspectorBarProps) {
   return (
-    <aside
-      className="relative shrink-0 overflow-hidden rounded-panel bg-panel shadow-panel font-system"
-      style={{
-        width: open ? expandedWidth : collapsedWidth,
-        height,
-        transition: `width 320ms ${EASE}`,
-      }}
-      aria-label="Inspector"
-    >
-      {/* Fixed-width panel anchored to the right edge — never reflows; the rail
-          width animation reveals it. */}
-      <div
-        className="absolute top-0 right-0 flex flex-col"
-        style={{ width: expandedWidth, height }}
-      >
-        {/* Title row. The toggle sits at the right so it stays inside the
-            collapsed rail (which reveals the panel's right edge). */}
+    <RailCard
+      open={open}
+      collapsedWidth={collapsedWidth}
+      expandedWidth={expandedWidth}
+      height={height}
+      label="Inspector"
+      from="right"
+      header={
         <div
           className="flex shrink-0 items-center justify-between gap-2 px-[9px]"
           style={{ height: topBarHeight }}
@@ -116,22 +104,8 @@ export function InspectorBar({
             <PanelToggleIcon side="right" open={open} />
           </SquareIconButton>
         </div>
-
-        {/* Body — flat sections on white, separated by hairline rules rather
-            than by gutters. Fades + slides as a unit. */}
-        {/* Body — sections grouped by WHAT THEY ACT ON, divided by hairline
-            rules. Sixteen tools as flat peers is a list, not an interface.
-            Fades + slides as a unit. */}
-        <div
-          className="flex flex-1 flex-col overflow-y-auto overflow-x-hidden bg-inset [&>*]:shrink-0"
-          aria-hidden={!open}
-          style={{
-            opacity: open ? 1 : 0,
-            transform: open ? "translateX(0)" : "translateX(28px)",
-            pointerEvents: open ? "auto" : "none",
-            transition: `opacity 260ms ${EASE}, transform 320ms ${EASE}`,
-          }}
-        >
+      }
+    >
           {/* Context, not a tool — what everything below is currently acting on. */}
           <AppDetectionTool udid={udid} currentApp={currentApp} />
 
@@ -189,9 +163,7 @@ export function InspectorBar({
               expanded={openOverlay === "grid"}
             />
           </SectionGroup>
-        </div>
-      </div>
-    </aside>
+    </RailCard>
   );
 }
 
@@ -210,7 +182,7 @@ function InspectorLauncher({
       onClick={onClick}
       aria-haspopup="dialog"
       aria-expanded={expanded}
-      className="flex w-full cursor-pointer items-center justify-between gap-2 border-t border-divider bg-transparent px-5 py-3.5 text-left text-body text-fg hover:bg-hover [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
+      className="flex w-full cursor-pointer items-center justify-between gap-2 border-t border-divider bg-transparent px-5 py-3.5 text-left text-body text-fg hover:bg-hover [transition:background_var(--duration-quick)_var(--ease-smooth-out)] focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
     >
       <span>{label}</span>
       <svg

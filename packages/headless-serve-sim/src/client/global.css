@@ -241,6 +241,32 @@
 :root {
   color-scheme: light dark;
   font-family: var(--font-system);
+  /* Motion tokens — surfaces use open/close asymmetry; no springs. */
+  --duration-stagger: 40ms;
+  --duration-micro: 80ms;
+  --duration-quick: 150ms;
+  --duration-fast: 250ms;
+  --duration-medium: 350ms;
+  --duration-slow: 400ms;
+  --duration-very-slow: 500ms;
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: ease-in-out;
+  --ease-out: ease-out;
+  --ease-linear: linear;
+  --distance-base: 8px;
+  --blur-small: 2px;
+  --scale-medium: 0.97;
+  --panel-open-dur: 400ms;
+  --panel-close-dur: 350ms;
+  --panel-blur: 2px;
+  --panel-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --resize-dur: 300ms;
+  --resize-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --acc-expand: 250ms;
+  --acc-collapse: 250ms;
+  --acc-chevron: 250ms;
+  --acc-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ds-rail-from: 8px;
   /* San Francisco is drawn for antialiased rendering; on `auto` macOS
      subpixel-smooths it and the whole interface reads heavy and muddy. */
   -webkit-font-smoothing: antialiased;
@@ -286,12 +312,124 @@ details.lem-section::details-content {
   height: 0;
   overflow: clip;
   transition:
-    height 0.3s cubic-bezier(0.4, 0, 0.6, 1),
-    content-visibility 0.3s allow-discrete;
+    height var(--acc-collapse) var(--acc-ease),
+    content-visibility var(--acc-collapse) allow-discrete;
 }
 
 details.lem-section[open]::details-content {
   height: auto;
+  transition:
+    height var(--acc-expand) var(--acc-ease),
+    content-visibility var(--acc-expand) allow-discrete;
+}
+
+.t-acc-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--acc-collapse) var(--acc-ease);
+}
+.t-acc[data-open="true"] .t-acc-panel,
+details.lem-section[open] .t-acc-panel {
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--acc-expand) var(--acc-ease);
+}
+.t-acc-panel-inner {
+  overflow: hidden;
+  min-height: 0;
+  opacity: 0;
+  filter: blur(var(--blur-small));
+  transition:
+    opacity var(--acc-collapse) var(--acc-ease),
+    filter var(--acc-collapse) var(--acc-ease);
+}
+.t-acc[data-open="true"] .t-acc-panel-inner,
+details.lem-section[open] .t-acc-panel-inner {
+  opacity: 1;
+  filter: blur(0);
+  transition:
+    opacity var(--acc-expand) var(--acc-ease),
+    filter var(--acc-expand) var(--acc-ease);
+}
+.t-acc-chevron {
+  display: inline-flex;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  transition: transform var(--acc-chevron) var(--acc-ease);
+}
+.t-acc[data-open="true"] .t-acc-chevron,
+.t-acc-chevron.is-open {
+  transform: rotate(0deg);
+}
+
+.t-resize {
+  transition:
+    width var(--resize-dur) var(--resize-ease),
+    height var(--resize-dur) var(--resize-ease);
+}
+
+.ds-rail {
+  transition: width var(--panel-close-dur) var(--panel-ease);
+  will-change: width;
+}
+.ds-rail[data-open="true"] {
+  transition-duration: var(--panel-open-dur);
+}
+.ds-rail-body {
+  opacity: 0;
+  filter: blur(var(--blur-small));
+  transform: translateX(var(--ds-rail-from));
+  pointer-events: none;
+  transition:
+    transform var(--panel-close-dur) var(--panel-ease),
+    opacity var(--panel-close-dur) var(--panel-ease),
+    filter var(--panel-close-dur) var(--panel-ease);
+  will-change: transform, opacity, filter;
+}
+.ds-rail[data-open="true"] .ds-rail-body {
+  opacity: 1;
+  filter: blur(0);
+  transform: translateX(0);
+  pointer-events: auto;
+  transition:
+    transform var(--panel-open-dur) var(--panel-ease),
+    opacity var(--panel-open-dur) var(--panel-ease),
+    filter var(--panel-open-dur) var(--panel-ease);
+}
+.ds-rail-from-left {
+  --ds-rail-from: -8px;
+}
+.ds-rail-from-right {
+  --ds-rail-from: 8px;
+}
+
+.ds-overlay-panel {
+  transform: translateX(calc(100% + 24px));
+  opacity: 0;
+  filter: blur(var(--panel-blur));
+  pointer-events: none;
+  transition:
+    transform var(--panel-close-dur) var(--panel-ease),
+    opacity var(--panel-close-dur) var(--panel-ease),
+    filter var(--panel-close-dur) var(--panel-ease);
+  will-change: transform, opacity, filter;
+}
+.ds-overlay-panel[data-open="true"] {
+  transform: translateX(0);
+  opacity: 1;
+  filter: blur(0);
+  pointer-events: auto;
+  transition:
+    transform var(--panel-open-dur) var(--panel-ease),
+    opacity var(--panel-open-dur) var(--panel-ease),
+    filter var(--panel-open-dur) var(--panel-ease);
+}
+
+.ds-toolbar-card {
+  transition: width var(--panel-open-dur) var(--panel-ease);
+}
+
+.hud-pulse {
+  animation: hud-pulse 1.8s var(--ease-in-out) infinite;
 }
 
 /* The Chevron is the disclosure affordance; drop the native marker. */
@@ -377,4 +515,30 @@ details.lem-section > summary::-webkit-details-marker {
 }
 .grid-tile:hover {
   border-color: var(--color-divider) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-rail,
+  .ds-rail-body,
+  .ds-overlay-panel,
+  .ds-toolbar-card,
+  .t-resize,
+  .t-acc-panel,
+  .t-acc-panel-inner,
+  .t-acc-chevron,
+  details.lem-section::details-content {
+    transition: none !important;
+  }
+  .ds-rail-body,
+  .ds-overlay-panel,
+  .t-acc-panel-inner {
+    filter: none !important;
+    transform: none !important;
+  }
+  .hud-pulse,
+  .hud-in,
+  .doc-row-in,
+  .headless-serve-sim-toast-indeterminate {
+    animation: none !important;
+  }
 }

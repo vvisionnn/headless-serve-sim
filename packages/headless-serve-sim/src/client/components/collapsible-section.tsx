@@ -37,17 +37,22 @@ export function CollapsibleSection({
   return (
     <details
       open={open}
+      data-open={open ? "true" : "false"}
       onToggle={(e) => onOpenChange((e.currentTarget as HTMLDetailsElement).open)}
-      className={`lem-section border-t border-divider bg-panel overflow-hidden ${className}`}
+      className={`t-acc lem-section border-t border-divider bg-panel overflow-hidden ${className}`}
       {...dataProps}
     >
       <summary
-        className={`lem-toggle flex items-center gap-2.5 cursor-pointer select-none px-5 min-h-[56px] text-body font-semibold text-fg [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)] ${summaryClassName}`}
+        className={`t-acc-head lem-toggle flex items-center gap-2.5 cursor-pointer select-none px-5 min-h-[56px] text-body font-semibold text-fg [transition:background_var(--duration-quick)_var(--ease-smooth-out)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)] ${summaryClassName}`}
       >
         <Chevron open={open} />
         <span className="mr-auto min-w-0 truncate">{summary}</span>
       </summary>
-      <div className={`flex flex-col gap-3 px-5 pb-4 pt-1 ${bodyClassName}`}>{children}</div>
+      <div className="t-acc-panel">
+        <div className={`t-acc-panel-inner flex flex-col gap-3 px-5 pb-4 pt-1 ${bodyClassName}`}>
+          {children}
+        </div>
+      </div>
     </details>
   );
 }

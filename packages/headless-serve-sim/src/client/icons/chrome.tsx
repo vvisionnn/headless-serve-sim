@@ -13,7 +13,7 @@ export function Chevron({ open }: { open: boolean }) {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
-      className={`lem-chevron order-first shrink-0 text-fg-3 [transition:transform_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.24s_cubic-bezier(0.4,0,0.6,1)] ${open ? "rotate-0" : "-rotate-90"}`}
+      className={`t-acc-chevron lem-chevron order-first shrink-0 text-fg-3 ${open ? "is-open" : ""}`}
     >
       <polyline points="6 9 12 15 18 9" />
     </svg>
