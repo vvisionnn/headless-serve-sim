@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSimMiddleware } from "../middleware";
 import { createScriptedHostCommands } from "../test-support/scripted-host-commands";
+import type { CommandRequest, CommandResult, HostCommands } from "../runtime/host-commands";
 
 const createdDirs: string[] = [];
 
@@ -45,6 +46,52 @@ function writeState(stateDir: string, device: string, pid: number, port: number)
 }
 
 describe("explicit /api selection", () => {
+  test("a boot lookup completing after shutdown cannot restore stale inventory", async () => {
+    const device = "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA";
+    const stateDir = mkdtempSync(join(tmpdir(), "pending-inventory-test-"));
+    createdDirs.push(stateDir);
+    writeState(stateDir, device, 59321, 59321);
+    const host = createScriptedHostCommands([{}, bootedResult()], { alivePids: [59321] });
+    const pending = Promise.withResolvers<CommandResult>();
+    const started = Promise.withResolvers<void>();
+    const run = host.run;
+    let lookups = 0;
+    host.run = ((request: CommandRequest) => {
+      if (request.args?.[1] === "list" && ++lookups === 1) {
+        started.resolve();
+        return pending.promise;
+      }
+      return run(request);
+    }) as HostCommands["run"];
+    const handler = createSimMiddleware(host, { basePath: "/", serveSimBin: "test-cli", stateDir });
+    const server = createServer((req, res) => handler(req, res));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      const staleRead = fetch(`${origin}/api?device=${device}`);
+      await started.promise;
+      const shutdown = await fetch(`${origin}/grid/api/shutdown`, {
+        method: "POST",
+        body: JSON.stringify({ udid: device }),
+      });
+      expect(shutdown.status).toBe(200);
+      pending.resolve({
+        exitCode: 0,
+        signal: null,
+        stderr: Buffer.alloc(0),
+        timedOut: false,
+        stdout: Buffer.from(bootedResult(device).result.stdout),
+      });
+      await staleRead;
+      const refreshed = await fetch(`${origin}/api?device=${device}`);
+      expect(await refreshed.json()).toBeNull();
+      expect(lookups).toBe(2);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   test("never connects until selected and never falls over to another booted device", async () => {
     const deviceA = "EXPLICIT-SELECTION-A";
     const deviceB = "EXPLICIT-SELECTION-B";
@@ -97,7 +144,7 @@ describe("explicit /api selection", () => {
       expect((await apiConfig(deviceB))?.device).toBe(deviceB);
 
       expect(host.signals).toContainEqual({ pid: pidA, signal: "SIGTERM" });
-      expect(host.calls.map((call) => call.kind)).toEqual(["run-sync", "run-sync"]);
+      expect(host.calls.map((call) => call.kind)).toEqual(["run", "run"]);
       expect(host.remaining).toBe(0);
     } finally {
       server.closeAllConnections?.();

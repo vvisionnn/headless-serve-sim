@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { createServer } from "http";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import type { AddressInfo } from "net";
 import { createSimMiddleware } from "../middleware";
 import { createScriptedHostCommands } from "../test-support/scripted-host-commands";
@@ -27,6 +30,7 @@ interface GridResponse {
 }
 
 async function fetchGrid(path: string, deviceCount: number): Promise<GridResponse> {
+  const stateDir = mkdtempSync(join(tmpdir(), "grid-paging-test-"));
   // Every poll re-runs simctl, so script plenty of identical replies.
   const host = createScriptedHostCommands(
     Array.from({ length: 8 }, () => ({ result: { stdout: simctlList(deviceCount) } })),
@@ -35,6 +39,7 @@ async function fetchGrid(path: string, deviceCount: number): Promise<GridRespons
     basePath: "/",
     execToken: "t",
     serveSimBin: "test-headless-serve-sim",
+    stateDir,
   });
   const server = createServer((req, res) => {
     handler(req, res, () => {
@@ -47,13 +52,49 @@ async function fetchGrid(path: string, deviceCount: number): Promise<GridRespons
   try {
     const res = await fetch(`http://127.0.0.1:${port}${path}`);
     expect(res.status).toBe(200);
+    expect(host.calls.every((call) => call.kind === "run")).toBe(true);
     return (await res.json()) as GridResponse;
   } finally {
     await new Promise<void>((r) => server.close(() => r()));
+    rmSync(stateDir, { recursive: true, force: true });
   }
 }
 
 describe("/grid/api pagination", () => {
+  test("collects host and simulator memory without synchronous commands", async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), "grid-memory-test-"));
+    const host = createScriptedHostCommands([
+      { result: { stdout: String(16 * 1024 ** 3) } },
+      { result: { stdout: "4096" } },
+      { result: { stdout: "Pages free: 1024.\nPages inactive: 512.\nPages speculative: 256." } },
+      { result: { stdout: "524288 /Devices/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE/launchd_sim" } },
+    ]);
+    const handler = createSimMiddleware(host, {
+      basePath: "/",
+      serveSimBin: "test-headless-serve-sim",
+      stateDir,
+    });
+    const server = createServer((req, res) => handler(req, res));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const port = (server.address() as AddressInfo).port;
+      const response = await fetch(`http://127.0.0.1:${port}/grid/api/memory`);
+      expect(await response.json()).toEqual({
+        totalBytes: 16 * 1024 ** 3,
+        availableBytes: (1024 + 512 + 256) * 4096,
+        runningSimulators: 1,
+        perSimAvgBytes: 512 * 1024 ** 2,
+        perSimSource: "measured",
+        estimatedAdditional: 0,
+      });
+      expect(host.calls.map((call) => call.kind)).toEqual(["run", "run", "run", "run"]);
+      expect(host.remaining).toBe(0);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
   test("returns every device and no paging fields when limit is absent", async () => {
     // Embedded mounts rely on this shape; adding total/limit/offset
     // unconditionally would change the response for existing consumers.

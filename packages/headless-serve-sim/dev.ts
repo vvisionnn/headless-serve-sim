@@ -90,58 +90,68 @@ type ServeSimState = {
 
 // ─── Serve-sim state ───
 
-type BootedSnapshot = { at: number; booted: Set<string> | null };
+type BootedSnapshot = {
+  at: number;
+  booted: Set<string> | null;
+  pending: Promise<Set<string> | null> | null;
+};
 
 function getBootedUdids(
   hostCommands: HostCommands,
   snapshot: BootedSnapshot,
-  now: number,
-): Set<string> | null {
-  if (snapshot.booted && now - snapshot.at < 1500) {
-    return snapshot.booted;
+  now: () => number,
+): Promise<Set<string> | null> {
+  if (snapshot.booted && now() - snapshot.at < 1500) {
+    return Promise.resolve(snapshot.booted);
   }
-  try {
-    const result = hostCommands.run(
-      {
+  if (snapshot.pending) return snapshot.pending;
+  const pending = Promise.resolve().then(async () => {
+    try {
+      const result = await hostCommands.run({
         executable: "xcrun",
         args: ["simctl", "list", "devices", "booted", "-j"],
         stdio: "capture",
         timeoutMs: 3_000,
-      },
-      "sync",
-    );
-    if (!commandSucceeded(result)) return null;
-    const output = result.stdout.toString();
-    const data = JSON.parse(output) as {
-      devices: Record<string, Array<{ udid: string; state: string }>>;
-    };
-    const booted = new Set<string>();
-    for (const runtime of Object.values(data.devices)) {
-      for (const device of runtime) {
-        if (device.state === "Booted") booted.add(device.udid);
+      });
+      if (!commandSucceeded(result)) return null;
+      const data = JSON.parse(result.stdout.toString()) as {
+        devices: Record<string, Array<{ udid: string; state: string }>>;
+      };
+      const booted = new Set<string>();
+      for (const runtime of Object.values(data.devices)) {
+        for (const device of runtime) {
+          if (device.state === "Booted") booted.add(device.udid);
+        }
       }
+      // A shutdown invalidates the snapshot, including any older query still
+      // running. That query must not repopulate the cache when it finishes.
+      if (snapshot.pending !== pending) return null;
+      snapshot.at = now();
+      snapshot.booted = booted;
+      return booted;
+    } catch {
+      return null;
+    } finally {
+      if (snapshot.pending === pending) snapshot.pending = null;
     }
-    snapshot.at = now;
-    snapshot.booted = booted;
-    return booted;
-  } catch {
-    return null;
-  }
+  });
+  snapshot.pending = pending;
+  return pending;
 }
 
-function readServeSimStates(
+async function readServeSimStates(
   hostCommands: HostCommands,
   stateDir: string,
   snapshot: BootedSnapshot,
-  now: number,
-): ServeSimState[] {
+  now: () => number,
+): Promise<ServeSimState[]> {
   let files: string[];
   try {
     files = readdirSync(stateDir).filter((f) => f.startsWith("server-") && f.endsWith(".json"));
   } catch {
     return [];
   }
-  const booted = getBootedUdids(hostCommands, snapshot, now);
+  const booted = await getBootedUdids(hostCommands, snapshot, now);
   const states: ServeSimState[] = [];
   for (const f of files) {
     const path = join(stateDir, f);
@@ -335,10 +345,10 @@ function scheduleWatchedBuild() {
 
 async function buildHtml(
   dependencies: DevServerDependencies,
-  readStates: () => ServeSimState[],
+  readStates: () => Promise<ServeSimState[]>,
   selectedDevice?: string | null,
 ): Promise<string> {
-  const states = readStates();
+  const states = await readStates();
   const state = selectServeSimState(states, selectedDevice);
   const configScript = state
     ? `<script>window.__SIM_PREVIEW__=${htmlSafeJson(await previewConfigForState(dependencies, state))}</script>`
@@ -367,10 +377,10 @@ ${clientError ? `<pre style="position:fixed;inset:0;z-index:9999;background:#1a0
 // ─── Server ───
 
 export function createDevFetchHandler(dependencies: DevServerDependencies) {
-  const bootedSnapshot: BootedSnapshot = { at: 0, booted: null };
+  const bootedSnapshot: BootedSnapshot = { at: 0, booted: null, pending: null };
   const now = dependencies.now ?? Date.now;
   const readStates = () =>
-    readServeSimStates(dependencies.hostCommands, dependencies.stateDir, bootedSnapshot, now());
+    readServeSimStates(dependencies.hostCommands, dependencies.stateDir, bootedSnapshot, now);
 
   return async function handleRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -398,7 +408,7 @@ export function createDevFetchHandler(dependencies: DevServerDependencies) {
 
     // Serve-sim state API
     if (url.pathname === "/api") {
-      const states = readStates();
+      const states = await readStates();
       const state = selectServeSimState(states, selectedDevice);
       return Response.json(state ? await previewConfigForState(dependencies, state) : null, {
         headers: { "Cache-Control": "no-store" },
@@ -406,7 +416,8 @@ export function createDevFetchHandler(dependencies: DevServerDependencies) {
     }
 
     if (url.pathname === "/ax") {
-      const states = readStates();
+      const states = await readStates();
+      if (req.signal.aborted) return new Response(null, { status: 499 });
       const state = selectServeSimState(states, selectedDevice);
       if (!state) {
         return new Response("No headless-serve-sim device", { status: 404 });
@@ -497,6 +508,7 @@ export function createDevFetchHandler(dependencies: DevServerDependencies) {
         }
         bootedSnapshot.at = 0;
         bootedSnapshot.booted = null;
+        bootedSnapshot.pending = null;
         return dependencies.hostCommands
           .run({
             executable: "xcrun",
@@ -504,17 +516,21 @@ export function createDevFetchHandler(dependencies: DevServerDependencies) {
             stdio: "capture",
             timeoutMs: 30_000,
           })
-          .then((result) =>
-            commandSucceeded(result)
-              ? Response.json({ ok: true })
-              : Response.json(
-                  {
-                    ok: false,
-                    error: result.stderr.toString().trim() || "simctl shutdown failed",
-                  },
-                  { status: 500 },
-                ),
-          );
+          .then((result) => {
+            if (commandSucceeded(result)) {
+              bootedSnapshot.at = 0;
+              bootedSnapshot.booted = null;
+              bootedSnapshot.pending = null;
+              return Response.json({ ok: true });
+            }
+            return Response.json(
+              {
+                ok: false,
+                error: result.stderr.toString().trim() || "simctl shutdown failed",
+              },
+              { status: 500 },
+            );
+          });
       });
     }
 
@@ -561,7 +577,8 @@ export function createDevFetchHandler(dependencies: DevServerDependencies) {
       if (processId === undefined) {
         return new Response("Invalid process id", { status: 400 });
       }
-      const states = readStates();
+      const states = await readStates();
+      if (req.signal.aborted) return new Response(null, { status: 499 });
       const state = selectServeSimState(states, selectedDevice);
       if (!state) {
         return new Response("No headless-serve-sim device", { status: 404 });
@@ -606,7 +623,8 @@ export function createDevFetchHandler(dependencies: DevServerDependencies) {
 
     // SSE foreground-app changes (filtered in the CLI; browser just listens).
     if (url.pathname === "/appstate") {
-      const states = readStates();
+      const states = await readStates();
+      if (req.signal.aborted) return new Response(null, { status: 499 });
       const state = selectServeSimState(states, selectedDevice);
       if (!state) {
         return new Response("No headless-serve-sim device", { status: 404 });
@@ -686,7 +704,7 @@ export function createDevFetchHandler(dependencies: DevServerDependencies) {
 
     // Same device-scoped native metrics proxy as production middleware.
     if (url.pathname === "/api/metrics") {
-      const state = selectServeSimState(readStates(), selectedDevice);
+      const state = selectServeSimState(await readStates(), selectedDevice);
       if (!state) {
         return Response.json(
           { error: "No headless-serve-sim device" },
