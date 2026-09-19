@@ -7,6 +7,7 @@ import type { AddressInfo } from "net";
 import { WebSocketServer, WebSocket } from "ws";
 import { createSimMiddleware } from "../middleware";
 import { createScriptedHostCommands } from "../test-support/scripted-host-commands";
+import type { HostCommands } from "../runtime/host-commands";
 
 const DEVICE = "PROXY-UDID";
 const cleanups: Array<() => void | Promise<void>> = [];
@@ -18,6 +19,18 @@ afterEach(async () => {
 /** A stand-in stream helper: one HTTP route plus a WebSocket echo. */
 async function startFakeHelper(): Promise<{ origin: string; port: number }> {
   const server = createServer((req, res) => {
+    if (req.url === "/stream.avcc") {
+      res.writeHead(200, { "Content-Type": "application/octet-stream" });
+      res.write("frame");
+      const timer = setInterval(() => res.write("frame"), 10);
+      res.on("close", () => clearInterval(timer));
+      return;
+    }
+    if (req.url === "/metrics") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end("{}");
+      return;
+    }
     if (req.url?.startsWith("/config")) {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ width: 393, height: 852, url: req.url }));
@@ -32,12 +45,18 @@ async function startFakeHelper(): Promise<{ origin: string; port: number }> {
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
-  cleanups.push(() => new Promise<void>((r) => server.close(() => r())));
+  cleanups.push(() => {
+    server.closeAllConnections();
+    return new Promise<void>((r) => server.close(() => r()));
+  });
   return { origin: `http://127.0.0.1:${port}`, port };
 }
 
 /** Preview server with helper proxying on, backed by a written state file. */
-async function startPreview(helper: { origin: string; port: number }): Promise<string> {
+async function startPreview(
+  helper: { origin: string; port: number },
+  overrides: { host?: HostCommands; now?: () => number } = {},
+): Promise<string> {
   const stateDir = mkdtempSync(join(tmpdir(), "helper-proxy-test-"));
   cleanups.push(() => rmSync(stateDir, { recursive: true, force: true }));
   writeFileSync(
@@ -65,13 +84,14 @@ async function startPreview(helper: { origin: string; port: number }): Promise<s
     Array.from({ length: 16 }, () => ({ result: { stdout: simctlBooted } })),
     { alivePids: [process.pid] },
   );
-  const handler = createSimMiddleware(host, {
+  const handler = createSimMiddleware(overrides.host ?? host, {
     basePath: "/",
     execToken: "tok",
     serveSimBin: "test-headless-serve-sim",
     stateDir,
     proxyHelpers: true,
     device: DEVICE,
+    now: overrides.now,
   });
   const server: Server = createServer((req, res) => {
     handler(req, res, () => {
@@ -83,11 +103,65 @@ async function startPreview(helper: { origin: string; port: number }): Promise<s
     if (!handler.handleUpgrade?.(req, socket, head)) socket.destroy();
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  cleanups.push(() => new Promise<void>((r) => server.close(() => r())));
+  cleanups.push(() => {
+    server.closeAllConnections();
+    return new Promise<void>((r) => server.close(() => r()));
+  });
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 
 describe("helper proxy", () => {
+  test("keeps streaming while concurrent activity requests await one asynchronous boot lookup", async () => {
+    const helper = await startFakeHelper();
+    const booted = JSON.stringify({ devices: { iOS: [{ udid: DEVICE, state: "Booted" }] } });
+    const scripted = createScriptedHostCommands(
+      [{ result: { stdout: booted } }, { result: { stdout: booted } }],
+      { alivePids: [process.pid] },
+    );
+    let release!: () => void;
+    const lookupPending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started!: () => void;
+    const lookupStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const host: HostCommands = {
+      ...scripted,
+      run: ((request, mode) => {
+        const result = mode === "sync" ? scripted.run(request, mode) : scripted.run(request);
+        if (mode === "sync" || scripted.calls.length === 1) return result;
+        started();
+        return lookupPending.then(() => result);
+      }) as HostCommands["run"],
+    };
+    let now = 0;
+    const origin = await startPreview(helper, { host, now: () => now });
+    const controller = new AbortController();
+    try {
+      const stream = await fetch(`${origin}/helper/${DEVICE}/stream.avcc`, {
+        signal: controller.signal,
+      });
+      const reader = stream.body!.getReader();
+      expect((await reader.read()).value!.length).toBeGreaterThan(0);
+      expect(scripted.calls.map((call) => call.kind)).toEqual(["run"]);
+      now = 2000;
+      const metrics = fetch(`${origin}/api/metrics`, { signal: controller.signal });
+      await lookupStarted;
+      const config = fetch(`${origin}/helper/${DEVICE}/config`, { signal: controller.signal });
+      // The inventory query stays unresolved while existing video continues.
+      expect((await reader.read()).value!.length).toBeGreaterThan(0);
+      expect(scripted.calls.map((call) => call.kind)).toEqual(["run", "run"]);
+      release();
+      expect((await metrics).status).toBe(200);
+      expect((await config).status).toBe(200);
+      expect(scripted.calls).toHaveLength(2);
+    } finally {
+      release();
+      controller.abort();
+    }
+  });
+
   test("forwards an HTTP request to the helper", async () => {
     const helper = await startFakeHelper();
     const origin = await startPreview(helper);

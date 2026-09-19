@@ -16,7 +16,7 @@
     },
     "packages/headless-serve-sim": {
       "name": "headless-serve-sim",
-      "version": "0.0.32",
+      "version": "0.0.33",
       "bin": {
         "headless-serve-sim": "dist/headless-serve-sim.js",
       },

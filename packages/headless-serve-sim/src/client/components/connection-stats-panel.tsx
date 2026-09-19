@@ -205,7 +205,7 @@ function StatusStrip({
       </div>
       {dropped > 0 && (
         <div className="text-micro font-medium text-warning [font-variant-numeric:tabular-nums]">
-          {dropped} dropped
+          {dropped} browser discarded
         </div>
       )}
     </div>
@@ -226,13 +226,43 @@ function StatRow({ label, value, accent }: { label: string; value: string; accen
   );
 }
 
+export function FrameDeliveryStats({ stats }: { stats: ConnectionStats }) {
+  const srv = stats.server;
+  return (
+    <div className="flex flex-col gap-2.5 rounded-card border border-divider bg-surface-2 px-3 py-2.5">
+      <span className="text-body font-semibold text-fg">Frame delivery</span>
+      <div className="flex flex-col gap-1.5">
+        <StatRow
+          label="Capture offers"
+          value={srv?.sourceFps != null ? `${fmt1(srv.sourceFps)} fps` : "—"}
+        />
+        <StatRow label="Encoded" value={srv ? `${fmt1(srv.serverFps)} fps` : "—"} />
+        <StatRow label="Painted" value={`${fmt1(stats.fps)} fps`} />
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+        <StatRow label="Capture skipped" value={String(srv?.captureDroppedFrames ?? "—")} />
+        <StatRow label="Encoder lost" value={String(srv?.encoderDroppedFrames ?? "—")} />
+        <StatRow label="Transport skipped" value={String(srv?.transportDroppedChunks ?? "—")} />
+        <StatRow label="Browser discarded" value={String(stats.droppedFrames)} />
+      </div>
+      <p className="text-micro leading-relaxed text-fg-3">
+        Capture offers include redraw and requested idle captures. Rates are measured separately.
+        Idle frames are not loss.
+      </p>
+      <p className="text-micro leading-relaxed text-fg-3">
+        Server counts cover the helper lifetime; transport counts chunks across all viewers. Browser
+        counts cover this stream, including frames superseded before painting.
+      </p>
+    </div>
+  );
+}
+
 // Server-side adaptive state (target bitrate / QP / congestion) + client
 // recovery counters — what the encoder is doing in response to link conditions.
 function AdaptiveSection({ stats }: { stats: ConnectionStats | null }) {
   const srv = stats?.server ?? null;
   const kfMs = stats?.keyframeIntervalMs ?? null;
   const recoveries = stats?.recoveries ?? 0;
-  const serverDrops = srv?.droppedFrames ?? 0;
   return (
     <div className="flex flex-col gap-2.5 rounded-card border border-divider bg-surface-2 px-3 py-2.5">
       <span className="text-body font-semibold text-fg">Adaptive</span>
@@ -247,17 +277,11 @@ function AdaptiveSection({ stats }: { stats: ConnectionStats | null }) {
           value={srv ? fmtBitrateChip(srv.targetBitrateBps) : "—"}
           accent={srv ? C_BITRATE : undefined}
         />
-        <StatRow label="Enc fps" value={srv ? String(srv.serverFps) : "—"} />
         <StatRow label="Max QP" value={srv ? String(srv.maxQP) : "—"} />
         <StatRow
           label="Queue"
           value={srv ? `${srv.queueMs}ms` : "—"}
           accent={srv && srv.queueMs > 50 ? C_JITTER : undefined}
-        />
-        <StatRow
-          label="Server drop"
-          value={String(serverDrops)}
-          accent={serverDrops > 0 ? C_JITTER : undefined}
         />
         <StatRow label="Keyframe" value={kfMs != null ? `${(kfMs / 1000).toFixed(1)}s` : "—"} />
         <StatRow
@@ -333,10 +357,12 @@ export function ConnectionStatsPanel({
             />
           )}
 
+          {codecMode === "avcc" && latest && <FrameDeliveryStats stats={latest} />}
+
           {hasData ? (
             <div className="flex flex-col gap-3">
               <MetricCard
-                label="Frames / sec"
+                label="Browser painted"
                 unit="fps"
                 color={C_FPS}
                 gradId="cstat-grad-fps"

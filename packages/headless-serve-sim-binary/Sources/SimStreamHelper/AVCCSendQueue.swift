@@ -30,7 +30,7 @@ final class AVCCSendQueue {
         let maxWriteNanoseconds: UInt64
     }
 
-    private var pending: [Data] = []
+    private var pending: [(data: Data, kind: AVCCChunkKind)] = []
     private var pendingDescription: Data?
     private(set) var queuedBytes = 0
     private(set) var inFlightBytes = 0
@@ -49,35 +49,44 @@ final class AVCCSendQueue {
     func enqueue(_ chunk: Data, kind: AVCCChunkKind, limit: Int) -> Admission {
         switch kind {
         case .keyframe:
-            pending.removeAll(keepingCapacity: true)
-            queuedBytes = 0
+            // Ordinary IDRs do not make earlier, healthy frames obsolete. Only
+            // coalesce when recovering a broken chain or a backed-up socket.
+            if needKeyframe || pressureBytes + chunk.count > limit {
+                discardPending()
+            }
             needKeyframe = false
-            append(chunk)
+            append(chunk, kind: kind)
             return .enqueued
         case .description:
+            // A new decoder configuration cannot decode old-session video.
+            // Keep an initial JPEG seed when it is the only pending picture.
+            if pending.contains(where: { $0.kind == .keyframe || $0.kind == .delta || $0.kind == .disposableDelta }) {
+                discardPending()
+            }
             pendingDescription = chunk
+            needKeyframe = true
             return .enqueued
         case .delta, .seed:
-            guard pressureBytes + chunk.count <= limit else {
+            guard (kind == .seed || !needKeyframe), pressureBytes + chunk.count <= limit else {
                 droppedChunks += 1
                 droppedSinceSample += 1
                 let request = !needKeyframe
                 needKeyframe = true
                 return request ? .droppedNeedsKeyframe : .dropped
             }
-            append(chunk)
+            append(chunk, kind: kind)
             return .enqueued
         case .heartbeat:
             guard pressureBytes + chunk.count <= limit else { return .dropped }
-            append(chunk)
+            append(chunk, kind: kind)
             return .enqueued
         case .disposableDelta:
-            guard pressureBytes + chunk.count <= limit / 2 else {
+            guard !needKeyframe, pressureBytes + chunk.count <= limit / 2 else {
                 droppedChunks += 1
                 droppedSinceSample += 1
                 return .dropped
             }
-            append(chunk)
+            append(chunk, kind: kind)
             return .enqueued
         }
     }
@@ -92,7 +101,7 @@ final class AVCCSendQueue {
             pendingDescription = nil
             next = description
         } else if !pending.isEmpty {
-            next = pending.removeFirst()
+            next = pending.removeFirst().data
             queuedBytes -= next!.count
         } else {
             next = nil
@@ -142,8 +151,16 @@ final class AVCCSendQueue {
         return value
     }
 
-    private func append(_ chunk: Data) {
-        pending.append(chunk)
+    private func discardPending() {
+        let dropped = pending.filter { $0.kind != .heartbeat }.count
+        droppedChunks += UInt64(dropped)
+        droppedSinceSample += dropped
+        pending.removeAll(keepingCapacity: true)
+        queuedBytes = 0
+    }
+
+    private func append(_ chunk: Data, kind: AVCCChunkKind) {
+        pending.append((chunk, kind))
         queuedBytes += chunk.count
         updateHighWater()
     }

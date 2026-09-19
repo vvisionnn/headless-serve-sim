@@ -61,6 +61,26 @@ describe("LatestFramePresenter", () => {
     expect(frame.closed).toBe(1);
   });
 
+  test("recovery counts a pending frame once while ordinary teardown does not", () => {
+    let discarded = 0;
+    const presenter = new LatestFramePresenter<Frame, null>(
+      () => 1,
+      () => {},
+      () => {},
+      () => discarded++,
+    );
+    const recovery = new Frame(1);
+    presenter.enqueue(recovery, null);
+    presenter.clear(true);
+    presenter.clear(true);
+    const teardown = new Frame(2);
+    presenter.enqueue(teardown, null);
+    presenter.close();
+    expect(discarded).toBe(1);
+    expect(recovery.closed).toBe(1);
+    expect(teardown.closed).toBe(1);
+  });
+
   test("presents normally paced frames immediately while coalescing a burst", () => {
     const callbacks = new Map<number, () => void>();
     const painted: number[] = [];

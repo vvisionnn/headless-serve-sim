@@ -61,10 +61,19 @@ describe("AvccDemuxer", () => {
     ]);
   });
 
-  test("drops only disposable temporal frames at a shallow decode backlog", () => {
-    expect(decodeBackpressureAction("disposable-delta", 2)).toBe("drop");
-    expect(decodeBackpressureAction("delta", 2)).toBe("decode");
-    expect(decodeBackpressureAction("delta", 5)).toBe("reset");
+  test("allows coalesced frames to reach the decoder before treating them as a backlog", () => {
+    for (let queueSize = 0; queueSize < 12; queueSize++) {
+      expect(decodeBackpressureAction("disposable-delta", queueSize, 0)).toBe("decode");
+      expect(decodeBackpressureAction("delta", queueSize, 0)).toBe("decode");
+    }
+  });
+
+  test("bounds sustained decode latency and large bursts without breaking reference frames", () => {
+    expect(decodeBackpressureAction("disposable-delta", 2, 17)).toBe("drop");
+    expect(decodeBackpressureAction("delta", 2, 17)).toBe("decode");
+    expect(decodeBackpressureAction("delta", 5, 17)).toBe("reset");
+    expect(decodeBackpressureAction("disposable-delta", 12, 0)).toBe("drop");
+    expect(decodeBackpressureAction("delta", 12, 0)).toBe("reset");
   });
 
   test("buffers a chunk split across reads (header split)", () => {

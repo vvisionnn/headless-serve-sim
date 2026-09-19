@@ -101,23 +101,20 @@ function commandError(result: CommandResult, fallback: string): string {
   return result.stderr.toString().trim() || fallback;
 }
 
-function runTextSync(
+async function runText(
   hostCommands: HostCommands,
   executable: string,
   args: readonly string[],
   timeoutMs: number,
   maxOutputBytes?: number,
-): string {
-  const result = hostCommands.run(
-    {
-      executable,
-      args,
-      stdio: "capture",
-      timeoutMs,
-      maxOutputBytes,
-    },
-    "sync",
-  );
+): Promise<string> {
+  const result = await hostCommands.run({
+    executable,
+    args,
+    stdio: "capture",
+    timeoutMs,
+    maxOutputBytes,
+  });
   if (!commandSucceeded(result)) {
     throw new Error(commandError(result, `${executable} failed`));
   }
@@ -238,51 +235,67 @@ export function matchInstalledAppByDisplayName(
   return null;
 }
 
-type BootedSnapshot = { at: number; booted: Set<string> | null };
+type BootedSnapshot = {
+  at: number;
+  booted: Set<string> | null;
+  pending: Promise<Set<string> | null> | null;
+};
 
-function getBootedUdids(
+async function getBootedUdids(
   hostCommands: HostCommands,
   snapshot: BootedSnapshot,
-  now: number,
-): Set<string> | null {
-  if (snapshot.booted && now - snapshot.at < 1500) {
+  now: () => number,
+): Promise<Set<string> | null> {
+  if (snapshot.booted && now() - snapshot.at < 1500) {
     return snapshot.booted;
   }
-  try {
-    const output = runTextSync(
-      hostCommands,
-      "xcrun",
-      ["simctl", "list", "devices", "booted", "-j"],
-      3_000,
-    );
-    const data = JSON.parse(output) as SimctlBootedList;
-    const booted = new Set<string>();
-    for (const runtime of Object.values(data.devices)) {
-      for (const device of runtime) {
-        if (device.state === "Booted") booted.add(device.udid);
+  if (snapshot.pending) return snapshot.pending;
+  // Inventory refreshes must leave the event loop free to forward video. Share
+  // one query across simultaneous page, metrics, and WebSocket requests.
+  const pending = Promise.resolve().then(async () => {
+    try {
+      const result = await hostCommands.run({
+        executable: "xcrun",
+        args: ["simctl", "list", "devices", "booted", "-j"],
+        stdio: "capture",
+        timeoutMs: 3_000,
+      });
+      if (!commandSucceeded(result)) return null;
+      const data = JSON.parse(result.stdout.toString()) as SimctlBootedList;
+      const booted = new Set<string>();
+      for (const runtime of Object.values(data.devices)) {
+        for (const device of runtime) {
+          if (device.state === "Booted") booted.add(device.udid);
+        }
       }
+      // Explicit shutdown may invalidate this lookup while the command runs.
+      if (snapshot.pending !== pending) return null;
+      snapshot.at = now();
+      snapshot.booted = booted;
+      return booted;
+    } catch {
+      return null;
+    } finally {
+      if (snapshot.pending === pending) snapshot.pending = null;
     }
-    snapshot.at = now;
-    snapshot.booted = booted;
-    return booted;
-  } catch {
-    return null;
-  }
+  });
+  snapshot.pending = pending;
+  return pending;
 }
 
-function readServeSimStates(
+async function readServeSimStates(
   hostCommands: HostCommands,
   stateDir: string,
   snapshot: BootedSnapshot,
-  now: number,
-): ServeSimState[] {
+  now: () => number,
+): Promise<ServeSimState[]> {
   let files: string[];
   try {
     files = readdirSync(stateDir).filter((f) => f.startsWith("server-") && f.endsWith(".json"));
   } catch {
     return [];
   }
-  const booted = getBootedUdids(hostCommands, snapshot, now);
+  const booted = await getBootedUdids(hostCommands, snapshot, now);
   const states: ServeSimState[] = [];
   for (const f of files) {
     const path = join(stateDir, f);
@@ -755,9 +768,9 @@ interface SimctlDevice {
   runtime: string;
 }
 
-function listAllSimulators(hostCommands: HostCommands): SimctlDevice[] {
+async function listAllSimulators(hostCommands: HostCommands): Promise<SimctlDevice[]> {
   try {
-    const output = runTextSync(hostCommands, "xcrun", ["simctl", "list", "devices", "-j"], 3_000);
+    const output = await runText(hostCommands, "xcrun", ["simctl", "list", "devices", "-j"], 3_000);
     const data = JSON.parse(output) as SimctlAllList;
     const out: SimctlDevice[] = [];
     for (const [runtime, devices] of Object.entries(data.devices)) {
@@ -789,18 +802,18 @@ interface MemoryReport {
   estimatedAdditional: number;
 }
 
-function readSystemMemory(hostCommands: HostCommands): {
+async function readSystemMemory(hostCommands: HostCommands): Promise<{
   totalBytes: number;
   availableBytes: number;
-} {
+}> {
   try {
-    const totalBytes = Number(
-      runTextSync(hostCommands, "sysctl", ["-n", "hw.memsize"], 1_500).trim(),
-    );
-    const pageSize = Number(
-      runTextSync(hostCommands, "sysctl", ["-n", "hw.pagesize"], 1_500).trim(),
-    );
-    const vmStat = runTextSync(hostCommands, "vm_stat", [], 1_500);
+    const [memorySize, memoryPageSize, vmStat] = await Promise.all([
+      runText(hostCommands, "sysctl", ["-n", "hw.memsize"], 1_500),
+      runText(hostCommands, "sysctl", ["-n", "hw.pagesize"], 1_500),
+      runText(hostCommands, "vm_stat", [], 1_500),
+    ]);
+    const totalBytes = Number(memorySize.trim());
+    const pageSize = Number(memoryPageSize.trim());
     const pages = (re: RegExp) => {
       const m = vmStat.match(re);
       return m ? Number(m[1]) : 0;
@@ -823,12 +836,18 @@ function readSystemMemory(hostCommands: HostCommands): {
 // Sum RSS across every process whose argv path includes a CoreSimulator
 // device directory. Groups by UDID so we get a real per-sim footprint that
 // covers launchd_sim plus all child processes the runtime spawns.
-function readSimulatorMemoryUsage(hostCommands: HostCommands): {
+async function readSimulatorMemoryUsage(hostCommands: HostCommands): Promise<{
   perUdid: Record<string, number>;
   totalBytes: number;
-} {
+}> {
   try {
-    const output = runTextSync(hostCommands, "ps", ["-axo", "rss=,args="], 3_000, 8 * 1024 * 1024);
+    const output = await runText(
+      hostCommands,
+      "ps",
+      ["-axo", "rss=,args="],
+      3_000,
+      8 * 1024 * 1024,
+    );
     const perUdid: Record<string, number> = {};
     let totalBytes = 0;
     const re = /\/Devices\/([0-9A-F-]{36})\//i;
@@ -850,9 +869,11 @@ function readSimulatorMemoryUsage(hostCommands: HostCommands): {
   }
 }
 
-function buildMemoryReport(hostCommands: HostCommands): MemoryReport {
-  const { totalBytes, availableBytes } = readSystemMemory(hostCommands);
-  const usage = readSimulatorMemoryUsage(hostCommands);
+async function buildMemoryReport(hostCommands: HostCommands): Promise<MemoryReport> {
+  const [{ totalBytes, availableBytes }, usage] = await Promise.all([
+    readSystemMemory(hostCommands),
+    readSimulatorMemoryUsage(hostCommands),
+  ]);
   const runningSimulators = Object.keys(usage.perUdid).length;
   const measuredAvg = runningSimulators > 0 ? usage.totalBytes / runningSimulators : 0;
   // Below ~256MB, the measurement is almost certainly catching a sim mid-boot
@@ -1095,8 +1116,8 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
   const stateDir = options?.stateDir ?? STATE_DIR;
   const uiSettings = createUiSettings(hostCommands);
   const now = options?.now ?? Date.now;
-  const bootedSnapshot: BootedSnapshot = { at: 0, booted: null };
-  const readStates = () => readServeSimStates(hostCommands, stateDir, bootedSnapshot, now());
+  const bootedSnapshot: BootedSnapshot = { at: 0, booted: null, pending: null };
+  const readStates = () => readServeSimStates(hostCommands, stateDir, bootedSnapshot, now);
 
   // Simulator-settings requests run in-process (just the underlying simctl /
   // ax-tool spawn) instead of round-tripping a full `node <cli>` exec per
@@ -1117,7 +1138,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
     return { ok: true };
   };
 
-  const middleware = (req: SimReq, res: SimRes, next?: SimNext) => {
+  const handleRequest = async (req: SimReq, res: SimRes, next?: SimNext) => {
     const rawUrl: string = req.url ?? "";
     const qIndex = rawUrl.indexOf("?");
     const url = qIndex === -1 ? rawUrl : rawUrl.slice(0, qIndex);
@@ -1126,7 +1147,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
     const phoneRoute = phonePreview ? parsePhonePreviewPath(url, phonePreview.token) : null;
 
     if (phoneRoute?.endpoint === "page" && req.method === "GET") {
-      const state = selectServeSimState(readStates(), phoneRoute.device);
+      const state = selectServeSimState(await readStates(), phoneRoute.device);
       if (!state) {
         res.writeHead(404, {
           "Content-Type": "text/plain; charset=utf-8",
@@ -1173,7 +1194,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
       (phoneRoute.endpoint === "stream.avcc" || phoneRoute.endpoint === "stream.mjpeg") &&
       req.method === "GET"
     ) {
-      const state = selectServeSimState(readStates(), phoneRoute.device);
+      const state = selectServeSimState(await readStates(), phoneRoute.device);
       if (!state) {
         res.writeHead(404, {
           "Content-Type": "text/plain; charset=utf-8",
@@ -1233,7 +1254,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
 
     // Serve the preview page
     if (url === base || url === base + "/") {
-      const states = readStates();
+      const states = await readStates();
       const state = selectServeSimState(states, selectedDevice);
       const baseHtml = loadHtml();
 
@@ -1300,7 +1321,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
         "Content-Type": "application/json",
         "Cache-Control": "no-store",
       });
-      res.end(JSON.stringify(buildMemoryReport(hostCommands)));
+      res.end(JSON.stringify(await buildMemoryReport(hostCommands)));
       return;
     }
 
@@ -1309,7 +1330,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
     // meant spawning a runtime + CLI per tick to read one line of JSON.
     if (url === base + "/camera/status") {
       const device = new URL(req.url ?? "/", "http://localhost").searchParams.get("device");
-      const udid = device || selectServeSimState(readStates(), selectedDevice)?.device;
+      const udid = device || selectServeSimState(await readStates(), selectedDevice)?.device;
       void (async () => {
         res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
         if (!udid) {
@@ -1325,7 +1346,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
     // helper resolves the frontmost PID itself and reads Darwin process
     // counters, so the browser cannot select an unrelated host process.
     if (url === base + "/api/metrics") {
-      const state = selectServeSimState(readStates(), selectedDevice);
+      const state = selectServeSimState(await readStates(), selectedDevice);
       if (!state) {
         res.writeHead(404, { "Content-Type": "application/json", "Cache-Control": "no-store" });
         res.end(JSON.stringify({ error: "No headless-serve-sim device" }));
@@ -1357,9 +1378,9 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
 
     // Grid JSON: every supported simulator, annotated with running helper info if any.
     if (url === base + "/grid/api") {
-      const states = readStates();
+      const states = await readStates();
       const helperByUdid = new Map(states.map((s) => [s.device, s] as const));
-      const sims = listAllSimulators(hostCommands);
+      const sims = await listAllSimulators(hostCommands);
       const devices = sims.map((d) => {
         const helper = helperByUdid.get(d.udid);
         const remoteHelper = helper ? rewriteStateForRequestHost(helper, req.headers?.host) : null;
@@ -1439,6 +1460,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
         // and prunes any helper bound to this now-shutdown device.
         bootedSnapshot.at = 0;
         bootedSnapshot.booted = null;
+        bootedSnapshot.pending = null;
         void hostCommands
           .run({
             executable: "xcrun",
@@ -1457,6 +1479,9 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
               );
               return;
             }
+            bootedSnapshot.at = 0;
+            bootedSnapshot.booted = null;
+            bootedSnapshot.pending = null;
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ ok: true }));
           })
@@ -1482,7 +1507,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
       req.on("data", (chunk: Buffer | string) => {
         body += typeof chunk === "string" ? chunk : chunk.toString();
       });
-      req.on("end", () => {
+      req.on("end", async () => {
         let udid = "";
         try {
           udid = (JSON.parse(body) as StartRequestBody).udid ?? "";
@@ -1493,7 +1518,9 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
           return;
         }
         if (isAttachOnly) {
-          const selected = listAllSimulators(hostCommands).find((device) => device.udid === udid);
+          const selected = (await listAllSimulators(hostCommands)).find(
+            (device) => device.udid === udid,
+          );
           if (selected?.state !== "Booted") {
             res.writeHead(409, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ ok: false, error: "Selected simulator is not booted" }));
@@ -1579,7 +1606,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
     // URLs so the browser UI can embed Chrome DevTools.
     if (url === base + "/devtools") {
       void (async () => {
-        const states = readStates();
+        const states = await readStates();
         const state = selectServeSimState(states, selectedDevice);
         if (!state) {
           res.writeHead(404, { "Content-Type": "application/json" });
@@ -1683,7 +1710,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
 
     // JSON API: headless-serve-sim state
     if (url === base + "/api") {
-      const states = readStates();
+      const states = await readStates();
       const state = selectServeSimState(states, selectedDevice);
       // The web UI polls /api every ~2s, so logging every hit floods the
       // debug stream with identical lines. Only log when the selection
@@ -1737,7 +1764,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
     // on change instead of re-sending identical JSON on a fixed interval.
     if (url === base + "/api/events") {
       const computeConfig = async (): Promise<string> => {
-        const states = readStates();
+        const states = await readStates();
         const state = selectServeSimState(states, selectedDevice);
         const remoteState = state ? rewriteStateForRequestHost(state, req.headers?.host) : null;
         const deviceMetadata = state
@@ -1861,7 +1888,8 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
 
     // SSE: normalized accessibility snapshot stream
     if (url === base + "/ax") {
-      const states = readStates();
+      const states = await readStates();
+      if (req.aborted || res.destroyed) return;
       const state = selectServeSimState(states, selectedDevice);
       if (!state) {
         res.writeHead(404);
@@ -2096,7 +2124,8 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
         res.end("Invalid process id");
         return;
       }
-      const states = readStates();
+      const states = await readStates();
+      if (req.aborted || res.destroyed) return;
       const state = selectServeSimState(states, selectedDevice);
       if (!state) {
         res.writeHead(404);
@@ -2129,7 +2158,8 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
     // log line. Filtering is done here (not in the browser) so the SSE stream
     // stays narrow and the client can listen without rate-limit concerns.
     if (url === base + "/appstate") {
-      const states = readStates();
+      const states = await readStates();
+      if (req.aborted || res.destroyed) return;
       const state = selectServeSimState(states, selectedDevice);
       if (!state) {
         res.writeHead(404);
@@ -2267,7 +2297,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
     if (proxyHelpers) {
       const target = parseHelperProxyPath(base, url);
       if (target) {
-        const helper = readStates().find((state) => state.device === target.device);
+        const helper = (await readStates()).find((state) => state.device === target.device);
         if (!helper) {
           res.writeHead(404, { "Content-Type": "application/json", "Cache-Control": "no-store" });
           res.end(JSON.stringify({ error: "No helper for device" }));
@@ -2281,6 +2311,13 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
 
     // Not ours — pass through
     if (next) next();
+  };
+
+  const middleware = (req: SimReq, res: SimRes, next?: SimNext) => {
+    void handleRequest(req, res, next).catch((error: unknown) => {
+      if (next) next(error);
+      else res.destroy(error instanceof Error ? error : undefined);
+    });
   };
 
   // WebSocket exec channel — same auth/origin policy as POST /exec, but off
@@ -2307,12 +2344,17 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
           socket.destroy();
           return true;
         }
-        const helper = readStates().find((state) => state.device === phoneRoute.device);
-        if (!helper) {
-          socket.destroy();
-          return true;
-        }
-        tunnelHelperSocket(helper.wsUrl, req, socket, head);
+        void readStates()
+          .then((states) => {
+            if (socket.destroyed) return;
+            const helper = states.find((state) => state.device === phoneRoute.device);
+            if (!helper) {
+              socket.destroy();
+              return;
+            }
+            tunnelHelperSocket(helper.wsUrl, req, socket, head);
+          })
+          .catch(() => socket.destroy());
         return true;
       }
       if (options?.allowRemoteAdmin === false && !isLoopbackRequest(req)) {
@@ -2327,19 +2369,24 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
         socket.destroy();
         return true;
       }
-      const helper = readStates().find((state) => state.device === target.device);
-      if (!helper) {
-        socket.destroy();
-        return true;
-      }
-      const helperOrigin = new URL(helper.wsUrl);
-      const suffix = qIndex === -1 ? "" : rawUrl.slice(qIndex);
-      tunnelHelperSocket(
-        `${helperOrigin.protocol}//${helperOrigin.host}${target.path}${suffix}`,
-        req,
-        socket,
-        head,
-      );
+      void readStates()
+        .then((states) => {
+          if (socket.destroyed) return;
+          const helper = states.find((state) => state.device === target.device);
+          if (!helper) {
+            socket.destroy();
+            return;
+          }
+          const helperOrigin = new URL(helper.wsUrl);
+          const suffix = qIndex === -1 ? "" : rawUrl.slice(qIndex);
+          tunnelHelperSocket(
+            `${helperOrigin.protocol}//${helperOrigin.host}${target.path}${suffix}`,
+            req,
+            socket,
+            head,
+          );
+        })
+        .catch(() => socket.destroy());
       return true;
     },
   });

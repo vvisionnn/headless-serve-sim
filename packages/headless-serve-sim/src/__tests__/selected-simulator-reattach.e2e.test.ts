@@ -58,6 +58,7 @@ describe("selected simulator attach-only reconnect", () => {
     try {
       expect((await attach()).status).toBe(409);
       expect((await attach()).status).toBe(200);
+      expect(host.calls.slice(0, 2).map((call) => call.kind)).toEqual(["run", "run"]);
       expect(host.calls.at(-1)).toEqual({
         kind: "start",
         request: {

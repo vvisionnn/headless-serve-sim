@@ -121,6 +121,10 @@ let adaptiveDriver = AdaptiveDriver(
     mode: streamMode,
     highWaterBytes: avccHighWaterBytes
 )
+adaptiveDriver.captureStats = {
+    (offered: frameAdmission.stats().framesOffered,
+     dropped: frameSnapshotter.stats().failedSnapshots + h264Pump.stats().supersededPending)
+}
 
 var screenWidth = 0
 var screenHeight = 0

@@ -43,7 +43,12 @@ const TAG_TO_TYPE: Record<number, AvccChunkType | undefined> = {
 export function decodeBackpressureAction(
   type: "delta" | "disposable-delta",
   decodeQueueSize: number,
+  oldestDecodeAgeMs: number,
 ): "decode" | "drop" | "reset" {
+  // A fetch read may contain several frames. Give the decoder one frame budget
+  // to consume that fresh burst before applying latency recovery; queue size
+  // alone counts commands submitted in this task, not a sustained backlog.
+  if (decodeQueueSize < 12 && oldestDecodeAgeMs < 1000 / 60) return "decode";
   if (type === "disposable-delta" && decodeQueueSize > 1) return "drop";
   if (type === "delta" && decodeQueueSize > 4) return "reset";
   return "decode";

@@ -58,6 +58,28 @@ describe("ConnectionStatsAccumulator", () => {
     expect(s.jitterMs).toBeCloseTo(10, 6);
   });
 
+  test("rates include time spent waiting for the next frame", () => {
+    const acc = new ConnectionStatsAccumulator();
+    feed(
+      acc,
+      [0, 20, 40, 60, 80].map((tMs) => ({ tMs, bytes: 1000, decodeMs: null })),
+    );
+    expect(acc.snapshot(160).fps).toBeCloseTo(25, 6);
+    expect(acc.snapshot(160).bitrateBps).toBeCloseTo(200_000, 3);
+    expect(acc.snapshot(2081).fps).toBe(0);
+  });
+
+  test("idle rates do not invent dropped frames against a 60fps target", () => {
+    const acc = new ConnectionStatsAccumulator();
+    feed(
+      acc,
+      [0, 200, 400, 600, 800].map((tMs) => ({ tMs, bytes: 100, decodeMs: null })),
+    );
+    expect(acc.snapshot(800).fps).toBe(5);
+    expect(acc.snapshot(800).droppedFrames).toBe(0);
+    expect(acc.snapshot(3000).droppedFrames).toBe(0);
+  });
+
   test("window prunes frames older than the window", () => {
     const acc = new ConnectionStatsAccumulator(2000);
     feed(acc, [
@@ -149,6 +171,10 @@ describe("parseServerStreamStats", () => {
         queueBytes: 8192,
         queueMs: 5,
         droppedFrames: 2,
+        sourceFps: 59.8,
+        captureDroppedFrames: 3,
+        encoderDroppedFrames: 4,
+        transportDroppedChunks: 5,
       }),
     );
 
@@ -161,6 +187,10 @@ describe("parseServerStreamStats", () => {
       queueBytes: 8192,
       queueMs: 5,
       droppedFrames: 2,
+      sourceFps: 59.8,
+      captureDroppedFrames: 3,
+      encoderDroppedFrames: 4,
+      transportDroppedChunks: 5,
     });
   });
 
@@ -177,6 +207,31 @@ describe("parseServerStreamStats", () => {
 
     expect(parseServerStreamStats(payload)?.queueMs).toBe(0);
     expect(parseServerStreamStats(payload)?.droppedFrames).toBe(0);
+    expect(parseServerStreamStats(payload)?.sourceFps).toBeUndefined();
+    expect(parseServerStreamStats(payload)?.captureDroppedFrames).toBeUndefined();
+    expect(parseServerStreamStats(payload)?.encoderDroppedFrames).toBeUndefined();
+    expect(parseServerStreamStats(payload)?.transportDroppedChunks).toBeUndefined();
+  });
+
+  test("does not present malformed optional telemetry as a measured zero", () => {
+    const payload = new TextEncoder().encode(
+      JSON.stringify({
+        mode: "perf",
+        targetBitrate: 12_000_000,
+        maxQP: 46,
+        congested: false,
+        serverFps: 0,
+        sourceFps: -1,
+        captureDroppedFrames: null,
+        encoderDroppedFrames: "0",
+        transportDroppedChunks: -1,
+      }),
+    );
+    const stats = parseServerStreamStats(payload);
+    expect(stats?.sourceFps).toBeUndefined();
+    expect(stats?.captureDroppedFrames).toBeUndefined();
+    expect(stats?.encoderDroppedFrames).toBeUndefined();
+    expect(stats?.transportDroppedChunks).toBeUndefined();
   });
 
   test("rejects an unknown stream mode instead of desynchronizing controlled UI", () => {
@@ -190,5 +245,20 @@ describe("parseServerStreamStats", () => {
       }),
     );
     expect(parseServerStreamStats(payload)).toBeNull();
+  });
+
+  test("rejects invalid required telemetry before it reaches rate formatting", () => {
+    for (const serverFps of [null, "60", -1]) {
+      const payload = new TextEncoder().encode(
+        JSON.stringify({
+          mode: "perf",
+          targetBitrate: 12_000_000,
+          maxQP: 46,
+          congested: false,
+          serverFps,
+        }),
+      );
+      expect(parseServerStreamStats(payload)).toBeNull();
+    }
   });
 });

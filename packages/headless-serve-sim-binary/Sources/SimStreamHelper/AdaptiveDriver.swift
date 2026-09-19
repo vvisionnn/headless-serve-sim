@@ -15,6 +15,12 @@ final class AdaptiveDriver {
     private var timer: DispatchSourceTimer?
     private var encodedFrames = 0
     private var lastEncodedFrames = 0
+    private var lastCaptureFrames: UInt64?
+    private var lastSampleTime = DispatchTime.now().uptimeNanoseconds
+
+    /// Set before start. Counts actual capture offers and snapshots/pending
+    /// frames discarded before encoding, rather than a configured FPS target.
+    var captureStats: (() -> (offered: UInt64, dropped: UInt64))?
 
     init(encoder: H264Encoder, clientManager: ClientManager, mode: StreamMode, highWaterBytes: Int) {
         self.encoder = encoder
@@ -45,6 +51,8 @@ final class AdaptiveDriver {
     }
 
     func start() {
+        lastSampleTime = DispatchTime.now().uptimeNanoseconds
+        lastCaptureFrames = captureStats?().offered
         let t = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "adaptive", qos: .userInitiated))
         t.schedule(deadline: .now() + .milliseconds(500), repeating: .milliseconds(Int(tickSeconds * 1000)))
         t.setEventHandler { [weak self] in self?.tick() }
@@ -58,25 +66,40 @@ final class AdaptiveDriver {
     }
 
     private func tick() {
+        let now = DispatchTime.now().uptimeNanoseconds
+        let elapsed = Double(now &- lastSampleTime) / 1_000_000_000
+        lastSampleTime = now
+        let capture = captureStats?()
+        let sourceFps: Double? = capture.flatMap { current in
+            guard let previous = lastCaptureFrames, elapsed > 0 else { return nil }
+            return Double(current.offered &- previous) / elapsed
+        }
+        lastCaptureFrames = capture?.offered
+        lock.lock()
+        let frames = encodedFrames
+        let delta = frames - lastEncodedFrames
+        lastEncodedFrames = frames
+        lock.unlock()
+        // Keep the rate baselines current even while disconnected, so the next
+        // viewer doesn't see all intervening frames reported as one short burst.
         guard clientManager.hasAvccClients() else { return }
         let congestion = clientManager.sampleAvccCongestion()
         let dropped = clientManager.sampleAvccDropped()
         lock.lock()
         let out = controller.tick(congestionBytes: congestion, highWaterBytes: highWaterBytes)
         let modeStr = mode.rawValue
-        let frames = encodedFrames
-        let delta = frames - lastEncodedFrames
-        lastEncodedFrames = frames
         lock.unlock()
 
         encoder.setBitrate(out.bitrate)
         encoder.setMaxQP(out.maxQP)
 
-        let serverFps = Int((Double(delta) / tickSeconds).rounded())
+        let serverFps = elapsed > 0 ? Double(delta) / elapsed : 0
+        let encoderCounters = encoder.counters()
+        let transport = clientManager.avccTransportMetrics()
         let queueMs = out.bitrate > 0
             ? Int((Double(congestion) * 8_000.0 / Double(out.bitrate)).rounded())
             : 0
-        clientManager.broadcastStreamStats([
+        var stats: [String: Any] = [
             "mode": modeStr,
             "targetBitrate": out.bitrate,
             "maxQP": out.maxQP,
@@ -85,6 +108,11 @@ final class AdaptiveDriver {
             "queueBytes": congestion,
             "queueMs": queueMs,
             "droppedFrames": dropped,
-        ])
+            "encoderDroppedFrames": encoderCounters.submitFailed + encoderCounters.droppedByEncoder,
+            "transportDroppedChunks": transport["avccDroppedChunks"] ?? 0,
+        ]
+        if let sourceFps { stats["sourceFps"] = sourceFps }
+        if let capture { stats["captureDroppedFrames"] = capture.dropped }
+        clientManager.broadcastStreamStats(stats)
     }
 }
