@@ -1,6 +1,6 @@
 {
   "name": "headless-serve-sim",
-  "version": "0.0.34",
+  "version": "0.0.35",
   "description": "Control and stream a running iOS, iPad, or Apple Watch Simulator with headless-serve-sim.",
   "author": {
     "name": "vvisionnn"
