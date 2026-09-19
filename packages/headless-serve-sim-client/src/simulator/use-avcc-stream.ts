@@ -16,7 +16,7 @@ export interface AvccFrameInfo {
   decodeMs: number | null;
   /** Active codec string (e.g. "avc1.640028"), or null before configuration. */
   codec: string | null;
-  /** Cumulative count of undecodable chunks dropped since stream start. */
+  /** Cumulative count of video frames discarded before painting since stream start. */
   dropped: number;
   /** True if this painted frame was a keyframe (IDR) — drives keyframe-interval. */
   keyframe: boolean;
@@ -213,8 +213,9 @@ export function useAvccStream({
         } catch {}
       }
       decoder = null;
+      if (!stopped) dropped += pendingDecodes.length;
       pendingDecodes.length = 0;
-      presenter.clear();
+      presenter.clear(!stopped);
       decoderGeneration++;
     };
 
@@ -275,7 +276,7 @@ export function useAvccStream({
         createImageBitmap(new Blob([payload as BlobPart], { type: "image/jpeg" }))
           .then((bmp) => {
             try {
-              if (!stopped) {
+              if (!stopped && !painted) {
                 paint(bmp, bmp.width, bmp.height, {
                   bytes: seedBytes,
                   decodeMs: null,
@@ -299,14 +300,22 @@ export function useAvccStream({
         return;
       }
       // keyframe | reference delta | disposable temporal enhancement delta
-      if (!decoder || decoder.state !== "configured") return;
+      if (!decoder || decoder.state !== "configured") {
+        dropped++;
+        return;
+      }
       if ((type === "delta" || type === "disposable-delta") && awaitingKeyframe) {
         // Skip deltas until a keyframe resyncs the decoder — feeding them now
         // would composite on a stale/absent reference (ghosting).
+        dropped++;
         return;
       }
       if (type !== "keyframe") {
-        const action = decodeBackpressureAction(type, decoder.decodeQueueSize);
+        const action = decodeBackpressureAction(
+          type,
+          decoder.decodeQueueSize,
+          pendingDecodes.length > 0 ? performance.now() - pendingDecodes[0]!.t0 : 0,
+        );
         if (action === "drop") {
           // Temporal enhancement frames are explicitly non-reference frames.
           // Drop them early instead of accumulating hidden decode latency.

@@ -48,6 +48,14 @@ export interface ServerStreamStats {
   queueMs: number;
   /** Server-side AVCC chunks dropped since the previous server tick. */
   droppedFrames: number;
+  /** Capture offers/sec, including redraw and requested idle captures. */
+  sourceFps?: number;
+  /** Cumulative snapshot failures and superseded pending captures (helper lifetime). */
+  captureDroppedFrames?: number;
+  /** Cumulative failed or discarded H.264 submissions (helper lifetime). */
+  encoderDroppedFrames?: number;
+  /** Cumulative discarded AVCC chunks across all viewers (helper lifetime). */
+  transportDroppedChunks?: number;
 }
 
 /** Emitted outward by SimulatorView — the pure snapshot plus live codec, client
@@ -78,21 +86,42 @@ export function parseServerStreamStats(payload: Uint8Array): ServerStreamStats |
       queueBytes?: number;
       queueMs?: number;
       droppedFrames?: number;
+      sourceFps?: number;
+      captureDroppedFrames?: number;
+      encoderDroppedFrames?: number;
+      transportDroppedChunks?: number;
     };
     if (s.mode !== "perf" && s.mode !== "quality") return null;
+    if (
+      nonnegativeNumber(s.targetBitrate) == null ||
+      nonnegativeNumber(s.serverFps) == null ||
+      nonnegativeNumber(s.maxQP) == null ||
+      s.maxQP < 1 ||
+      s.maxQP > 51 ||
+      typeof s.congested !== "boolean"
+    )
+      return null;
     return {
       mode: s.mode,
       targetBitrateBps: s.targetBitrate,
       maxQP: s.maxQP,
       congested: s.congested,
       serverFps: s.serverFps,
-      queueBytes: Number.isFinite(s.queueBytes) ? s.queueBytes! : 0,
-      queueMs: Number.isFinite(s.queueMs) ? s.queueMs! : 0,
-      droppedFrames: Number.isFinite(s.droppedFrames) ? s.droppedFrames! : 0,
+      queueBytes: nonnegativeNumber(s.queueBytes) ?? 0,
+      queueMs: nonnegativeNumber(s.queueMs) ?? 0,
+      droppedFrames: nonnegativeNumber(s.droppedFrames) ?? 0,
+      sourceFps: nonnegativeNumber(s.sourceFps),
+      captureDroppedFrames: nonnegativeNumber(s.captureDroppedFrames),
+      encoderDroppedFrames: nonnegativeNumber(s.encoderDroppedFrames),
+      transportDroppedChunks: nonnegativeNumber(s.transportDroppedChunks),
     };
   } catch {
     return null;
   }
+}
+
+function nonnegativeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 export interface MetricSummary {
@@ -209,9 +238,11 @@ export class ConnectionStatsAccumulator {
       sumBytes += frames[i]!.bytes;
     }
     const avgInterval = mean(intervals);
-    const fps = avgInterval > 0 ? 1000 / avgInterval : 0;
     const jitterMs = stddev(intervals, avgInterval);
-    const span = frames[n - 1]!.tMs - frames[0]!.tMs;
+    // Include the quiet tail: a stalled stream must not keep reporting the
+    // previous burst's FPS until every sample has aged out of the window.
+    const span = Math.max(nowMs, frames[n - 1]!.tMs) - frames[0]!.tMs;
+    const fps = span > 0 ? ((n - 1) * 1000) / span : 0;
     const bitrateBps = span > 0 ? (sumBytes * 8 * 1000) / span : 0;
 
     return {

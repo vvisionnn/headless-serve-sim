@@ -156,7 +156,7 @@ export function GridPanel({
         onScroll={onScroll}
         className="flex-1 min-h-0 overflow-y-auto p-2 grid auto-rows-[minmax(300px,auto)] gap-2 content-start grid-cols-[repeat(auto-fill,minmax(200px,1fr))]"
       >
-        {devices === null ? null : devices.length === 0 ? (
+        {!open || devices === null ? null : devices.length === 0 ? (
           <div className="col-span-full bg-panel-deep border border-divider rounded-card px-4 py-6 text-fg-3 text-value text-center">
             No iOS simulators available.
           </div>

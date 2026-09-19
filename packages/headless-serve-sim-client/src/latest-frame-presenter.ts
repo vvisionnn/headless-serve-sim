@@ -47,10 +47,11 @@ export class LatestFramePresenter<Frame extends ClosableFrame, Metadata> {
     if (this.scheduled == null) this.scheduled = this.schedule(this.flush);
   }
 
-  clear(): void {
+  clear(countDiscard = false): void {
     if (this.pending) {
       this.pending.frame.close();
       this.pending = null;
+      if (countDiscard) this.onDiscard();
     }
     if (this.scheduled != null) {
       this.cancel(this.scheduled);
