@@ -92,6 +92,26 @@ test("drag starts from the visible capped scale instead of a hidden zoom oversho
   ).toBeCloseTo(0.8);
 });
 
+test("Duo resizing clamps to its fixed envelope before and after rotation", () => {
+  for (const fittedSize of [
+    { width: 620, height: 443 },
+    { width: 443, height: 620 },
+  ]) {
+    const input = {
+      handle: "e" as const,
+      fittedSize,
+      availableSize: { width: 1400, height: 800 },
+      maxScale: 800 / 620,
+      startScale: 1.7,
+      deltaY: 0,
+    };
+    expect(getDeviceResizeScale({ ...input, deltaX: 0 })).toBeCloseTo(800 / 620);
+    expect(getDeviceResizeScale({ ...input, deltaX: -30 })).toBeCloseTo(
+      800 / 620 - 60 / fittedSize.width,
+    );
+  }
+});
+
 test("empty canvas or frame returns finite zero scale", () => {
   for (const fittedSize of [
     { width: 0, height: 0 },

@@ -10,6 +10,7 @@ export interface DeviceResizeOptions {
   fittedSize: DeviceResizeSize;
   availableSize: DeviceResizeSize;
   scale: number;
+  maxScale?: number;
   onScaleChange: (scale: number) => void;
 }
 
@@ -82,6 +83,7 @@ export function getDeviceResizeScale(p: {
   fittedSize: DeviceResizeSize;
   availableSize: DeviceResizeSize;
   startScale: number;
+  maxScale?: number;
   deltaX: number;
   deltaY: number;
 }): number {
@@ -96,7 +98,12 @@ export function getDeviceResizeScale(p: {
       : x
         ? (2 * x * p.deltaX) / width
         : (2 * y * p.deltaY) / height;
-  const max = Math.min(2, p.availableSize.width / width, p.availableSize.height / height);
+  const max = Math.min(
+    2,
+    p.maxScale ?? 2,
+    p.availableSize.width / width,
+    p.availableSize.height / height,
+  );
   const min = Math.min(0.5, max);
   const startScale = Math.max(min, Math.min(max, p.startScale));
   return Math.max(min, Math.min(max, startScale + delta));

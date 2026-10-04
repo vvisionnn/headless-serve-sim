@@ -12,12 +12,14 @@ export function DeviceResizeHandles({
   availableSize,
   frameRect,
   scale,
+  maxScale,
   onScaleChange,
 }: {
   fittedSize: DeviceResizeSize;
   availableSize: DeviceResizeSize;
   frameRect?: DeviceResizeSize & { x: number; y: number };
   scale: number;
+  maxScale?: number;
   onScaleChange: (scale: number) => void;
 }) {
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -43,10 +45,7 @@ export function DeviceResizeHandles({
     window.addEventListener("pointermove", reveal);
     return () => window.removeEventListener("pointermove", reveal);
   }, []);
-  useEffect(
-    () => () => cleanupRef.current?.(),
-    [fittedSize.width, fittedSize.height, availableSize.width, availableSize.height],
-  );
+  useEffect(() => () => cleanupRef.current?.(), []);
   return (
     <div
       ref={containerRef}
@@ -86,6 +85,7 @@ export function DeviceResizeHandles({
               fittedSize,
               availableSize,
               scale,
+              maxScale,
               onScaleChange: (next) => changeRef.current(next),
             });
           }}

@@ -1521,6 +1521,14 @@ function AppWithConfig({
                     fittedSize={{ width: duoBounds.fittedWidth, height: duoBounds.fittedHeight }}
                     availableSize={{ width: deviceAvailWidth - 24, height: deviceAvailHeight - 24 }}
                     scale={deviceScale}
+                    maxScale={
+                      Math.min(deviceAvailWidth - 24, deviceAvailHeight - 24) /
+                      Math.min(
+                        deviceAvailWidth,
+                        deviceAvailHeight,
+                        simulatorMaxWidth("iphone", { width: 2, height: 1 }),
+                      )
+                    }
                     onScaleChange={setDeviceScale}
                   />
                 </div>

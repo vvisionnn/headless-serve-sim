@@ -1,6 +1,36 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
+import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DeviceResizeHandles } from "../client/components/device-resize-handles";
+
+test("rotation bounds do not tear down the active grabber drag", () => {
+  const hooks: { current: unknown }[] = [];
+  const deps: React.DependencyList[] = [];
+  let hook = 0;
+  const refs = spyOn(React, "useRef").mockImplementation((value) => {
+    const index = hook++;
+    return hooks[index] ?? (hooks[index] = { current: value });
+  });
+  const effects = spyOn(React, "useEffect").mockImplementation((_effect, dependencies) => {
+    deps.push(dependencies ?? []);
+  });
+  try {
+    const props = {
+      fittedSize: { width: 620, height: 443 },
+      availableSize: { width: 1400, height: 800 },
+      scale: 1.2,
+      onScaleChange() {},
+    };
+    DeviceResizeHandles(props);
+    const initial = deps.splice(0);
+    hook = 0;
+    DeviceResizeHandles({ ...props, fittedSize: { width: 443, height: 620 } });
+    expect(deps).toEqual(initial);
+  } finally {
+    refs.mockRestore();
+    effects.mockRestore();
+  }
+});
 
 test("renders only three visible grabber drag targets outside the live screen", () => {
   const markup = renderToStaticMarkup(
