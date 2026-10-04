@@ -27,7 +27,7 @@ const ORIENTATION_OPTIONS = [
 ];
 const DEFAULT_AUDIO_DEVICES = [{ value: "systemDefault", label: "System Default" }];
 const SELECT_CLASS =
-  "w-[168px] min-w-0 rounded-sm border border-control-border bg-panel px-3 py-2 text-value text-fg outline-none hover:border-fg-3 hover:bg-hover focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] disabled:opacity-45";
+  "w-[168px] min-w-0 rounded-sm border border-control-border bg-panel px-3 py-2 text-value text-fg outline-none hover:border-fg-3 hover:bg-hover focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] disabled:text-fg-3";
 const BUTTON_CLASS =
   "min-h-[38px] cursor-pointer rounded-card border border-control-border bg-panel-deep px-3 py-2 text-body text-fg hover:bg-hover disabled:cursor-default disabled:opacity-45 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]";
 

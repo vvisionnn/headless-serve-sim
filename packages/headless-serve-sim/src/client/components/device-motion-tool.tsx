@@ -12,14 +12,12 @@ export function DeviceMotionTool({
   angle,
   pose,
   onAngleChange,
-  onPoseChange,
   error,
   disabled = false,
 }: {
   angle: number;
   pose: DuoPose;
   onAngleChange: (angle: number) => void;
-  onPoseChange: (pose: DuoPose) => void;
   error?: string | null;
   disabled?: boolean;
 }) {
@@ -38,7 +36,7 @@ export function DeviceMotionTool({
                 pressed={pose === option.value}
                 disabled={disabled}
                 title={`${option.label} · ${option.angle}°`}
-                onClick={() => onPoseChange(option.value)}
+                onClick={() => onAngleChange(option.angle)}
               >
                 <svg
                   width="20"

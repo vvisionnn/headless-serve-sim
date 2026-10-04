@@ -10,14 +10,12 @@ const handles: DeviceResizeHandle[] = ["e", "s", "w"];
 export function DeviceResizeHandles({
   fittedSize,
   availableSize,
-  frameRect,
   scale,
   maxScale,
   onScaleChange,
 }: {
   fittedSize: DeviceResizeSize;
   availableSize: DeviceResizeSize;
-  frameRect?: DeviceResizeSize & { x: number; y: number };
   scale: number;
   maxScale?: number;
   onScaleChange: (scale: number) => void;
@@ -47,21 +45,7 @@ export function DeviceResizeHandles({
   }, []);
   useEffect(() => () => cleanupRef.current?.(), []);
   return (
-    <div
-      ref={containerRef}
-      aria-hidden
-      className={`pointer-events-none absolute z-20 ${frameRect ? "" : "inset-0"}`}
-      style={
-        frameRect
-          ? {
-              left: frameRect.x,
-              top: frameRect.y,
-              width: frameRect.width,
-              height: frameRect.height,
-            }
-          : undefined
-      }
-    >
+    <div ref={containerRef} aria-hidden className="pointer-events-none absolute inset-0 z-20">
       {handles.map((handle) => (
         <div
           key={handle}

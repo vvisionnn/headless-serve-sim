@@ -5,6 +5,24 @@ import {
   type StreamConfig,
 } from "headless-serve-sim-client/simulator";
 import { resolveActiveScreenConfig } from "../client/utils/screen-config";
+import { parseScreenConfig } from "../middleware";
+
+test("injected helper configuration preserves the composition frame mode", () => {
+  for (const includeFrame of [true, false]) {
+    expect(
+      parseScreenConfig({ width: 3420, height: 3420, deviceComposition: true, includeFrame }),
+    ).toEqual({
+      width: 3420,
+      height: 3420,
+      deviceComposition: true,
+      includeFrame,
+    });
+  }
+  expect(parseScreenConfig({ width: 3420, height: 3420, includeFrame: "false" })).toEqual({
+    width: 3420,
+    height: 3420,
+  });
+});
 
 const iPad: StreamConfig = { width: 2064, height: 2752, orientation: "portrait" };
 const iPhone: StreamConfig = { width: 1206, height: 2622, orientation: "portrait" };
@@ -65,6 +83,19 @@ test("a new active display config supersedes pixels from the previous panel", ()
   } as StreamConfig;
   expect(resolveActiveScreenConfig({ live: inner, ws: outer, fallback: genericFallback })).toEqual(
     outer,
+  );
+});
+
+test("new composition capability supersedes an older raw live config", () => {
+  const raw: StreamConfig = { width: 2007, height: 2853, displayId: 3 };
+  const composed: StreamConfig = {
+    width: 3420,
+    height: 3420,
+    displayId: 3,
+    deviceComposition: true,
+  };
+  expect(resolveActiveScreenConfig({ live: raw, ws: composed, fallback: genericFallback })).toEqual(
+    composed,
   );
 });
 

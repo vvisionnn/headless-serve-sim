@@ -61,6 +61,7 @@ import { fileExtension } from "./utils/drop";
 import { execOnHost, hostDeviceMotionRequest } from "./utils/exec";
 import { DeviceMotionTool, type DuoPose } from "./components/device-motion-tool";
 import { createFoldControl } from "./utils/fold-control";
+import { sendDeviceView, type DeviceView } from "./utils/device-view-control";
 import { observedDuoOrientation, shouldApplyObservedHinge } from "./utils/fold-sync";
 import { duoHardwareCommands } from "./utils/duo-hardware";
 import { type HardwareButtonPress } from "./utils/hardware-buttons";
@@ -392,8 +393,10 @@ function AppWithConfig({
     config.deviceTypeIdentifier === "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo";
   const [hingeAngle, setHingeAngle] = useState(180);
   const [foldError, setFoldError] = useState<string | null>(null);
-  const [showBezels, setShowBezels] = useState(true);
-  const [duoOrientation, setDuoOrientation] = useState<SimulatorOrientation>("portrait");
+  const [showBezels, setShowBezels] = useState(config.screenConfig?.includeFrame ?? true);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const deviceViewRef = useRef<DeviceView | null>(null);
+  const [duoOrientation, setDuoOrientation] = useState<SimulatorOrientation | null>(null);
   const [deviceScale, setDeviceScale] = useState(1);
   const duoResizeRef = useRef<HTMLDivElement | null>(null);
   const [duoBounds, setDuoBounds] = useState<{
@@ -450,12 +453,6 @@ function AppWithConfig({
         });
     },
     [foldControl],
-  );
-  const changeDuoPose = useCallback(
-    (pose: DuoPose) => {
-      changeHingeAngle(pose === "closed" ? 0 : pose === "book" ? 130 : 180);
-    },
-    [changeHingeAngle],
   );
   const duoPose: DuoPose = hingeAngle === 0 ? "closed" : hingeAngle === 180 ? "open" : "book";
   useEffect(() => {
@@ -578,6 +575,7 @@ function AppWithConfig({
     fallback:
       config.deviceFrameSpec?.nativeScreen ?? fallbackScreenSize(deviceType, resolvedDeviceName),
   });
+  const nativeComposition = foldable && activeStreamConfig.deviceComposition === true;
   const deviceFrameSpecs =
     config.deviceFrameSpecs ?? (config.deviceFrameSpec ? [config.deviceFrameSpec] : []);
   const selectedFrameSpec =
@@ -636,6 +634,7 @@ function AppWithConfig({
       ws.onopen = () => {
         const pending = pendingStreamModeRef.current;
         if (pending) sendStreamMode(ws, pending.mode);
+        sendDeviceView(ws, deviceViewRef.current);
       };
       ws.onmessage = (ev) => {
         // Server -> client pushes: [tag][JSON]. 0x82 = screen-config,
@@ -647,12 +646,20 @@ function AppWithConfig({
           try {
             const cfg = JSON.parse(new TextDecoder().decode(bytes.subarray(1))) as StreamConfig;
             if (cfg.width <= 0 || cfg.height <= 0) return;
+            if (
+              cfg.deviceComposition &&
+              cfg.includeFrame !== undefined &&
+              deviceViewRef.current?.includeFrame === undefined
+            )
+              setShowBezels(cfg.includeFrame);
             setWsStreamConfig((prev) =>
               prev &&
               prev.width === cfg.width &&
               prev.height === cfg.height &&
               prev.orientation === cfg.orientation &&
-              prev.displayId === cfg.displayId
+              prev.displayId === cfg.displayId &&
+              prev.deviceComposition === cfg.deviceComposition &&
+              prev.includeFrame === cfg.includeFrame
                 ? prev
                 : cfg,
             );
@@ -831,15 +838,31 @@ function AppWithConfig({
     [sendWs, foldable, config.device],
   );
   useEffect(() => {
-    if (foldable && streaming)
-      sendWs(0x0f, {
-        rotation: rotationDegreesForOrientation(duoOrientation),
-        scale: deviceScale,
-        includeFrame: showBezels,
-      });
-  }, [foldable, streaming, duoOrientation, deviceScale, showBezels, sendWs]);
+    if (!nativeComposition) {
+      deviceViewRef.current = null;
+      return;
+    }
+    if (!duoOrientation) return;
+    deviceViewRef.current = {
+      ...deviceViewRef.current,
+      rotation: rotationDegreesForOrientation(duoOrientation),
+    };
+    if (streaming) sendDeviceView(wsRef.current, deviceViewRef.current);
+  }, [nativeComposition, streaming, duoOrientation]);
+  const changeBezels = useCallback(
+    (includeFrame: boolean) => {
+      setShowBezels(includeFrame);
+      if (!nativeComposition) return;
+      deviceViewRef.current = {
+        rotation: rotationDegreesForOrientation(duoOrientation ?? "portrait"),
+        includeFrame,
+      };
+      sendDeviceView(wsRef.current, deviceViewRef.current);
+    },
+    [nativeComposition, duoOrientation],
+  );
   const currentOrientation = foldable
-    ? duoOrientation
+    ? (duoOrientation ?? "portrait")
     : ((activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ?? "portrait");
   const canRotate = deviceType !== "watch" && deviceType !== "vision";
   const rotateBy = useCallback(
@@ -1014,6 +1037,8 @@ function AppWithConfig({
   useEffect(() => {
     const onPointerDown = (e: PointerEvent) => {
       const inside = !!simContainerRef.current?.contains(e.target as Node);
+      if (inside && !isPreviewControlTarget(e.target))
+        (document.activeElement as HTMLElement | null)?.blur();
       setSimFocused(inside);
     };
     document.addEventListener("pointerdown", onPointerDown, true);
@@ -1341,6 +1366,25 @@ function AppWithConfig({
     },
     [sendHardwareButton, logEvent],
   );
+  const mediaDropOverlay = mediaDrop.isDragOver && (
+    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[rgba(0,0,0,0.55)] text-white pointer-events-none">
+      <svg
+        width="32"
+        height="32"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="17 8 12 3 7 8" />
+        <line x1="12" y1="3" x2="12" y2="15" />
+      </svg>
+      <span className="text-value font-medium">Drop media or .ipa</span>
+    </div>
+  );
   const screenContent = (
     <>
       <SimulatorView
@@ -1353,6 +1397,7 @@ function AppWithConfig({
         imageStyle={{ borderRadius: 0 } as CSSProperties}
         hideControls
         onStreamingChange={setStreaming}
+        onStreamError={setStreamError}
         onStreamTouch={onStreamTouch}
         onStreamMultiTouch={onStreamMultiTouch}
         onStreamButton={onStreamButton}
@@ -1371,26 +1416,8 @@ function AppWithConfig({
         onDecoderRecover={onDecoderRecover}
         onStreamScroll={onStreamScroll}
       />
-      {axOverlayEnabled && !foldable && <AxDomOverlay />}
-      {mediaDrop.isDragOver && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[rgba(0,0,0,0.55)] text-white pointer-events-none">
-          <svg
-            width="32"
-            height="32"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="17 8 12 3 7 8" />
-            <line x1="12" y1="3" x2="12" y2="15" />
-          </svg>
-          <span className="text-value font-medium">Drop media or .ipa</span>
-        </div>
-      )}
+      {axOverlayEnabled && !nativeComposition && <AxDomOverlay />}
+      {!nativeComposition && mediaDrop.isDragOver && mediaDropOverlay}
     </>
   );
 
@@ -1479,7 +1506,7 @@ function AppWithConfig({
             </SimulatorToolbar>
           </PanelCard>
 
-          {foldable ? (
+          {nativeComposition ? (
             <div
               ref={attachScreen}
               className="relative shrink-0"
@@ -1498,14 +1525,25 @@ function AppWithConfig({
                 recordingSourceRef={duoRecordingSourceRef}
                 width={deviceAvailWidth}
                 height={deviceAvailHeight}
-                onTouch={(touch) => sendWs(0x03, touch)}
-                onMultiTouch={(touch) => sendWs(0x05, touch)}
-                onScroll={(scroll) => sendWs(0x0d, scroll)}
+                onTouch={onStreamTouch}
+                onMultiTouch={onStreamMultiTouch}
+                onScroll={onStreamScroll}
                 onButton={onStreamButton}
                 axEnabled={axOverlayEnabled}
                 includeFrame={showBezels}
+                scale={deviceScale}
+                streaming={streaming}
                 onBoundsChange={updateDuoBounds}
               />
+              {(!streaming || streamError) && (
+                <div
+                  className="absolute inset-0 flex items-center justify-center bg-panel/80 text-body text-fg"
+                  role={streamError ? "alert" : "status"}
+                >
+                  {streamError ?? "Connecting..."}
+                </div>
+              )}
+              {mediaDropOverlay}
               {duoBounds && (
                 <div
                   ref={duoResizeRef}
@@ -1542,10 +1580,22 @@ function AppWithConfig({
                 height: showBezels && bezelGeom ? bezelGeom.height : frameGeom.height,
               }}
             >
-              {showBezels && bezelGeom && bezelSpec ? (
+              {bezelGeom && bezelSpec ? (
                 <DeviceBezel
                   spec={bezelSpec}
-                  geometry={bezelGeom}
+                  geometry={
+                    showBezels
+                      ? bezelGeom
+                      : {
+                          ...bezelGeom,
+                          screen: {
+                            ...bezelGeom.screen,
+                            width: frameGeom.width,
+                            height: frameGeom.height,
+                          },
+                        }
+                  }
+                  showFrame={showBezels}
                   screenRef={attachScreen}
                   onPressButton={pressHardwareButton}
                   {...mediaDrop.dropZoneProps}
@@ -1580,7 +1630,6 @@ function AppWithConfig({
                 angle={hingeAngle}
                 pose={duoPose}
                 onAngleChange={changeHingeAngle}
-                onPoseChange={changeDuoPose}
                 error={foldError}
               />
             </PanelCard>
@@ -1607,17 +1656,7 @@ function AppWithConfig({
                     : null
           }
           udid={config.device}
-          foldable={
-            foldable
-              ? {
-                  angle: hingeAngle,
-                  pose: duoPose,
-                  onAngleChange: changeHingeAngle,
-                  onPoseChange: changeDuoPose,
-                  error: foldError,
-                }
-              : undefined
-          }
+          foldable={foldable}
           onOrientationChange={(orientation) => {
             orientationEditRef.current++;
             setDuoOrientation(orientation);
@@ -1629,7 +1668,7 @@ function AppWithConfig({
             slowAnimations,
             keyboardCapture,
             onKeyboardCaptureChange: setKeyboardCapture,
-            onBezelsChange: setShowBezels,
+            onBezelsChange: changeBezels,
             onScaleChange: setDeviceScale,
             onSoftwareKeyboard: toggleSoftwareKeyboard,
             onSlowAnimationsChange: (enabled) => {
@@ -1642,7 +1681,7 @@ function AppWithConfig({
           streamMode={streamMode}
           streamModeAvailable={useAvccVideo}
           onStreamModeChange={onModeChange}
-          recordingSourceRef={foldable ? duoRecordingSourceRef : recordingSourceRef}
+          recordingSourceRef={nativeComposition ? duoRecordingSourceRef : recordingSourceRef}
           execToken={config.execToken}
           uiSettingsRevision={uiSettingsRevision}
           currentApp={currentApp}

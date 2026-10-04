@@ -8,7 +8,7 @@ import {
   duoWheelDelta,
 } from "../duo-model";
 import { AxSelectionContext, useAxSnapshotContext } from "../hooks/use-ax-snapshot";
-import { axElementKey } from "../utils/ax";
+import { axElementKey, axElementSummary, axNodeForElement } from "../utils/ax";
 import { duoViewport } from "../utils/duo-viewport";
 
 const FINGER_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='9' fill='rgba(255,255,255,0.45)' stroke='rgba(0,0,0,0.55)' stroke-width='1.25' filter='drop-shadow(0 1px 2px rgba(0,0,0,0.45))'/%3E%3C/svg%3E") 12 12, pointer`;
@@ -21,6 +21,8 @@ interface Props {
   height: number;
   axEnabled: boolean;
   includeFrame?: boolean;
+  scale?: number;
+  streaming?: boolean;
   onButton?: (button: string) => void;
   onTouch: (touch: {
     type: string;
@@ -37,7 +39,7 @@ interface Props {
     y2: number;
     displayId?: number;
   }) => void;
-  onScroll: (scroll: { x: number; y: number; dx: number; dy: number }) => void;
+  onScroll: (scroll: { x: number; y: number; dx: number; dy: number; displayId?: number }) => void;
   onBoundsChange: (bounds: {
     x: number;
     y: number;
@@ -70,14 +72,14 @@ export function NativeDuoDevice(props: Props) {
     let unsubscribe: (() => void) | undefined;
     let frame = 0;
     let lastBounds = "";
+    let mask: { value: string; width: number; height: number; path: Path2D } | null = null;
     let crop = { x: 0, y: 0, width: 1, height: 1 };
     let presentedWidth = 0,
       presentedHeight = 0;
     const listeners = new Set<() => void>();
     const output: SimulatorRecordingSource = {
       snapshot: () =>
-        composition.current &&
-        (composition.current.includeFrame ?? true) === (latest.current.includeFrame ?? true)
+        composition.current && source?.snapshot()?.composition
           ? {
               source: canvas,
               width: canvas.width,
@@ -105,8 +107,19 @@ export function NativeDuoDevice(props: Props) {
     const outputRef = props.recordingSourceRef;
     outputRef.current = output;
     const paint = () => {
-      const next = source?.snapshot();
-      if (!next?.composition) return;
+      const next = latest.current.streaming === false ? null : source?.snapshot();
+      if (!next?.composition) {
+        composition.current = undefined;
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        buttonsRef.current?.querySelectorAll<HTMLElement>("[data-duo-button]").forEach((button) => {
+          button.style.display = "none";
+        });
+        fingersRef.current?.querySelectorAll<HTMLElement>("[data-duo-finger]").forEach((dot) => {
+          dot.style.display = "none";
+        });
+        updateOverlay();
+        return;
+      }
       const metadata = next.composition;
       composition.current = metadata;
       const view = duoViewport(
@@ -115,7 +128,7 @@ export function NativeDuoDevice(props: Props) {
         next.height,
         latest.current.width,
         latest.current.height,
-        metadata.scale,
+        latest.current.scale ?? metadata.scale,
       );
       crop = view.crop;
       const displayWidth = view.width,
@@ -135,7 +148,14 @@ export function NativeDuoDevice(props: Props) {
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.save();
       context.setTransform(next.width, 0, 0, next.height, -crop.x, -crop.y);
-      context.clip(new Path2D(metadata.mask), "evenodd");
+      if (mask?.value !== metadata.mask || mask.width !== next.width || mask.height !== next.height)
+        mask = {
+          value: metadata.mask,
+          width: next.width,
+          height: next.height,
+          path: new Path2D(metadata.mask),
+        };
+      context.clip(mask.path, "evenodd");
       context.setTransform(1, 0, 0, 1, 0, 0);
       context.drawImage(
         next.source,
@@ -207,12 +227,14 @@ export function NativeDuoDevice(props: Props) {
     };
     let touch: {
       pointerId: number;
+      pointerType: string;
       x: number;
       y: number;
       edge?: number;
       displayId: number;
     } | null = null;
     let multi: { x: number; y: number; pan: boolean } | null = null;
+    let secondTouch: { pointerId: number; x: number; y: number } | null = null;
     let hoverPoint: { x: number; y: number } | null = null;
     let altHeld = false;
     const updateFingers = () => {
@@ -223,14 +245,16 @@ export function NativeDuoDevice(props: Props) {
       const points = point
         ? [
             point,
-            ...(multi || altHeld
-              ? [
-                  {
-                    x: multi?.pan ? point.x + multi.x : 1 - point.x,
-                    y: multi?.pan ? point.y + multi.y : 1 - point.y,
-                  },
-                ]
-              : []),
+            ...(secondTouch
+              ? [secondTouch]
+              : multi || altHeld
+                ? [
+                    {
+                      x: multi?.pan ? point.x + multi.x : 1 - point.x,
+                      y: multi?.pan ? point.y + multi.y : 1 - point.y,
+                    },
+                  ]
+                : []),
           ]
         : [];
       const rect = canvas.getBoundingClientRect();
@@ -249,20 +273,44 @@ export function NativeDuoDevice(props: Props) {
       });
     };
     const sendTouch = (type: string, point: { x: number; y: number }) => {
-      if (multi) {
+      if (multi || secondTouch) {
         latest.current.onMultiTouch?.({
           type,
           displayId: touch?.displayId,
           x1: point.x,
           y1: point.y,
-          x2: multi.pan ? point.x + multi.x : 1 - point.x,
-          y2: multi.pan ? point.y + multi.y : 1 - point.y,
+          x2: secondTouch?.x ?? (multi!.pan ? point.x + multi!.x : 1 - point.x),
+          y2: secondTouch?.y ?? (multi!.pan ? point.y + multi!.y : 1 - point.y),
         });
       } else
-        latest.current.onTouch({ type, ...point, edge: touch?.edge, displayId: touch?.displayId });
+        latest.current.onTouch({
+          type,
+          x: point.x,
+          y: point.y,
+          edge: touch?.edge,
+          displayId: touch?.displayId,
+        });
     };
     const down = (event: PointerEvent) => {
-      if (latest.current.axEnabled || touch || event.button !== 0) return;
+      if (latest.current.axEnabled || event.button !== 0) return;
+      if (touch) {
+        if (
+          event.pointerType !== "touch" ||
+          touch.pointerType !== "touch" ||
+          secondTouch ||
+          !latest.current.onMultiTouch
+        )
+          return;
+        const point = hit(event, touch.displayId);
+        if (!point) return;
+        event.preventDefault();
+        canvas.setPointerCapture(event.pointerId);
+        sendTouch("end", touch);
+        secondTouch = { ...point, pointerId: event.pointerId };
+        sendTouch("begin", touch);
+        updateFingers();
+        return;
+      }
       const point = hit(event);
       if (!point) return;
       event.preventDefault();
@@ -272,6 +320,7 @@ export function NativeDuoDevice(props: Props) {
         ...point,
         edge,
         pointerId: event.pointerId,
+        pointerType: event.pointerType,
         displayId: composition.current!.displayId,
       };
       if (event.altKey && latest.current.onMultiTouch)
@@ -282,6 +331,15 @@ export function NativeDuoDevice(props: Props) {
     const move = (event: PointerEvent) => {
       hoverPoint = hit(event);
       altHeld = event.altKey;
+      if (secondTouch?.pointerId === event.pointerId && touch) {
+        const point = hit(event, touch.displayId);
+        if (point) {
+          secondTouch = { ...secondTouch, ...point };
+          sendTouch("move", touch);
+        }
+        updateFingers();
+        return;
+      }
       if (touch?.pointerId !== event.pointerId) {
         updateFingers();
         return;
@@ -293,6 +351,27 @@ export function NativeDuoDevice(props: Props) {
       updateFingers();
     };
     const end = (event: PointerEvent) => {
+      if (
+        secondTouch &&
+        touch &&
+        (secondTouch.pointerId === event.pointerId || touch.pointerId === event.pointerId)
+      ) {
+        const firstId = touch.pointerId,
+          secondId = secondTouch.pointerId;
+        const point = hit(event, touch.displayId);
+        if (point) {
+          if (event.pointerId === firstId) touch = { ...touch, ...point };
+          else secondTouch = { ...secondTouch, ...point };
+        }
+        sendTouch("end", touch);
+        touch = null;
+        secondTouch = null;
+        multi = null;
+        updateFingers();
+        for (const id of [firstId, secondId])
+          if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id);
+        return;
+      }
       if (touch?.pointerId !== event.pointerId) return;
       const point = hit(event, touch.displayId) ?? touch;
       sendTouch("end", point);
@@ -306,9 +385,12 @@ export function NativeDuoDevice(props: Props) {
       const from = hit(event),
         metadata = composition.current;
       if (!from || !metadata) return;
-      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? latest.current.height : 1;
-      const dx = event.deltaX * unit,
-        dy = event.deltaY * unit;
+      if (!Number.isFinite(event.deltaX) || !Number.isFinite(event.deltaY)) return;
+      const rect = canvas.getBoundingClientRect();
+      const dx =
+          event.deltaX * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.width : 1),
+        dy = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1);
+      if (dx === 0 && dy === 0) return;
       const factor = Math.min(1, 2 / Math.max(Math.abs(dx), Math.abs(dy)));
       const to = hit({
         clientX: event.clientX + dx * factor,
@@ -316,7 +398,12 @@ export function NativeDuoDevice(props: Props) {
       });
       if (!to) return;
       const delta = duoWheelDelta(from, to, metadata.rawWidth, metadata.rawHeight);
-      latest.current.onScroll({ ...from, dx: -delta.dx / factor, dy: -delta.dy / factor });
+      latest.current.onScroll({
+        ...from,
+        dx: -delta.dx / factor,
+        dy: -delta.dy / factor,
+        displayId: metadata.displayId,
+      });
       event.preventDefault();
     };
     const polygons = new Map<string, SVGPolygonElement>();
@@ -336,8 +423,9 @@ export function NativeDuoDevice(props: Props) {
       const elements = [...ax.current.snapshot.elements].sort(
         (a, b) => b.frame.width * b.frame.height - a.frame.width * a.frame.height,
       );
-      for (const element of elements) {
+      for (const [elementIndex, element] of elements.entries()) {
         const key = axElementKey(element);
+        const summary = axElementSummary(axNodeForElement(element, elementIndex));
         for (const [index, points] of duoAxPolygons(element.frame, metadata).entries()) {
           const identity = `${key}:${index}`;
           active.add(identity);
@@ -380,7 +468,7 @@ export function NativeDuoDevice(props: Props) {
           );
           ordered.push(polygon);
           polygon.setAttribute("data-ax-label", element.label);
-          polygon.setAttribute("aria-label", element.label || element.role);
+          polygon.setAttribute("aria-label", summary);
           const selected = ax.current.selection.selectedKey === key;
           const highlighted = ax.current.selection.highlightedKey === key;
           polygon.setAttribute("data-ax-selected", String(selected));
@@ -454,6 +542,8 @@ export function NativeDuoDevice(props: Props) {
     props.width,
     props.height,
     props.axEnabled,
+    props.scale,
+    props.streaming,
     snapshot,
     selection?.selectedKey,
     selection?.highlightedKey,

@@ -82,10 +82,12 @@ export function DeviceBezel({
   children,
   screenRef,
   onPressButton,
+  showFrame = true,
   ...dropProps
 }: {
   spec: DeviceFrameSpec;
   geometry: BezelGeometry;
+  showFrame?: boolean;
   children: ReactNode;
   screenRef?: (node: HTMLDivElement | null) => void;
   /** Press a physical control on the bezel. */
@@ -100,69 +102,82 @@ export function DeviceBezel({
   const bodyTop = (geometry.height - bodyHeight) / 2;
 
   return (
-    <div className="relative shrink-0" style={{ width: geometry.width, height: geometry.height }}>
+    <div
+      className="relative shrink-0"
+      style={{
+        width: showFrame ? geometry.width : screen.width,
+        height: showFrame ? geometry.height : screen.height,
+      }}
+    >
       {/* The device body and its controls share one rotated layer, so turning
           the device keeps every button on the edge it physically lives on. The
           drop shadow lives HERE rather than on the wrapper: the wrapper also
           contains the live screen, and a filter forces its whole subtree to be
           re-rasterized — every decoded frame would pay for the shadow. */}
-      {spec.artwork ? (
-        <div
-          className="pointer-events-none absolute"
-          style={{
-            width: geometry.artworkWidth,
-            height: geometry.artworkHeight,
-            left: bodyLeft + (bodyWidth - geometry.artworkWidth) / 2,
-            top: bodyTop + (bodyHeight - geometry.artworkHeight) / 2,
-            transform: rotation ? `rotate(${rotation}deg)` : undefined,
-            transformOrigin: "center",
-            filter: SHADOW,
-          }}
-        >
-          <BezelControls
-            spec={spec}
-            scale={geometry.scale}
-            onTop={false}
-            onPressButton={onPressButton}
-          />
-          {/* The composited body. The controls above and below it stand on their
+      {showFrame &&
+        (spec.artwork ? (
+          <div
+            className="pointer-events-none absolute"
+            style={{
+              width: geometry.artworkWidth,
+              height: geometry.artworkHeight,
+              left: bodyLeft + (bodyWidth - geometry.artworkWidth) / 2,
+              top: bodyTop + (bodyHeight - geometry.artworkHeight) / 2,
+              transform: rotation ? `rotate(${rotation}deg)` : undefined,
+              transformOrigin: "center",
+              filter: SHADOW,
+            }}
+          >
+            <BezelControls
+              spec={spec}
+              scale={geometry.scale}
+              onTop={false}
+              onPressButton={onPressButton}
+            />
+            {/* The composited body. The controls above and below it stand on their
               own, so a slow or failed composite costs the device its skin — not
               its buttons. */}
-          {artwork && (
-            <img
-              src={artwork}
-              alt=""
-              aria-hidden
-              draggable={false}
-              className="pointer-events-none absolute inset-0 size-full select-none"
-            />
-          )}
-          <BezelControls spec={spec} scale={geometry.scale} onTop onPressButton={onPressButton} />
-        </div>
-      ) : (
-        // Profiles that ship no artwork at all: a plain dark shell at the
-        // profile's own outer radius.
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[#09090b]"
-          style={{ borderRadius: geometry.outerRadius, filter: SHADOW }}
-        />
-      )}
+            {artwork && (
+              <img
+                src={artwork}
+                alt=""
+                aria-hidden
+                draggable={false}
+                className="pointer-events-none absolute inset-0 size-full select-none"
+              />
+            )}
+            <BezelControls spec={spec} scale={geometry.scale} onTop onPressButton={onPressButton} />
+          </div>
+        ) : (
+          // Profiles that ship no artwork at all: a plain dark shell at the
+          // profile's own outer radius.
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 bg-[#09090b]"
+            style={{ borderRadius: geometry.outerRadius, filter: SHADOW }}
+          />
+        ))}
 
       {/* The screen, composited over the body and clipped to the profile's own
           corner radii so the stream stops exactly where the glass does. */}
       <div
+        key="screen"
         ref={screenRef}
-        className="absolute overflow-hidden bg-black"
+        className={
+          showFrame
+            ? "absolute overflow-hidden bg-black"
+            : "absolute overflow-hidden rounded-panel bg-black shadow-device"
+        }
         style={{
-          left: screen.x,
-          top: screen.y,
+          left: showFrame ? screen.x : 0,
+          top: showFrame ? screen.y : 0,
           width: screen.width,
           height: screen.height,
-          borderRadius: spec.screenMask
-            ? undefined
-            : `${screenRadii.topLeft}px ${screenRadii.topRight}px ${screenRadii.bottomRight}px ${screenRadii.bottomLeft}px`,
-          ...(spec.screenMask
+          borderRadius:
+            !showFrame || spec.screenMask
+              ? undefined
+              : `${screenRadii.topLeft}px ${screenRadii.topRight}px ${screenRadii.bottomRight}px ${screenRadii.bottomLeft}px`,
+          ...(showFrame && spec.screenMask
             ? {
                 maskImage: `url(${orientedScreenMask(spec, rotation)})`,
                 maskSize: "100% 100%",

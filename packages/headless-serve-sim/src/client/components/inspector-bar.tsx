@@ -20,7 +20,6 @@ import type { StreamMode } from "./stream-mode-toggle";
 import { SimulatorSettingsTool } from "./simulator-settings-tool";
 import { StatusBarTool } from "./status-bar-tool";
 import { UserDefaultsTool } from "./user-defaults-tool";
-import type { DuoPose } from "./device-motion-tool";
 import { SimulatorControlsTool } from "./simulator-controls-tool";
 import { DeviceViewTool } from "./device-view-tool";
 
@@ -57,13 +56,7 @@ export interface InspectorBarProps {
   onOpenLogs: () => void;
   onOpenGrid: () => void;
   onOpenDevtools: () => void;
-  foldable?: {
-    angle: number;
-    pose: DuoPose;
-    onAngleChange: (angle: number) => void;
-    onPoseChange: (pose: DuoPose) => void;
-    error?: string | null;
-  };
+  foldable?: boolean;
   view?: Parameters<typeof DeviceViewTool>[0];
   onOrientationChange?: (
     orientation: "portrait" | "portrait_upside_down" | "landscape_left" | "landscape_right",

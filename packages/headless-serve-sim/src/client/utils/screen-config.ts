@@ -38,5 +38,7 @@ export function resolveActiveScreenConfig(sources: {
   const live = usable(sources.live);
   const ws = usable(sources.ws);
   if (ws?.displayId !== undefined && live?.displayId !== ws.displayId) return ws;
+  if (ws?.deviceComposition !== undefined && live?.deviceComposition !== ws.deviceComposition)
+    return ws;
   return live ?? ws ?? usable(sources.injected) ?? sources.fallback;
 }

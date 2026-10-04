@@ -281,6 +281,10 @@
   border-color: var(--color-control-border);
   color: var(--color-fg);
 }
+.duo-pose-button button:disabled {
+  opacity: 1;
+  color: var(--color-fg-3);
+}
 .duo-hinge-slider {
   appearance: none;
   -webkit-appearance: none;

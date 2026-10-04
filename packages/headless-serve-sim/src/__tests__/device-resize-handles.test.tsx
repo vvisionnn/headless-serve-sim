@@ -72,20 +72,3 @@ test("provides hover grabbers outside the left, right and bottom bezel edges", (
   expect(markup).toContain("-right-3");
   expect(markup).toContain("-bottom-3");
 });
-
-test("positions hits at projected device bounds while leaving its canvas size unchanged", () => {
-  const markup = renderToStaticMarkup(
-    <DeviceResizeHandles
-      fittedSize={{ width: 300, height: 600 }}
-      availableSize={{ width: 800, height: 900 }}
-      frameRect={{ x: 120, y: 80, width: 240, height: 480 }}
-      scale={0.8}
-      onScaleChange={() => {}}
-    />,
-  );
-  expect(markup).toContain("left:120px");
-  expect(markup).toContain("top:80px");
-  expect(markup).toContain("width:240px");
-  expect(markup).toContain("height:480px");
-  expect(markup.match(/data-device-resize-handle=/g)).toHaveLength(3);
-});

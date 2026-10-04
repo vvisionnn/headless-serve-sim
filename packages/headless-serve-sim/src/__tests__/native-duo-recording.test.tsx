@@ -26,6 +26,8 @@ test("native composition paints mask holes and records its fitted canvas aspect"
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   };
   let tick!: FrameRequestCallback;
+  let repaint!: () => void;
+  let paths = 0;
   const clips: unknown[][] = [];
   const handlers = new Map<string, (event: any) => void>();
   const single: unknown[] = [],
@@ -39,10 +41,21 @@ test("native composition paints mask holes and records its fitted canvas aspect"
       return 1;
     });
     replace("cancelAnimationFrame", () => {});
-    replace("Path2D", class {});
+    replace(
+      "Path2D",
+      class {
+        constructor() {
+          paths++;
+        }
+      },
+    );
     let encodedSubscriptions = 0,
       keyframeRequests = 0;
     const source: SimulatorRecordingSource = {
+      subscribe(listener) {
+        repaint = listener;
+        return () => {};
+      },
       subscribeEncoded(listener) {
         encodedSubscriptions++;
         listener({ type: "description", data: new Uint8Array([1, 100, 0, 52]) });
@@ -142,6 +155,8 @@ test("native composition paints mask holes and records its fitted canvas aspect"
     tick(0);
     ready = true;
     tick(16);
+    for (let i = 0; i < 60; i++) repaint();
+    expect(paths).toBe(1);
     const snapshot = outputRef.current!.snapshot()!;
     expect(snapshot.composition).toEqual(source.snapshot()!.composition);
     const encoded: unknown[] = [];
@@ -186,9 +201,87 @@ test("native composition paints mask holes and records its fitted canvas aspect"
       { type: "move", x1: 0.3, y1: 0.4, x2: 0.7, y2: 0.6, displayId: 3 },
       { type: "end", x1: 0.3, y1: 0.4, x2: 0.7, y2: 0.6, displayId: 3 },
     ]);
-    refs[2]!.current = { ...(refs[2]!.current as object), includeFrame: false };
-    outputRef.current!.snapshot();
-    tick(0);
+    const scroll: unknown[] = [];
+    refs[2]!.current = {
+      ...(refs[2]!.current as object),
+      onScroll: (data: unknown) => scroll.push(data),
+    };
+    handlers.get("wheel")!({ ...event, deltaMode: 2, deltaX: 1, deltaY: 0 });
+    const scrolled = scroll[0] as {
+      x: number;
+      y: number;
+      dx: number;
+      dy: number;
+      displayId: number;
+    };
+    expect(scrolled.x).toBe(0.25);
+    expect(scrolled.y).toBe(0.4);
+    expect(scrolled.dx).toBeCloseTo(2007);
+    expect(Math.abs(scrolled.dy)).toBe(0);
+    expect(scrolled.displayId).toBe(3);
+    multi.length = 0;
+    const first = { ...event, pointerType: "touch", altKey: false, pointerId: 10 };
+    const second = { ...first, pointerId: 11, clientX: 480, clientY: 270 };
+    handlers.get("pointerdown")!(first);
+    handlers.get("pointerdown")!(second);
+    handlers.get("pointermove")!({ ...second, clientX: 448 });
+    handlers.get("pointerup")!({ ...second, clientX: 448 });
+    handlers.get("pointerup")!(first);
+    expect(multi).toEqual([
+      { type: "begin", x1: 0.25, y1: 0.4, x2: 0.75, y2: 0.6, displayId: 3 },
+      { type: "move", x1: 0.25, y1: 0.4, x2: 0.7, y2: 0.6, displayId: 3 },
+      { type: "end", x1: 0.25, y1: 0.4, x2: 0.7, y2: 0.6, displayId: 3 },
+    ]);
+    const polygons: {
+      attributes: Record<string, string>;
+      style: object;
+      setAttribute(key: string, value: string): void;
+      addEventListener(): void;
+    }[] = [];
+    const overlay = {
+      children: polygons,
+      replaceChildren() {
+        polygons.length = 0;
+      },
+      append(polygon: (typeof polygons)[number]) {
+        polygons.push(polygon);
+      },
+    };
+    refs[1]!.current = overlay;
+    (refs[0]!.current as { parentElement: unknown }).parentElement = {
+      getBoundingClientRect: () => ({ left: 0, top: 0 }),
+    };
+    replace("document", {
+      createElementNS: () => ({
+        attributes: {} as Record<string, string>,
+        style: {},
+        setAttribute(key: string, value: string) {
+          this.attributes[key] = value;
+        },
+        addEventListener() {},
+      }),
+    });
+    refs[4]!.current = {
+      snapshot: {
+        elements: [
+          {
+            id: "button",
+            path: "0",
+            label: "",
+            role: "",
+            type: "Button",
+            enabled: true,
+            frame: { x: 100, y: 100, width: 100, height: 100 },
+          },
+        ],
+      },
+      selection: { selectedKey: null, highlightedKey: null },
+    };
+    refs[2]!.current = { ...(refs[2]!.current as object), axEnabled: true };
+    repaint();
+    expect(polygons[0]?.attributes["aria-label"]).toContain("element 1");
+    ready = false;
+    repaint();
     expect(outputRef.current!.snapshot()).toBeNull();
   } finally {
     if (typeof cleanup === "function") cleanup();

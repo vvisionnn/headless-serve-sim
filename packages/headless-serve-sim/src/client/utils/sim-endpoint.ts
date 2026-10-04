@@ -62,6 +62,8 @@ declare global {
         height: number;
         orientation?: SimulatorOrientation;
         displayId?: number;
+        deviceComposition?: boolean;
+        includeFrame?: boolean;
       };
     };
   }

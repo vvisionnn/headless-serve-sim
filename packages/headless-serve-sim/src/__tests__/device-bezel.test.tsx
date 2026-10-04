@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
+import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
 import { DeviceBezel } from "../client/components/device-bezel";
@@ -16,6 +17,44 @@ const spec: DeviceFrameSpec = {
   chromeIdentifier: "phone15",
   screenMask: { pngDataUrl: "data:image/png;base64,c2NyZWVu", width: 1398, height: 2034 },
 };
+
+test("bezel visibility preserves the stream child at the same keyed ancestor", () => {
+  const spies = [
+    spyOn(React, "useState").mockReturnValue([null, () => {}]),
+    spyOn(React, "useEffect").mockImplementation(() => {}),
+  ];
+  try {
+    const geometry = fitDeviceBezel({
+      spec,
+      rotation: 0,
+      availWidth: 1000,
+      availHeight: 1000,
+      maxScreenWidth: 1000,
+      maxScale: 1,
+    });
+    const child = <span>stream</span>;
+    const withFrame = DeviceBezel({ spec, geometry, children: child, showFrame: true });
+    const withoutFrame = DeviceBezel({ spec, geometry, children: child, showFrame: false });
+    const screen = (
+      element: React.ReactElement<{
+        children: React.ReactElement<{ children: React.ReactNode }>[];
+      }>,
+    ) => {
+      const children = element.props.children;
+      return children.find((node) => node?.key === "screen")!;
+    };
+    expect(screen(withFrame)).toBeDefined();
+    expect(screen(withFrame).type).toBe(screen(withoutFrame).type);
+    expect(screen(withFrame).props.children).toBe(child);
+    expect(screen(withoutFrame).props.children).toBe(child);
+    expect(withoutFrame.props.style).toEqual({
+      width: geometry.screen.width,
+      height: geometry.screen.height,
+    });
+  } finally {
+    spies.forEach((spy) => spy.mockRestore());
+  }
+});
 
 function render(rotation: number, frame = spec) {
   const geometry = fitDeviceBezel({

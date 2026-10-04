@@ -23,6 +23,13 @@ function renderWithState(state: SimulatorControlState) {
   }
 }
 
+test("disabled selector icons remain fully opaque", () => {
+  const html = renderToStaticMarkup(<SimulatorControlsTool udid="DUO" />);
+  const trigger = html.match(/<button[^>]*aria-label="Physical Orientation"[^>]*>/)?.[0];
+  expect(trigger).toBeDefined();
+  expect(trigger).not.toContain("disabled:opacity-");
+});
+
 test("allows one bounded read stage for refresh and two for mutation with fresh readback", async () => {
   const state: SimulatorControlState = {
     audio: null,
