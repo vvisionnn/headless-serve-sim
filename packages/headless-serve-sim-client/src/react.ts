@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Gateway, { type ConnectOptions, type GatewayShell, type ShellResult } from "./gateway";
 import { fetchGatewayStatus, type DiscoverOptions, type GatewayStatus } from "./discovery";
 import type { AdaptiveState, ConnectionQuality } from "./transport";
-import type { StreamConfig } from "./types";
+import type { SimulatorComposition, StreamConfig } from "./types";
 
 export type { GatewayStatus, DiscoverOptions } from "./discovery";
 export { fetchGatewayStatus } from "./discovery";
@@ -38,8 +38,10 @@ export interface StreamAPI {
   sendDigitalCrown?: (delta: number) => void;
   /** Subscribe to frame updates (bypasses React state for performance). Returns unsubscribe fn.
    * Callback receives a blob URL (object URL) pointing to the JPEG frame, plus
-   * the frame's byte size when known (used by the Connection Stats panel). */
-  subscribeFrame: (cb: (blobUrl: string, bytes?: number) => void) => () => void;
+   * the frame's byte size and frame-bound composition when known. */
+  subscribeFrame: (
+    cb: (blobUrl: string, bytes?: number, composition?: SimulatorComposition) => void,
+  ) => () => void;
   frame: string | null;
   config: StreamConfig | null;
   /** Current adaptive FPS (may change dynamically based on network conditions). */
@@ -64,7 +66,10 @@ export function useGateway(options: UseGatewayOptions): UseGatewayResult {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const streamFrameRef = useRef<string | null>(null);
   const streamFrameBytesRef = useRef<number | undefined>(undefined);
-  const frameListenersRef = useRef(new Set<(blobUrl: string, bytes?: number) => void>());
+  const streamCompositionRef = useRef<SimulatorComposition | undefined>(undefined);
+  const frameListenersRef = useRef(
+    new Set<(blobUrl: string, bytes?: number, composition?: SimulatorComposition) => void>(),
+  );
   const [streamConfig, setStreamConfig] = useState<StreamConfig | null>(null);
   const [adaptiveFps, setAdaptiveFps] = useState(30);
   const [adaptiveState, setAdaptiveState] = useState<AdaptiveState>("normal");
@@ -105,11 +110,12 @@ export function useGateway(options: UseGatewayOptions): UseGatewayResult {
         shellRef.current = $;
 
         // Register stream listeners (frames bypass React state for performance)
-        $.transport.onStreamFrame((blobUrl, bytes) => {
+        $.transport.onStreamFrame((blobUrl, bytes, composition) => {
           if (cancelled) return;
           streamFrameRef.current = blobUrl;
           streamFrameBytesRef.current = bytes;
-          for (const cb of frameListenersRef.current) cb(blobUrl, bytes);
+          streamCompositionRef.current = composition;
+          for (const cb of frameListenersRef.current) cb(blobUrl, bytes, composition);
         });
         $.transport.onStreamConfig((config) => {
           if (!cancelled) setStreamConfig(config);
@@ -138,6 +144,7 @@ export function useGateway(options: UseGatewayOptions): UseGatewayResult {
       setStatus("disconnected");
       streamFrameRef.current = null;
       streamFrameBytesRef.current = undefined;
+      streamCompositionRef.current = undefined;
       setStreamConfig(null);
       setAdaptiveFps(30);
       setAdaptiveState("normal");
@@ -169,14 +176,18 @@ export function useGateway(options: UseGatewayOptions): UseGatewayResult {
     setHistory([]);
   }, []);
 
-  const subscribeFrame = useCallback((cb: (blobUrl: string, bytes?: number) => void) => {
-    frameListenersRef.current.add(cb);
-    // Send current frame immediately if available
-    if (streamFrameRef.current) cb(streamFrameRef.current, streamFrameBytesRef.current);
-    return () => {
-      frameListenersRef.current.delete(cb);
-    };
-  }, []);
+  const subscribeFrame = useCallback(
+    (cb: (blobUrl: string, bytes?: number, composition?: SimulatorComposition) => void) => {
+      frameListenersRef.current.add(cb);
+      // Send current frame immediately if available
+      if (streamFrameRef.current)
+        cb(streamFrameRef.current, streamFrameBytesRef.current, streamCompositionRef.current);
+      return () => {
+        frameListenersRef.current.delete(cb);
+      };
+    },
+    [],
+  );
 
   const stream: StreamAPI = useMemo(
     () => ({

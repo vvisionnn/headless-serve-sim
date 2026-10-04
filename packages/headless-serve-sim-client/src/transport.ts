@@ -1,5 +1,6 @@
 import { defineCommand } from "just-bash";
-import type { ClientMessage, ServerMessage, StreamConfig } from "./types";
+import type { ClientMessage, ServerMessage, SimulatorComposition, StreamConfig } from "./types";
+import { extractJpegComposition } from "./jpeg-composition";
 import { encodeSingleTouch, encodeMultiTouch } from "./touch-codec";
 
 export type { ClientMessage, ServerMessage, SimulatorOrientation, StreamConfig } from "./types";
@@ -60,8 +61,12 @@ interface PendingFile {
 const DEFAULT_FILE_OP_TIMEOUT_MS = 30_000;
 
 /** Listener receives a blob URL (object URL) pointing to the JPEG frame data,
- * plus the frame's encoded byte size (feeds the Connection Stats bitrate). */
-export type StreamFrameListener = (blobUrl: string, bytes: number) => void;
+ * plus its encoded byte size and frame-bound composition when present. */
+export type StreamFrameListener = (
+  blobUrl: string,
+  bytes: number,
+  composition?: SimulatorComposition,
+) => void;
 export type StreamConfigListener = (config: StreamConfig) => void;
 export type ConnectionQuality = "good" | "degraded" | "poor";
 export type ConnectionQualityListener = (quality: ConnectionQuality) => void;
@@ -261,8 +266,9 @@ export class GatewayTransport {
           const blob = new Blob([jpegData], { type: "image/jpeg" });
           const blobUrl = URL.createObjectURL(blob);
           this._checkAdaptiveFps();
+          const composition = extractJpegComposition(jpegData);
           for (const listener of this.streamFrameListeners) {
-            listener(blobUrl, jpegData.byteLength);
+            listener(blobUrl, jpegData.byteLength, composition);
           }
         }
         return;
@@ -306,8 +312,9 @@ export class GatewayTransport {
         const binary = Uint8Array.from(atob(parsed.data), (c) => c.charCodeAt(0));
         const blob = new Blob([binary], { type: "image/jpeg" });
         const blobUrl = URL.createObjectURL(blob);
+        const composition = extractJpegComposition(binary);
         for (const listener of this.streamFrameListeners) {
-          listener(blobUrl, binary.byteLength);
+          listener(blobUrl, binary.byteLength, composition);
         }
         this._checkAdaptiveFps();
         return;
