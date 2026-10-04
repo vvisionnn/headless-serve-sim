@@ -213,23 +213,6 @@ export function useAvccStream({
             frame.close();
             return;
           }
-          if (pend.composition && frame.displayWidth * frame.displayHeight >= 8_000_000) {
-            presenter.clear(true);
-            try {
-              paint(frame, frame.displayWidth, frame.displayHeight, {
-                bytes: pend.bytes,
-                decodeMs: performance.now() - pend.t0,
-                codec: currentCodec,
-                keyframe: pend.keyframe,
-                recoveries,
-                composition: pend.composition,
-                dropped,
-              });
-            } finally {
-              frame.close();
-            }
-            return;
-          }
           presenter.enqueue(frame, {
             width: frame.displayWidth,
             height: frame.displayHeight,
@@ -291,7 +274,6 @@ export function useAvccStream({
     };
 
     const resetDecoderForKeyframe = () => {
-      onEncoded?.({ type: "error", error: new Error("encoded reference chain reset") });
       recoveries++;
       awaitingKeyframe = true;
       closeDecoder();

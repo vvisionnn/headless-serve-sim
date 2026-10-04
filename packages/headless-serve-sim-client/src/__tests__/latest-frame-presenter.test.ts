@@ -109,6 +109,33 @@ describe("LatestFramePresenter", () => {
     expect(callbacks.size).toBe(0);
   });
 
+  test("paint cost does not lower spaced 60 Hz source presentation cadence", () => {
+    const callbacks = new Map<number, () => void>();
+    const painted: number[] = [];
+    let now = 0;
+    const presenter = new LatestFramePresenter<Frame, null>(
+      (callback) => {
+        callbacks.set(1, callback);
+        return 1;
+      },
+      (handle) => callbacks.delete(handle),
+      (frame) => {
+        painted.push(frame.id);
+        now += 12; // Large source blit plus visible composition/recording work.
+      },
+      () => {},
+      () => now,
+      1000 / 120,
+    );
+    for (let id = 1; id <= 3; id++) {
+      now = ((id - 1) * 1000) / 60;
+      presenter.enqueue(new Frame(id), null);
+    }
+    expect(painted).toEqual([1, 2, 3]);
+    expect(callbacks.size).toBe(0);
+    presenter.close();
+  });
+
   test("presents normally paced frames immediately while coalescing a burst", () => {
     const callbacks = new Map<number, () => void>();
     const painted: number[] = [];

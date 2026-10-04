@@ -73,8 +73,8 @@ export class LatestFramePresenter<Frame extends ClosableFrame, Metadata> {
 
   private presentAndClose(frame: Frame, metadata: Metadata): void {
     try {
-      this.present(frame, metadata);
       this.lastPresentedAt = this.now();
+      this.present(frame, metadata);
     } finally {
       frame.close();
     }

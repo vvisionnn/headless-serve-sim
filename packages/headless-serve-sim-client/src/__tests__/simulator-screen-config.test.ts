@@ -118,6 +118,34 @@ test("SimulatorView keeps display metadata when a JPEG reports dimensions", () =
   });
 });
 
+test("JPEG dimensions preserve shared composition capability and frame preference", () => {
+  withSimulatorView((render) => {
+    const updates: StreamConfig[] = [];
+    const streamConfig: StreamConfig = {
+      width: 3420,
+      height: 3420,
+      displayId: 3,
+      deviceComposition: true,
+      includeFrame: false,
+    };
+    const tree = render({
+      url: "http://stream.test",
+      streamConfig,
+      onScreenConfigChange: (config) => updates.push(config),
+    });
+    const image = findElement(tree, (element) => element.type === "img" && !!element.props.onLoad)!;
+    image.props.onLoad({ currentTarget: { naturalWidth: 2000, naturalHeight: 2000 } });
+    expect(updates.at(-1)).toEqual({ ...streamConfig, width: 2000, height: 2000 });
+    render({
+      url: "http://stream.test",
+      streamConfig: { ...streamConfig, deviceComposition: false, includeFrame: true },
+      onScreenConfigChange: (config) => updates.push(config),
+    });
+    expect(updates.at(-1)?.deviceComposition).toBe(false);
+    expect(updates.at(-1)?.includeFrame).toBe(true);
+  });
+});
+
 test("SimulatorView recording snapshots identify the active display", () => {
   class TestImage {
     naturalWidth = 900;

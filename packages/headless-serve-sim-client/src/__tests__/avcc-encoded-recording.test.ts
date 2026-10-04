@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import * as React from "react";
 import { AvccDemuxer } from "../avcc-codec";
-import { useAvccStream } from "../simulator/use-avcc-stream";
+import { useAvccStream, type AvccEncodedEvent } from "../simulator/use-avcc-stream";
 
 function timing(timestamp: bigint, sequence: bigint): Uint8Array {
   const bytes = new Uint8Array(24);
@@ -88,6 +88,91 @@ test("encoded recording receives source timing before disposable decoder drops",
         composition: undefined,
       },
     ]);
+  } finally {
+    if (typeof cleanup === "function") cleanup();
+    effectSpy.mockRestore();
+    visitor.mockRestore();
+    for (const [key, descriptor] of originals) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
+test("decoder-only reference recovery preserves the encoded source packet chain", async () => {
+  let effect!: React.EffectCallback;
+  const effectSpy = spyOn(React, "useEffect").mockImplementation((next) => {
+    effect = next;
+  });
+  let handle!: Parameters<AvccDemuxer["visit"]>[1];
+  const visitor = spyOn(AvccDemuxer.prototype, "visit").mockImplementation((_bytes, next) => {
+    handle = next;
+  });
+  const originals = new Map<string, PropertyDescriptor | undefined>();
+  const replace = (key: string, value: unknown) => {
+    originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+  };
+  const events: AvccEncodedEvent[] = [];
+  let now = 0;
+  let decoders = 0;
+  let requests = 0;
+  let received!: () => void;
+  const requested = new Promise<void>((resolve) => (received = resolve));
+  let cleanup: ReturnType<React.EffectCallback> = undefined;
+  try {
+    replace(
+      "VideoDecoder",
+      class {
+        state = "unconfigured";
+        decodeQueueSize = 5;
+        constructor() {
+          decoders++;
+        }
+        configure() {
+          this.state = "configured";
+        }
+        decode() {}
+        close() {
+          this.state = "closed";
+        }
+      },
+    );
+    replace("EncodedVideoChunk", class {});
+    replace("performance", { now: () => now });
+    replace("requestAnimationFrame", () => 1);
+    replace("cancelAnimationFrame", () => {});
+    replace(
+      "fetch",
+      async () =>
+        new Response(
+          new ReadableStream({ start: (controller) => controller.enqueue(new Uint8Array([1])) }),
+        ),
+    );
+    useAvccStream({
+      url: "http://stream.test",
+      enabled: true,
+      canvasRef: { current: null },
+      onProgress: received,
+      onEncoded: (event) => events.push(event),
+      onRequestKeyframe: () => requests++,
+    });
+    cleanup = effect();
+    await requested;
+    handle("description", new Uint8Array([1, 0x64, 0, 0x34]));
+    handle("timing", timing(0n, 1n));
+    handle("keyframe", new Uint8Array([1]));
+    now = 17;
+    for (let sequence = 2; sequence <= 8; sequence++) {
+      handle("timing", timing(BigInt((sequence - 1) * 16667), BigInt(sequence)));
+      handle(sequence === 8 ? "keyframe" : "delta", new Uint8Array([sequence]));
+    }
+    expect(decoders).toBe(2);
+    expect(requests).toBe(1);
+    expect(
+      events.filter((event) => event.type === "picture").map((event) => event.sequence),
+    ).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(events.filter((event) => event.type === "error")).toEqual([]);
   } finally {
     if (typeof cleanup === "function") cleanup();
     effectSpy.mockRestore();

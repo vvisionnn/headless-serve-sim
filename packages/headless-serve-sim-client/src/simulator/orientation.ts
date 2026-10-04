@@ -62,8 +62,10 @@ export interface StreamDisplayGeometry {
 }
 
 export function streamDisplayGeometry(
-  config?: Pick<StreamConfig, "width" | "height" | "orientation"> | null,
+  config?: Pick<StreamConfig, "width" | "height" | "orientation" | "deviceComposition"> | null,
 ): StreamDisplayGeometry {
+  if (config?.deviceComposition)
+    return { displayConfig: config, rotationDegrees: 0, needsCssRotation: false };
   const displayConfig = displayStreamConfig(config);
   const orientationRotation = rotationDegreesForOrientation(config?.orientation);
   const rotatesSideways = Math.abs(orientationRotation) === 90;

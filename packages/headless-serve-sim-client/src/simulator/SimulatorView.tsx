@@ -20,6 +20,9 @@ import {
 import { digitalCrownDeltaFromWheel } from "./digitalCrown.js";
 import { wheelDeltaToPixels } from "./scroll-wheel.js";
 import { normalizedPoint } from "./touch-geometry.js";
+import { homeEdgeForRawPoint, rawPointForComposition } from "../composition-mapping.js";
+import { createMjpegFrameParser } from "../mjpeg-frame-parser.js";
+import { extractJpegComposition } from "../jpeg-composition.js";
 import { useAvccStream, type AvccFrameInfo, type AvccEncodedEvent } from "./use-avcc-stream.js";
 import { isAvccSupported } from "../avcc-codec.js";
 import { RecordingTouchTracker, type RecordingTouchPoint } from "./recording-touches.js";
@@ -59,6 +62,7 @@ export interface SimulatorViewProps {
     x: number;
     y: number;
     edge?: number;
+    displayId?: number;
   }) => void;
   /** Relay mode: callback for multi-touch events */
   onStreamMultiTouch?: (data: {
@@ -67,6 +71,7 @@ export interface SimulatorViewProps {
     y1: number;
     x2: number;
     y2: number;
+    displayId?: number;
   }) => void;
   /** Relay mode: callback for button events */
   onStreamButton?: (button: string) => void;
@@ -93,6 +98,8 @@ export interface SimulatorViewProps {
   hideControls?: boolean;
   /** Called when streaming state changes (true = frames are flowing). */
   onStreamingChange?: (streaming: boolean) => void;
+  /** Reports stream diagnostics even when the viewer's own overlays are hidden. */
+  onStreamError?: (error: string | null) => void;
   /** Connection quality indicator: green (good), yellow (degraded), red (poor). */
   connectionQuality?: "good" | "degraded" | "poor" | null;
   /**
@@ -115,7 +122,13 @@ export interface SimulatorViewProps {
    * over /ws so it switches adaptive bounds live. */
   streamMode?: "perf" | "quality";
   /** Relay mode: callback for wheel/trackpad pans (bypasses direct WS). */
-  onStreamScroll?: (data: { dx: number; dy: number; x: number; y: number }) => void;
+  onStreamScroll?: (data: {
+    dx: number;
+    dy: number;
+    x: number;
+    y: number;
+    displayId?: number;
+  }) => void;
   /** Provides fresh screen and touch snapshots to a browser-side recorder. */
   recordingSourceRef?: MutableRefObject<SimulatorRecordingSource | null>;
   /**
@@ -185,6 +198,7 @@ export function SimulatorView({
   onScreenConfigChange,
   hideControls,
   onStreamingChange,
+  onStreamError,
   connectionQuality,
   codec = "avcc",
   statsEnabled,
@@ -303,6 +317,12 @@ export function SimulatorView({
       ...(config.displayId === undefined && prev?.displayId !== undefined
         ? { displayId: prev.displayId }
         : {}),
+      ...(config.deviceComposition === undefined && prev?.deviceComposition !== undefined
+        ? { deviceComposition: prev.deviceComposition }
+        : {}),
+      ...(config.includeFrame === undefined && prev?.includeFrame !== undefined
+        ? { includeFrame: prev.includeFrame }
+        : {}),
     };
     if (
       prev &&
@@ -310,7 +330,8 @@ export function SimulatorView({
       prev.height === next.height &&
       prev.orientation === next.orientation &&
       prev.displayId === next.displayId &&
-      prev.deviceComposition === next.deviceComposition
+      prev.deviceComposition === next.deviceComposition &&
+      prev.includeFrame === next.includeFrame
     ) {
       return;
     }
@@ -325,6 +346,9 @@ export function SimulatorView({
   useEffect(() => {
     onStreamingChangeRef.current?.(connected);
   }, [connected]);
+  useEffect(() => {
+    onStreamError?.(error);
+  }, [error, onStreamError]);
 
   // In relay mode, use streamConfig for screen size
   useEffect(() => {
@@ -407,6 +431,9 @@ export function SimulatorView({
         pendingJpegRef.current = null;
       }
       updateScreenConfig({ width: image.naturalWidth, height: image.naturalHeight });
+      lastFrameAtRef.current = Date.now();
+      if (!connectedRef.current) setConnected(true);
+      setError(null);
       notifyRecordingFrame();
     },
     [notifyRecordingFrame, updateScreenConfig],
@@ -534,14 +561,49 @@ export function SimulatorView({
     ws.send(msg);
   }, [streamMode, relayMode]);
 
+  const compositionTouchRef = useRef<{
+    x: number;
+    y: number;
+    displayId: number;
+    edge?: number;
+  } | null>(null);
   const sendTouch = useCallback(
     (touch: { type: "begin" | "move" | "end"; x: number; y: number; edge?: number }) => {
+      const composition = compositionRef.current;
       const orientation = streamDisplayGeometry(screenSizeRef.current).inputOrientation;
-      const point = rawPointForDisplayPoint(orientation, touch.x, touch.y);
-      const edge =
-        touch.edge === undefined ? undefined : rawEdgeForDisplayEdge(orientation, touch.edge);
-      const payload =
-        edge === undefined ? { type: touch.type, ...point } : { type: touch.type, ...point, edge };
+      let payload: {
+        type: "begin" | "move" | "end";
+        x: number;
+        y: number;
+        edge?: number;
+        displayId?: number;
+      };
+      if (composition || compositionTouchRef.current) {
+        const active = compositionTouchRef.current;
+        if (touch.type !== "begin" && !active) return;
+        const point = composition
+          ? rawPointForComposition(touch, composition, active?.displayId)
+          : null;
+        if (touch.type === "begin") {
+          if (!point || !composition) return;
+          compositionTouchRef.current = {
+            ...point,
+            edge: homeEdgeForRawPoint(point, composition.rawRotation),
+          };
+        } else if (point && active) {
+          compositionTouchRef.current = { ...active, ...point };
+        }
+        payload = { type: touch.type, ...compositionTouchRef.current! };
+        if (touch.type === "end") compositionTouchRef.current = null;
+      } else {
+        const point = rawPointForDisplayPoint(orientation, touch.x, touch.y);
+        const edge =
+          touch.edge === undefined ? undefined : rawEdgeForDisplayEdge(orientation, touch.edge);
+        payload =
+          edge === undefined
+            ? { type: touch.type, ...point }
+            : { type: touch.type, ...point, edge };
+      }
 
       if (relayMode) {
         onStreamTouch?.(payload);
@@ -599,20 +661,42 @@ export function SimulatorView({
    * synthetic finger lands on and therefore what actually scrolls.
    */
   const sendScroll = useCallback(
-    (dx: number, dy: number, anchorX: number, anchorY: number) => {
+    (
+      dx: number,
+      dy: number,
+      anchorX: number,
+      anchorY: number,
+      rect: { width: number; height: number },
+    ) => {
       if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return;
-      const orientation = streamDisplayGeometry(screenSizeRef.current).inputOrientation;
-      const delta = rawDeltaForDisplayDelta(orientation, dx, dy);
-      const anchor = rawPointForDisplayPoint(orientation, anchorX, anchorY);
+      const composition = compositionRef.current;
+      let payload: { dx: number; dy: number; x: number; y: number; displayId?: number };
+      if (composition) {
+        const from = rawPointForComposition({ x: anchorX, y: anchorY }, composition);
+        const factor = Math.min(1, 2 / Math.max(Math.abs(dx), Math.abs(dy)));
+        const to = rawPointForComposition(
+          { x: anchorX + (dx * factor) / rect.width, y: anchorY + (dy * factor) / rect.height },
+          composition,
+        );
+        if (!from || !to) return;
+        payload = {
+          ...from,
+          dx: ((to.x - from.x) * composition.rawWidth) / factor,
+          dy: ((to.y - from.y) * composition.rawHeight) / factor,
+        };
+      } else {
+        const orientation = streamDisplayGeometry(screenSizeRef.current).inputOrientation;
+        const delta = rawDeltaForDisplayDelta(orientation, dx, dy);
+        const anchor = rawPointForDisplayPoint(orientation, anchorX, anchorY);
+        payload = { dx: delta.dx, dy: delta.dy, x: anchor.x, y: anchor.y };
+      }
       if (relayMode) {
-        onStreamScroll?.({ dx: delta.dx, dy: delta.dy, x: anchor.x, y: anchor.y });
+        onStreamScroll?.(payload);
         return;
       }
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      const json = new TextEncoder().encode(
-        JSON.stringify({ dx: delta.dx, dy: delta.dy, x: anchor.x, y: anchor.y }),
-      );
+      const json = new TextEncoder().encode(JSON.stringify(payload));
       const msg = new Uint8Array(1 + json.length);
       msg[0] = WS_MSG_SCROLL;
       msg.set(json, 1);
@@ -621,18 +705,57 @@ export function SimulatorView({
     [relayMode, onStreamScroll],
   );
 
+  const compositionMultiTouchRef = useRef<{
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    displayId: number;
+  } | null>(null);
   const sendMultiTouch = useCallback(
     (touch: { type: "begin" | "move" | "end"; x1: number; y1: number; x2: number; y2: number }) => {
-      const orientation = streamDisplayGeometry(screenSizeRef.current).inputOrientation;
-      const p1 = rawPointForDisplayPoint(orientation, touch.x1, touch.y1);
-      const p2 = rawPointForDisplayPoint(orientation, touch.x2, touch.y2);
-      const payload = {
-        type: touch.type,
-        x1: p1.x,
-        y1: p1.y,
-        x2: p2.x,
-        y2: p2.y,
+      const composition = compositionRef.current;
+      let payload: {
+        type: "begin" | "move" | "end";
+        x1: number;
+        y1: number;
+        x2: number;
+        y2: number;
+        displayId?: number;
       };
+      if (composition || compositionMultiTouchRef.current) {
+        const active = compositionMultiTouchRef.current;
+        if (touch.type !== "begin" && !active) return;
+        const p1 = composition
+          ? rawPointForComposition({ x: touch.x1, y: touch.y1 }, composition, active?.displayId)
+          : null;
+        const synthetic = multiTouchActiveRef.current && !realMultiTouchRef.current;
+        const p2 =
+          synthetic && p1
+            ? {
+                x: multiTouchShiftRef.current && active ? p1.x + active.x2 - active.x1 : 1 - p1.x,
+                y: multiTouchShiftRef.current && active ? p1.y + active.y2 - active.y1 : 1 - p1.y,
+              }
+            : composition
+              ? rawPointForComposition({ x: touch.x2, y: touch.y2 }, composition, active?.displayId)
+              : null;
+        if (touch.type === "begin" && (!p1 || !p2)) return;
+        if (p1 && p2)
+          compositionMultiTouchRef.current = {
+            x1: p1.x,
+            y1: p1.y,
+            x2: p2.x,
+            y2: p2.y,
+            displayId: p1.displayId,
+          };
+        payload = { type: touch.type, ...compositionMultiTouchRef.current! };
+        if (touch.type === "end") compositionMultiTouchRef.current = null;
+      } else {
+        const orientation = streamDisplayGeometry(screenSizeRef.current).inputOrientation;
+        const p1 = rawPointForDisplayPoint(orientation, touch.x1, touch.y1);
+        const p2 = rawPointForDisplayPoint(orientation, touch.x2, touch.y2);
+        payload = { type: touch.type, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
+      }
 
       if (relayMode) {
         onStreamMultiTouch?.(payload);
@@ -728,57 +851,55 @@ export function SimulatorView({
     if (!useAvcc)
       void (async () => {
         try {
-          const res = await fetch(streamUrl, { signal: fpsAbort.signal });
+          const fetchUrl = new URL(streamUrl);
+          fetchUrl.searchParams.set("raw", "1");
+          const res = await fetch(fetchUrl.toString(), { signal: fpsAbort.signal });
           const reader = res.body?.getReader();
           if (!reader) return;
-          const boundary = new TextEncoder().encode("--frame");
-          // Cumulative byte offset of the start of the in-progress part, so each
-          // boundary can attribute the bytes of the part that just ended to the
-          // stats accumulator (bitrate). Frames carry no codec/decode time here →
-          // recorded with decodeMs: null, matching the relay-MJPEG path.
-          let streamBytes = 0;
-          let partStartByte = 0;
+          const parser = createMjpegFrameParser();
           while (true) {
             const { done, value } = await reader.read();
-            if (done) break;
-            if (value) {
-              for (let i = 0; i <= value.length - boundary.length; i++) {
-                let match = true;
-                for (let j = 0; j < boundary.length; j++) {
-                  if (value[i + j] !== boundary[j]) {
-                    match = false;
-                    break;
-                  }
-                }
-                if (match) {
-                  frameCountRef.current++;
-                  const boundaryByte = streamBytes + i;
-                  const acc = statsAccRef.current;
-                  if (acc && sawAnyFrame) {
-                    acc.recordFrame({
-                      tMs: performance.now(),
-                      bytes: boundaryByte - partStartByte,
-                      decodeMs: null,
-                    });
-                    codecRef.current = null; // MJPEG carries no codec string → panel shows "MJPEG"
-                  }
-                  partStartByte = boundaryByte;
-                  if (!sawAnyFrame) {
-                    sawAnyFrame = true;
-                    if (startupWatchdog) clearTimeout(startupWatchdog);
-                  }
-                }
+            if (done || fpsAbort.signal.aborted) break;
+            if (!value) continue;
+            for (const jpeg of parser.push(value)) {
+              const img = imgRef.current;
+              if (!img) continue;
+              const blobUrl = URL.createObjectURL(
+                new Blob([jpeg as BlobPart], { type: "image/jpeg" }),
+              );
+              if (prevBlobUrlRef.current) URL.revokeObjectURL(prevBlobUrlRef.current);
+              prevBlobUrlRef.current = blobUrl;
+              pendingJpegRef.current = { blobUrl, composition: extractJpegComposition(jpeg) };
+              img.src = blobUrl;
+              frameCountRef.current++;
+              statsAccRef.current?.recordFrame({
+                tMs: performance.now(),
+                bytes: jpeg.byteLength,
+                decodeMs: null,
+              });
+              codecRef.current = null;
+              if (!sawAnyFrame) {
+                sawAnyFrame = true;
+                if (startupWatchdog) clearTimeout(startupWatchdog);
               }
-              streamBytes += value.length;
             }
           }
         } catch {
-          // aborted on cleanup
+          // aborted on cleanup or network error
+        } finally {
+          if (!fpsAbort.signal.aborted) setConnected(false);
         }
       })();
 
     return () => {
       fpsAbort.abort();
+      if (!useAvcc) {
+        compositionRef.current = undefined;
+        pendingJpegRef.current = null;
+        loadedJpegUrlRef.current = null;
+        if (prevBlobUrlRef.current) URL.revokeObjectURL(prevBlobUrlRef.current);
+        prevBlobUrlRef.current = null;
+      }
       clearInterval(fpsInterval);
       if (startupWatchdog) clearTimeout(startupWatchdog);
       ws.close();
@@ -845,8 +966,7 @@ export function SimulatorView({
         const element = getViewElement();
         const surface = surfaceRef.current;
         if (!element || !surface || !connectedRef.current) return null;
-        if (relayMode && !useAvcc && (pendingJpegRef.current || !loadedJpegUrlRef.current))
-          return null;
+        if (!useAvcc && (pendingJpegRef.current || !loadedJpegUrlRef.current)) return null;
         const isImage = element instanceof HTMLImageElement;
         const width = isImage ? element.naturalWidth : element.width;
         const height = isImage ? element.naturalHeight : element.height;
@@ -877,14 +997,10 @@ export function SimulatorView({
             requestKeyframe,
           }
         : {}),
-      ...(useAvcc || relayMode
-        ? {
-            subscribe(listener: () => void) {
-              recordingFrameListeners.add(listener);
-              return () => recordingFrameListeners.delete(listener);
-            },
-          }
-        : {}),
+      subscribe(listener: () => void) {
+        recordingFrameListeners.add(listener);
+        return () => recordingFrameListeners.delete(listener);
+      },
     };
     recordingSourceRef.current = source;
     return () => {
@@ -948,7 +1064,7 @@ export function SimulatorView({
       const dy = wheelDeltaToPixels(event.deltaY, event.deltaMode, rect.height);
       if (dx === 0 && dy === 0) return false;
       const { x, y } = normalizedPoint(event.clientX, event.clientY, rect);
-      sendScroll(dx, dy, x, y);
+      sendScroll(dx, dy, x, y, rect);
       return true;
     },
     [getInputRect, sendScroll, relayMode, onStreamScroll],
@@ -1265,14 +1381,9 @@ export function SimulatorView({
               ref={imgRef}
               crossOrigin="anonymous"
               alt="Simulator screen"
-              src={relayMode ? undefined : streamUrl}
+              src={undefined}
               draggable={false}
-              onLoad={(e) => {
-                const el = e.currentTarget;
-                if (el.naturalWidth > 0 && el.naturalHeight > 0) {
-                  updateScreenConfig({ width: el.naturalWidth, height: el.naturalHeight });
-                }
-              }}
+              onLoad={(e) => onRelayImageLoad(e.currentTarget)}
               style={relayMode ? { display: "none" } : streamImageStyle}
             />
           )}
@@ -1473,7 +1584,10 @@ export function SimulatorView({
                 const p2 = normalizedPoint(t2.clientX, t2.clientY, rect);
                 const fingers = { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
                 // If a single-touch gesture was already in progress, end it first
-                if (!realMultiTouchRef.current && !edgeGestureRef.current) {
+                if (
+                  !realMultiTouchRef.current &&
+                  (!edgeGestureRef.current || compositionTouchRef.current)
+                ) {
                   sendTouch({ type: "end", x: fingers.x1, y: fingers.y1 });
                 }
                 realMultiTouchRef.current = true;

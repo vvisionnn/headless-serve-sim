@@ -24,6 +24,18 @@
       "import": "./src/touch-codec.ts",
       "types": "./src/touch-codec.ts"
     },
+    "./composition-mapping": {
+      "import": "./src/composition-mapping.ts",
+      "types": "./src/composition-mapping.ts"
+    },
+    "./avcc-codec": {
+      "import": "./src/avcc-codec.ts",
+      "types": "./src/avcc-codec.ts"
+    },
+    "./mjpeg-frame-parser": {
+      "import": "./src/mjpeg-frame-parser.ts",
+      "types": "./src/mjpeg-frame-parser.ts"
+    },
     "./simulator": {
       "import": "./src/simulator/index.ts",
       "types": "./src/simulator/index.ts"

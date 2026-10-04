@@ -119,6 +119,20 @@ describe("simulator geometry helpers", () => {
     });
   });
 
+  test("native compositions retain their canvas geometry without a second CSS rotation", () => {
+    const composition = {
+      width: 3420,
+      height: 3420,
+      orientation: "landscape_left" as const,
+      deviceComposition: true,
+    };
+    const geometry = streamDisplayGeometry(composition);
+    expect(geometry.displayConfig).toEqual(composition);
+    expect(geometry.rotationDegrees).toBe(0);
+    expect(geometry.needsCssRotation).toBe(false);
+    expect(geometry.inputOrientation).toBeUndefined();
+  });
+
   test("does not double-rotate or remap frames that are already landscape", () => {
     const rawLandscape = {
       width: 2868,

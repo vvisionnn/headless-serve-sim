@@ -30,6 +30,7 @@ export interface StreamConfig {
   width: number;
   height: number;
   deviceComposition?: boolean;
+  includeFrame?: boolean;
   /** Active native display, when the runtime exposes screen properties. */
   displayId?: number;
   /** Native display orientation, when known. */
