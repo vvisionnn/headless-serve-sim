@@ -196,6 +196,23 @@ test("native recording cancels a pending finalize without publishing an artifact
   expect(f.recorder.state).toBe("cancelled");
 });
 
+test("finished native recording releases all muxer owners and keeps its artifact", async () => {
+  const f = fixture();
+  f.recorder.start();
+  f.emit(picture(true, 10_000_000, 4));
+  const result = await f.recorder.stop();
+  const owners = f.recorder as unknown as { target: unknown; output: unknown; packets: unknown };
+  expect([owners.target, owners.output, owners.packets].map((owner) => owner === null)).toEqual([
+    true,
+    true,
+    true,
+  ]);
+  expect(await f.recorder.stop()).toBe(result);
+  expect(result.bytes).toBeGreaterThan(0);
+  f.recorder.cancel();
+  expect(result.blob.size).toBe(result.bytes);
+});
+
 test("native recording cancel releases the encoded subscriber", () => {
   const f = fixture();
   f.recorder.start();

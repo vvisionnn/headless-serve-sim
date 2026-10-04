@@ -108,6 +108,8 @@ async function bundleBrowserClient(entry: string): Promise<string> {
 const tailwindCss = await buildTailwindCss();
 const clientJs = await bundleBrowserClient("src/client/client.tsx");
 console.log(`client bundle     ${kb(clientJs.length)}`);
+const nativeRecorderJs = await bundleBrowserClient("src/client/native-stream-recorder.ts");
+console.log(`native recorder   ${kb(nativeRecorderJs.length)}`);
 
 // ─── 2. Inline client into preview HTML, base64-encode for the define ────
 
@@ -136,6 +138,7 @@ console.log(`preview html      ${kb(html.length)}  (base64 ${kb(htmlB64.length)}
 
 const PREVIEW_DEFINE = {
   __PREVIEW_HTML_B64__: JSON.stringify(htmlB64),
+  __NATIVE_RECORDER_JS_B64__: JSON.stringify(Buffer.from(nativeRecorderJs).toString("base64")),
 };
 
 // ─── 3. Middleware ESM (headless-serve-sim/middleware) ─────────────────────────────

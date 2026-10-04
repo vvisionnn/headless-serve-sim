@@ -35,6 +35,7 @@ type SimNext = (err?: unknown) => void;
 
 // Injected at build time as a base64-encoded string via `define`
 declare const __PREVIEW_HTML_B64__: string;
+declare const __NATIVE_RECORDER_JS_B64__: string;
 const STATE_DIR = join(tmpdir(), "headless-serve-sim");
 // Last logged result of a GET /api selection, used to suppress the
 // once-every-poll duplicate debugMw lines (the UI polls /api every ~2s).
@@ -457,6 +458,7 @@ export interface HelperScreenConfig {
   orientation?: string;
   displayId?: number;
   deviceComposition?: boolean;
+  includeFrame?: boolean;
 }
 
 /**
@@ -466,7 +468,7 @@ export interface HelperScreenConfig {
  */
 export function parseScreenConfig(raw: unknown): HelperScreenConfig | null {
   if (!raw || typeof raw !== "object") return null;
-  const { width, height, orientation, displayId, deviceComposition } = raw as Record<
+  const { width, height, orientation, displayId, deviceComposition, includeFrame } = raw as Record<
     string,
     unknown
   >;
@@ -478,6 +480,7 @@ export function parseScreenConfig(raw: unknown): HelperScreenConfig | null {
     ...(typeof orientation === "string" ? { orientation } : {}),
     ...(typeof displayId === "number" ? { displayId } : {}),
     ...(deviceComposition === true ? { deviceComposition: true } : {}),
+    ...(typeof includeFrame === "boolean" ? { includeFrame } : {}),
   };
 }
 
@@ -1240,6 +1243,16 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
         "Cache-Control": "no-store",
       });
       res.end("Not found");
+      return;
+    }
+
+    if (url === `${base}/native-stream-recorder.js` && req.method === "GET") {
+      res.writeHead(200, {
+        "Content-Type": "text/javascript; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      });
+      res.end(Buffer.from(__NATIVE_RECORDER_JS_B64__, "base64"));
       return;
     }
 

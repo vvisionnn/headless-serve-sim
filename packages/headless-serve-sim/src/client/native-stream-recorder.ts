@@ -5,16 +5,13 @@ import {
   Mp4OutputFormat,
   Output,
 } from "mediabunny";
-import {
-  avcCodecString,
-  type AvccEncodedEvent,
-  type SimulatorRecordingSource,
+import { avcCodecString } from "headless-serve-sim-client/avcc-codec";
+import type {
+  AvccEncodedEvent,
+  SimulatorRecordingSource,
 } from "headless-serve-sim-client/simulator";
-import {
-  recordingFilename,
-  type RecordingArtifact,
-  type ScreenRecorderState,
-} from "./screen-recorder";
+import type { RecordingArtifact, ScreenRecorderState } from "./screen-recorder";
+import { recordingFilename } from "./utils/recording-filename";
 
 type Picture = Extract<AvccEncodedEvent, { type: "picture" }>;
 interface Options {
@@ -29,9 +26,12 @@ interface Platform {
 }
 
 export class NativeStreamRecorder {
-  private readonly target = new BufferTarget();
-  private readonly output = new Output({ format: new Mp4OutputFormat(), target: this.target });
-  private readonly packets = new EncodedVideoPacketSource("avc");
+  private target: BufferTarget | null = new BufferTarget();
+  private output: Output | null = new Output({
+    format: new Mp4OutputFormat(),
+    target: this.target!,
+  });
+  private packets: EncodedVideoPacketSource | null = new EncodedVideoPacketSource("avc");
   private description: Uint8Array | null = null;
   private pending: { picture: Picture; receivedAt: number } | null = null;
   private firstTimestamp = 0;
@@ -63,8 +63,8 @@ export class NativeStreamRecorder {
     if (!this.options.source.snapshot()?.composition || !this.options.source.subscribeEncoded) {
       throw new Error("native encoded source is unavailable");
     }
-    this.output.addVideoTrack(this.packets);
-    this.writes = this.output.start();
+    this.output!.addVideoTrack(this.packets!);
+    this.writes = this.output!.start();
     this.startedWallClock = this.platform.wallClock();
     this._state = "recording";
     try {
@@ -147,7 +147,7 @@ export class NativeStreamRecorder {
       : undefined;
     this.firstPacket = false;
     this.writes = this.writes
-      .then(() => this.packets.add(packet, metadata))
+      .then(() => this.packets?.add(packet, metadata))
       .catch((error) => this.fail(error));
   }
 
@@ -175,10 +175,12 @@ export class NativeStreamRecorder {
       if (this.failure) throw this.failure;
       if (this.state === "cancelled") throw new Error("screen recording was cancelled");
       try {
-        await this.output.finalize();
-        if (this.output.state === "canceled") throw new Error("screen recording was cancelled");
+        await this.output!.finalize();
+        if (!this.output || this.output.state === "canceled")
+          throw new Error("screen recording was cancelled");
         const mimeType = "video/mp4";
-        const blob = new Blob([this.target.buffer!], { type: mimeType });
+        const blob = new Blob([this.target!.buffer!], { type: mimeType });
+        this.releaseMuxer();
         this.artifactUrl = this.platform.createObjectURL(blob);
         this._state = "finished";
         return {
@@ -206,9 +208,17 @@ export class NativeStreamRecorder {
     this.unsubscribe = null;
     this.pending = null;
     this._state = "cancelled";
-    void this.output.cancel().catch(() => {});
+    void this.output?.cancel().catch(() => {});
+    this.releaseMuxer();
     if (this.artifactUrl) this.platform.revokeObjectURL(this.artifactUrl);
     this.artifactUrl = null;
+  }
+
+  private releaseMuxer(): void {
+    this.target = null;
+    this.output = null;
+    this.packets = null;
+    this.description = null;
   }
 
   private fail(error: unknown): void {
@@ -218,7 +228,8 @@ export class NativeStreamRecorder {
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.pending = null;
-    void this.output.cancel().catch(() => {});
+    void this.output?.cancel().catch(() => {});
+    this.releaseMuxer();
     this.options.onError?.(this.failure);
   }
 }

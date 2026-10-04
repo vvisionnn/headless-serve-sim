@@ -5,7 +5,8 @@ import type {
   SimulatorRecordingSource,
 } from "headless-serve-sim-client/simulator";
 import { Chevron } from "../icons";
-import { NativeStreamRecorder } from "../native-stream-recorder";
+import type { NativeStreamRecorder } from "../native-stream-recorder";
+import { simEndpoint } from "../utils/sim-endpoint";
 import { SegmentedGroup } from "./design-system";
 import { SettingSwitch } from "./setting-switch";
 import { StreamModeToggle, type StreamMode } from "./stream-mode-toggle";
@@ -20,7 +21,7 @@ import {
   type PreparedDeviceFrameArtwork,
 } from "../device-frame-artwork";
 
-type RecordingPhase = "idle" | "recording" | "stopping";
+type RecordingPhase = "idle" | "starting" | "recording" | "stopping";
 type RecordingDeviceFrame = DeviceFrameSpec | DeviceType | null | undefined;
 type FrameArtworkState = {
   key: string;
@@ -128,6 +129,8 @@ export function ScreenRecordingTool({
     failed: false,
   });
   const recorderRef = useRef<CanvasScreenRecorder | NativeStreamRecorder | null>(null);
+  const startRevisionRef = useRef(0);
+  const startingRef = useRef(false);
   const startedAtRef = useRef(0);
   const mountedRef = useRef(true);
   const deviceKeyRef = useRef(deviceKey);
@@ -143,6 +146,8 @@ export function ScreenRecordingTool({
   );
 
   const cancelCurrent = useCallback((message?: string) => {
+    startRevisionRef.current++;
+    startingRef.current = false;
     const recorder = recorderRef.current;
     recorderRef.current = null;
     recorder?.cancel();
@@ -160,9 +165,7 @@ export function ScreenRecordingTool({
     return () => {
       mountedRef.current = false;
       window.removeEventListener("pagehide", onPageHide);
-      const recorder = recorderRef.current;
-      recorderRef.current = null;
-      recorder?.cancel();
+      cancelCurrent();
     };
   }, [cancelCurrent]);
 
@@ -217,7 +220,8 @@ export function ScreenRecordingTool({
     return () => window.clearInterval(timer);
   }, [phase]);
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
+    if (startingRef.current || phase !== "idle") return;
     setError(null);
     const source = sourceRef.current;
     if (!source) {
@@ -228,6 +232,10 @@ export function ScreenRecordingTool({
 
     recorderRef.current?.cancel();
     setArtifact(null);
+    const startRevision = ++startRevisionRef.current;
+    startingRef.current = true;
+    setPhase("starting");
+    let recorder: CanvasScreenRecorder | NativeStreamRecorder | null = null;
     const options = {
       source,
       format,
@@ -244,20 +252,31 @@ export function ScreenRecordingTool({
         setError(nextError.message);
       },
     };
-    const recorder =
-      nativeRecording && format !== "webm"
-        ? new NativeStreamRecorder(options)
-        : new CanvasScreenRecorder(options);
-    recorderRef.current = recorder;
     try {
+      if (nativeRecording && format !== "webm") {
+        const module = (await import(
+          simEndpoint("native-stream-recorder.js")
+        )) as typeof import("../native-stream-recorder");
+        if (!mountedRef.current || startRevision !== startRevisionRef.current) return;
+        if (sourceRef.current !== source) {
+          cancelCurrent("Recording cancelled because the simulator stream changed.");
+          return;
+        }
+        recorder = new module.NativeStreamRecorder(options);
+      } else recorder = new CanvasScreenRecorder(options);
+      recorderRef.current = recorder;
       recorder.start();
       startedAtRef.current = performance.now();
       setElapsedSeconds(0);
       setPhase("recording");
     } catch (nextError) {
+      recorder?.cancel();
+      if (!mountedRef.current || startRevision !== startRevisionRef.current) return;
       recorderRef.current = null;
-      recorder.cancel();
+      setPhase("idle");
       setError(nextError instanceof Error ? nextError.message : "Screen recording failed.");
+    } finally {
+      if (startRevision === startRevisionRef.current) startingRef.current = false;
     }
   }, [
     artworkKey,
@@ -271,11 +290,16 @@ export function ScreenRecordingTool({
     touchMarkersAvailable,
     sourceRef,
     nativeRecording,
+    phase,
+    cancelCurrent,
   ]);
 
   const stop = useCallback(async () => {
     const recorder = recorderRef.current;
-    if (!recorder) return;
+    if (!recorder) {
+      if (startingRef.current) cancelCurrent();
+      return;
+    }
     setPhase("stopping");
     setError(null);
     try {
@@ -290,7 +314,7 @@ export function ScreenRecordingTool({
       setPhase("idle");
       setError(nextError instanceof Error ? nextError.message : "Screen recording failed.");
     }
-  }, []);
+  }, [cancelCurrent]);
 
   const busy = phase !== "idle";
 
@@ -371,7 +395,11 @@ export function ScreenRecordingTool({
                 role="status"
               >
                 <span className="size-2 rounded-full bg-danger" aria-hidden="true" />
-                {phase === "stopping" ? "Finishing…" : `Recording ${durationLabel(elapsedSeconds)}`}
+                {phase === "starting"
+                  ? "Preparing recorder…"
+                  : phase === "stopping"
+                    ? "Finishing…"
+                    : `Recording ${durationLabel(elapsedSeconds)}`}
               </div>
               <button
                 type="button"
@@ -379,13 +407,13 @@ export function ScreenRecordingTool({
                 disabled={phase === "stopping"}
                 className="h-8 cursor-pointer rounded-card border-none bg-danger px-4 text-value font-semibold text-on-accent hover:brightness-105 disabled:cursor-not-allowed disabled:bg-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
               >
-                Stop recording
+                {phase === "starting" ? "Cancel" : "Stop recording"}
               </button>
             </div>
           ) : (
             <button
               type="button"
-              onClick={start}
+              onClick={() => void start()}
               disabled={!support[format] || !streaming || artworkLoading}
               className="inline-flex min-h-8 w-full cursor-pointer items-center justify-center gap-2 rounded-card border-none bg-accent-solid px-4 text-value font-semibold text-on-accent hover:brightness-105 disabled:cursor-not-allowed disabled:bg-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
             >
