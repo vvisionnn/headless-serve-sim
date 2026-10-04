@@ -407,6 +407,7 @@ if isDuo, #available(macOS 15.0, *) {
     do {
         let buffer: CVPixelBuffer
         let pieces: [[String: Any]], bounds: [Double], mask: String, scale: Double
+        let buttons: [[String: Any]]
         if state.includeFrame {
             if NativeDuo.renderer == nil { NativeDuo.renderer = try await DuoRenderer(modelURL: modelPath) }
             guard let renderer = NativeDuo.renderer else { return }
@@ -420,6 +421,7 @@ if isDuo, #available(macOS 15.0, *) {
             bounds = renderer.frameBounds
             mask = renderer.alphaMask
             scale = state.scale
+            buttons = renderer.buttonProjections
         } else {
             let renderer = NativeDuo.rawRenderer
             buffer = try renderer.render(panel, displayId: id, rotation: rawRotation, scale: DuoOutput.renderScale(for: state.scale), width: DuoOutput.size.width, height: DuoOutput.size.height, blanked: state.blankedDisplays.contains(id))
@@ -427,11 +429,12 @@ if isDuo, #available(macOS 15.0, *) {
             bounds = renderer.frameBounds
             mask = renderer.alphaMask
             scale = state.scale
+            buttons = []
         }
         let metadata: [String: Any] = ["includeFrame": state.includeFrame,
             "angle": state.angle, "rotation": state.rotation, "scale": scale,
             "displayId": id, "blanked": state.blankedDisplays.contains(id), "rawWidth": CVPixelBufferGetWidth(panel), "rawHeight": CVPixelBufferGetHeight(panel),
-            "rawRotation": rawRotation, "mask": mask, "bounds": bounds, "pieces": pieces]
+            "rawRotation": rawRotation, "mask": mask, "bounds": bounds, "pieces": pieces, "buttons": buttons]
         let data = try JSONSerialization.data(withJSONObject: metadata)
         CVBufferSetAttachment(buffer, "headless-serve-sim.composition" as CFString, data as CFData, .shouldPropagate)
         frameHandler(buffer, CMClockGetTime(CMClockGetHostTimeClock()), true)

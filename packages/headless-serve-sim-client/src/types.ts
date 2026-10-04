@@ -18,6 +18,12 @@ export interface SimulatorComposition {
   mask: string;
   bounds: number[];
   pieces: { displayId: number; quad: number[][]; region: number[] }[];
+  buttons?: {
+    button: "lock" | "volume_up" | "volume_down";
+    point: number[];
+    outward: number[];
+    along: number[];
+  }[];
 }
 
 export interface StreamConfig {

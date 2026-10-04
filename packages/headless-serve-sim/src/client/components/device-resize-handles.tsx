@@ -5,18 +5,8 @@ import {
   type DeviceResizeSize,
 } from "../utils/device-resize";
 
-const handles: { handle: DeviceResizeHandle; className: string }[] = [
-  { handle: "n", className: "left-0 right-0 -top-3 h-3 cursor-ns-resize" },
-  { handle: "ne", className: "-right-3 -top-3 size-3 cursor-nesw-resize" },
-  { handle: "e", className: "top-0 bottom-0 -right-3 w-3 cursor-ew-resize" },
-  { handle: "se", className: "-right-3 -bottom-3 size-3 cursor-nwse-resize" },
-  { handle: "s", className: "left-0 right-0 -bottom-3 h-3 cursor-ns-resize" },
-  { handle: "sw", className: "-left-3 -bottom-3 size-3 cursor-nesw-resize" },
-  { handle: "w", className: "top-0 bottom-0 -left-3 w-3 cursor-ew-resize" },
-  { handle: "nw", className: "-left-3 -top-3 size-3 cursor-nwse-resize" },
-];
+const handles: DeviceResizeHandle[] = ["e", "s", "w"];
 
-// Overlay a relative wrapper around the whole frame, including its side buttons.
 export function DeviceResizeHandles({
   fittedSize,
   availableSize,
@@ -32,13 +22,34 @@ export function DeviceResizeHandles({
 }) {
   const cleanupRef = useRef<(() => void) | null>(null);
   const changeRef = useRef(onScaleChange);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   changeRef.current = onScaleChange;
+  useEffect(() => {
+    const reveal = (event: PointerEvent) => {
+      const element = containerRef.current;
+      if (!element) return;
+      const rect = element.getBoundingClientRect();
+      const nearY = event.clientY >= rect.top && event.clientY <= rect.bottom;
+      const nearX = event.clientX >= rect.left && event.clientX <= rect.right;
+      element.dataset.near =
+        nearY && Math.abs(event.clientX - rect.left) <= 24
+          ? "w"
+          : nearY && Math.abs(event.clientX - rect.right) <= 24
+            ? "e"
+            : nearX && Math.abs(event.clientY - rect.bottom) <= 24
+              ? "s"
+              : "";
+    };
+    window.addEventListener("pointermove", reveal);
+    return () => window.removeEventListener("pointermove", reveal);
+  }, []);
   useEffect(
     () => () => cleanupRef.current?.(),
     [fittedSize.width, fittedSize.height, availableSize.width, availableSize.height],
   );
   return (
     <div
+      ref={containerRef}
       aria-hidden
       className={`pointer-events-none absolute z-20 ${frameRect ? "" : "inset-0"}`}
       style={
@@ -52,11 +63,17 @@ export function DeviceResizeHandles({
           : undefined
       }
     >
-      {handles.map(({ handle, className }) => (
+      {handles.map((handle) => (
         <div
           key={handle}
           data-device-resize-handle={handle}
-          className={`pointer-events-auto absolute touch-none select-none ${className}`}
+          data-device-resize-grabber={handle}
+          className={`device-resize-grabber pointer-events-auto absolute touch-none select-none rounded-sm bg-fg-2 ${
+            handle === "s"
+              ? "left-1/2 -bottom-3 h-1 w-8 -translate-x-1/2 cursor-ns-resize"
+              : "top-1/2 h-8 w-1 -translate-y-1/2 cursor-ew-resize" +
+                (handle === "w" ? " -left-3" : " -right-3")
+          }`}
           onPointerDown={(event) => {
             if (!event.isPrimary) {
               event.preventDefault();

@@ -29,7 +29,8 @@ test("native composition paints mask holes and records its fitted canvas aspect"
   const clips: unknown[][] = [];
   const handlers = new Map<string, (event: any) => void>();
   const single: unknown[] = [],
-    multi: unknown[] = [];
+    multi: unknown[] = [],
+    hardware: string[] = [];
   const outputRef: React.MutableRefObject<SimulatorRecordingSource | null> = { current: null };
   let cleanup: ReturnType<React.EffectCallback> = undefined;
   try {
@@ -82,7 +83,7 @@ test("native composition paints mask holes and records its fitted canvas aspect"
         },
       }),
     };
-    NativeDuoDevice({
+    const view = NativeDuoDevice({
       sourceRef: { current: source },
       recordingSourceRef: outputRef,
       width: 1000,
@@ -95,9 +96,21 @@ test("native composition paints mask holes and records its fitted canvas aspect"
         multi.push(event);
       },
       onScroll() {},
+      onButton(button) {
+        hardware.push(button);
+      },
       includeFrame: true,
       onBoundsChange() {},
     });
+    expect(view.props.children[0].props.style.cursor).toContain("%3Ccircle");
+    const buttons = view.props.children[1].props.children;
+    expect(buttons).toHaveLength(3);
+    for (const button of buttons) {
+      expect(button.props.children.props.className).toBe("duo-hardware-icon");
+      expect(button.props.children.props.children.type).toBe("svg");
+      button.props.onClick();
+    }
+    expect(hardware).toEqual(["lock", "volume_up", "volume_down"]);
     refs[0]!.current = {
       width: 0,
       height: 0,
@@ -121,6 +134,7 @@ test("native composition paints mask holes and records its fitted canvas aspect"
         restore() {},
       }),
     };
+    replace("window", { addEventListener() {}, removeEventListener() {} });
     const originalSnapshot = source.snapshot;
     let ready = false;
     source.snapshot = () => (ready ? originalSnapshot() : null);
@@ -159,7 +173,11 @@ test("native composition paints mask holes and records its fitted canvas aspect"
       shiftKey: false,
       preventDefault() {},
     };
+    const dots = [{ style: {} as Record<string, string> }, { style: {} as Record<string, string> }];
+    refs.at(-1)!.current = { querySelectorAll: () => dots };
     handlers.get("pointerdown")!(event);
+    expect(dots.map((dot) => dot.style.display)).toEqual(["block", "block"]);
+    expect(dots[0]!.style.left).not.toBe(dots[1]!.style.left);
     handlers.get("pointermove")!({ ...event, clientX: 192 });
     handlers.get("pointerup")!({ ...event, clientX: 192 });
     expect(single).toEqual([]);

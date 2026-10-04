@@ -153,6 +153,70 @@
   background-position: -1px -1px;
 }
 
+.duo-hardware-button {
+  width: 40px;
+  height: 40px;
+  transform: translate(-50%, -50%);
+  z-index: 10;
+  color: var(--color-fg-3);
+}
+.duo-hardware-icon {
+  display: grid;
+  place-items: center;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 32px;
+  height: 32px;
+  margin-left: -16px;
+  margin-top: -16px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(var(--duo-button-x), var(--duo-button-y));
+  transition: opacity var(--duration-quick) var(--ease-out);
+}
+.duo-hardware-button:hover .duo-hardware-icon,
+.duo-hardware-button:focus-visible .duo-hardware-icon,
+.duo-hardware-button:active .duo-hardware-icon,
+.duo-hardware-controls:has(
+    > [data-duo-button="volume_up"]:hover,
+    > [data-duo-button="volume_down"]:hover
+  )
+  > [data-duo-button="volume_up"]
+  .duo-hardware-icon,
+.duo-hardware-controls:has(
+    > [data-duo-button="volume_up"]:hover,
+    > [data-duo-button="volume_down"]:hover
+  )
+  > [data-duo-button="volume_down"]
+  .duo-hardware-icon {
+  opacity: 1;
+  pointer-events: auto;
+}
+.duo-hardware-button:active {
+  color: var(--color-accent);
+}
+
+.device-resize-grabber {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-quick) var(--ease-out);
+}
+[data-near="w"] > [data-device-resize-grabber="w"],
+[data-near="e"] > [data-device-resize-grabber="e"],
+[data-near="s"] > [data-device-resize-grabber="s"],
+.device-resize-grabber:hover,
+.device-resize-grabber:active {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .device-resize-grabber,
+  .duo-hardware-icon {
+    transition: none;
+  }
+}
+
 /* Slider — a tall rounded track that reads as a control in its own right, with
    the filled portion a shade darker than the rest and a circular knob riding
    inside it. `--ds-slider-fill` is a percentage the caller sets from value. */

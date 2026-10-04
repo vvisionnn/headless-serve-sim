@@ -43,6 +43,10 @@ import simd
         let renderer = try await DuoRenderer(modelURL: URL(fileURLWithPath: CommandLine.arguments[1]))
         renderer.update(angle: 180, rotation: 0, width: 3420, height: 3420)
         _ = try await renderer.render(panels: [:])
+        precondition(renderer.buttonProjections.count == 3, "Native bezel must project power and both volume buttons")
+        for button in renderer.buttonProjections {
+            precondition((button["point"] as! [Double]).allSatisfy { $0.isFinite && $0 > 0 && $0 < 1 })
+        }
         let openDistance = renderer.cameraDistance
         for angle in [130.0, 90, 45, 0] {
             renderer.update(angle: angle, rotation: 0, width: 3420, height: 3420)

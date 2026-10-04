@@ -48,6 +48,7 @@ import simd
     private let wrapper = Entity()
     private let camera = PerspectiveCamera()
     private let frameGeometry: [FrameProjection]
+    private let buttons: [ButtonProjection]
     private var fittedPose: Pose?
     private var openGeometry: [SIMD3<Float>] = []
     private(set) var cameraDistance: Float = 1
@@ -66,6 +67,7 @@ import simd
 
     /// Metadata describes the last completed frame, never the pending pose.
     private(set) var projectionPieces: [[String: Any]] = []
+    private(set) var buttonProjections: [[String: Any]] = []
     private(set) var frameBounds: [Double] = [0, 0, 0, 0]
     private(set) var renderedScale: Double = 0.85
     /// SVG path in normalized output coordinates; use clipPathUnits="objectBoundingBox".
@@ -108,7 +110,12 @@ import simd
         wrapper.addChild(rest)
         rest.orientation = simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
         subject.position -= subject.visualBounds(relativeTo: rest).center
-        frameGeometry = Self.modelEntities(in: subject).map { FrameProjection(entity: $0) }
+        let models = Self.modelEntities(in: subject)
+        frameGeometry = models.map { FrameProjection(entity: $0) }
+        buttons = [("lock", "oknVLIOxyFKJJzk"), ("volume_up", "xsdEUgktlZKTjeM"),
+                   ("volume_down", "oRVcvMIHfnBuWqp")].compactMap { name, joint in
+            models.compactMap { ButtonProjection(entity: $0, joint: joint, name: name) }.first
+        }
         renderer.entities.append(wrapper)
         camera.camera.fieldOfViewInDegrees = fieldOfView
         camera.camera.near = 0.001
@@ -203,6 +210,16 @@ import simd
                                            aspect: aspect).map { quad, rect in
                 ["displayId": id, "quad": quad, "rect": rect, "slotRotation": id == 1 ? 0.0 : 270.0] as [String: Any]
             }
+        }
+        buttonProjections = buttons.map { button in
+            let matrix = button.matrix()
+            let origin = matrix * SIMD4<Float>(0, 0, 0, 1)
+            let outward = matrix * SIMD4<Float>(1, 0, 0, 1)
+            let along = matrix * SIMD4<Float>(0, 0, 1, 1)
+            return ["button": button.name,
+                "point": Self.project(SIMD3(origin.x, origin.y, origin.z), cameraDistance: cameraDistance, fieldOfView: fieldOfView, aspect: aspect),
+                "outward": Self.project(SIMD3(outward.x, outward.y, outward.z), cameraDistance: cameraDistance, fieldOfView: fieldOfView, aspect: aspect),
+                "along": Self.project(SIMD3(along.x, along.y, along.z), cameraDistance: cameraDistance, fieldOfView: fieldOfView, aspect: aspect)] as [String: Any]
         }
         if maskPose != requested {
             let silhouette = try Self.silhouette(output)
@@ -515,6 +532,34 @@ import simd
         })
         try model.mesh.replace(with: contents)
         entity.model = model
+    }
+
+    @MainActor private struct ButtonProjection {
+        let entity: ModelEntity
+        let name: String
+        let joints: [MeshResource.Skeleton.Joint]
+        let indices: [Int?]
+
+        init?(entity: ModelEntity, joint: String, name: String) {
+            let contents = entity.model!.mesh.contents
+            guard let id = contents.models.flatMap({ Array($0.parts) }).first?.skeletonID,
+                  let skeleton = contents.skeletons[id],
+                  let index = skeleton.joints.firstIndex(where: { $0.name.split(separator: "/").last.map(String.init) == joint }) else { return nil }
+            self.entity = entity
+            self.name = name
+            var chain = [Int](), current: Int? = index
+            while let value = current { chain.append(value); current = skeleton.joints[value].parentIndex }
+            joints = chain.reversed().map { skeleton.joints[$0] }
+            indices = joints.map { entity.jointNames.firstIndex(of: $0.name) }
+        }
+
+        func matrix() -> simd_float4x4 {
+            let transforms = entity.jointTransforms
+            return joints.indices.reduce(entity.transformMatrix(relativeTo: nil)) { matrix, index in
+                matrix * (indices[index].flatMap { $0 < transforms.count ? transforms[$0].matrix : nil }
+                    ?? joints[index].restPoseTransform.matrix)
+            }
+        }
     }
 
     @MainActor private struct Skin {

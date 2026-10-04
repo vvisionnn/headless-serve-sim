@@ -1501,6 +1501,7 @@ function AppWithConfig({
                 onTouch={(touch) => sendWs(0x03, touch)}
                 onMultiTouch={(touch) => sendWs(0x05, touch)}
                 onScroll={(scroll) => sendWs(0x0d, scroll)}
+                onButton={onStreamButton}
                 axEnabled={axOverlayEnabled}
                 includeFrame={showBezels}
                 onBoundsChange={updateDuoBounds}

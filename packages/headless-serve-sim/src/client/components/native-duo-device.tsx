@@ -1,9 +1,17 @@
 import { useContext, useEffect, useLayoutEffect, useRef, type MutableRefObject } from "react";
 import type { SimulatorRecordingSource } from "headless-serve-sim-client/simulator";
-import { duoAxPolygons, duoHomeEdge, duoRawPointForProjection, duoWheelDelta } from "../duo-model";
+import {
+  duoAxPolygons,
+  duoHomeEdge,
+  duoProjectedPoint,
+  duoRawPointForProjection,
+  duoWheelDelta,
+} from "../duo-model";
 import { AxSelectionContext, useAxSnapshotContext } from "../hooks/use-ax-snapshot";
 import { axElementKey } from "../utils/ax";
 import { duoViewport } from "../utils/duo-viewport";
+
+const FINGER_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='9' fill='rgba(255,255,255,0.45)' stroke='rgba(0,0,0,0.55)' stroke-width='1.25' filter='drop-shadow(0 1px 2px rgba(0,0,0,0.45))'/%3E%3C/svg%3E") 12 12, pointer`;
 
 type Composition = NonNullable<ReturnType<SimulatorRecordingSource["snapshot"]>>["composition"];
 interface Props {
@@ -13,6 +21,7 @@ interface Props {
   height: number;
   axEnabled: boolean;
   includeFrame?: boolean;
+  onButton?: (button: string) => void;
   onTouch: (touch: {
     type: string;
     x: number;
@@ -50,6 +59,8 @@ export function NativeDuoDevice(props: Props) {
   const ax = useRef({ snapshot, selection });
   ax.current = { snapshot, selection };
   const redraw = useRef<(() => void) | null>(null);
+  const buttonsRef = useRef<HTMLDivElement | null>(null);
+  const fingersRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -158,7 +169,25 @@ export function NativeDuoDevice(props: Props) {
         lastBounds = identity;
         latest.current.onBoundsChange(bounds);
       }
+      const hardware = buttonsRef.current?.querySelectorAll<HTMLElement>("[data-duo-button]");
+      hardware?.forEach((element) => {
+        const button = metadata.buttons?.find(
+          (button) => button.button === element.dataset.duoButton,
+        );
+        element.style.display = button && latest.current.includeFrame !== false ? "block" : "none";
+        if (!button) return;
+        const px = (button.point[0]! - metadata.bounds[0]!) / metadata.bounds[2]!,
+          py = (button.point[1]! - metadata.bounds[1]!) / metadata.bounds[3]!;
+        element.style.left = `${bounds.x + px * displayWidth}px`;
+        element.style.top = `${bounds.y + py * displayHeight}px`;
+        const dx = (button.outward[0]! - button.point[0]!) * next.width,
+          dy = (button.outward[1]! - button.point[1]!) * next.height;
+        const length = Math.hypot(dx, dy);
+        element.style.setProperty("--duo-button-x", `${length ? (dx / length) * 32 : 32}px`);
+        element.style.setProperty("--duo-button-y", `${length ? (dy / length) * 32 : 0}px`);
+      });
       updateOverlay();
+      updateFingers();
       listeners.forEach((listener) => listener());
     };
     const hit = (event: { clientX: number; clientY: number }, displayId?: number) => {
@@ -184,6 +213,41 @@ export function NativeDuoDevice(props: Props) {
       displayId: number;
     } | null = null;
     let multi: { x: number; y: number; pan: boolean } | null = null;
+    let hoverPoint: { x: number; y: number } | null = null;
+    let altHeld = false;
+    const updateFingers = () => {
+      const dots = fingersRef.current?.querySelectorAll<HTMLElement>("[data-duo-finger]");
+      const metadata = composition.current;
+      if (!dots || !metadata) return;
+      const point = touch ?? (altHeld ? hoverPoint : null);
+      const points = point
+        ? [
+            point,
+            ...(multi || altHeld
+              ? [
+                  {
+                    x: multi?.pan ? point.x + multi.x : 1 - point.x,
+                    y: multi?.pan ? point.y + multi.y : 1 - point.y,
+                  },
+                ]
+              : []),
+          ]
+        : [];
+      const rect = canvas.getBoundingClientRect();
+      dots.forEach((dot, index) => {
+        const raw = points[index];
+        const projected = raw
+          ? metadata.pieces
+              .filter((piece) => piece.displayId === (touch?.displayId ?? metadata.displayId))
+              .map((piece) => duoProjectedPoint(raw, piece))
+              .find((point) => point !== null)
+          : null;
+        dot.style.display = projected && !latest.current.axEnabled ? "block" : "none";
+        if (!projected) return;
+        dot.style.left = `${(latest.current.width - rect.width) / 2 + ((projected.x - metadata.bounds[0]!) / metadata.bounds[2]!) * rect.width}px`;
+        dot.style.top = `${(latest.current.height - rect.height) / 2 + ((projected.y - metadata.bounds[1]!) / metadata.bounds[3]!) * rect.height}px`;
+      });
+    };
     const sendTouch = (type: string, point: { x: number; y: number }) => {
       if (multi) {
         latest.current.onMultiTouch?.({
@@ -213,13 +277,20 @@ export function NativeDuoDevice(props: Props) {
       if (event.altKey && latest.current.onMultiTouch)
         multi = { x: 1 - 2 * point.x, y: 1 - 2 * point.y, pan: event.shiftKey };
       sendTouch("begin", point);
+      updateFingers();
     };
     const move = (event: PointerEvent) => {
-      if (touch?.pointerId !== event.pointerId) return;
+      hoverPoint = hit(event);
+      altHeld = event.altKey;
+      if (touch?.pointerId !== event.pointerId) {
+        updateFingers();
+        return;
+      }
       const point = hit(event, touch.displayId);
       if (!point) return;
       touch = { ...touch, ...point };
       sendTouch("move", point);
+      updateFingers();
     };
     const end = (event: PointerEvent) => {
       if (touch?.pointerId !== event.pointerId) return;
@@ -227,6 +298,7 @@ export function NativeDuoDevice(props: Props) {
       sendTouch("end", point);
       touch = null;
       multi = null;
+      updateFingers();
       if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     };
     const wheel = (event: WheelEvent) => {
@@ -329,7 +401,19 @@ export function NativeDuoDevice(props: Props) {
         polygons.delete(identity);
       }
     };
+    const key = (event: KeyboardEvent) => {
+      if (event.key !== "Alt") return;
+      altHeld = event.type === "keydown";
+      updateFingers();
+    };
+    const leave = () => {
+      hoverPoint = null;
+      updateFingers();
+    };
     redraw.current = paint;
+    window.addEventListener("keydown", key);
+    window.addEventListener("keyup", key);
+    canvas.addEventListener("pointerleave", leave);
     canvas.addEventListener("pointerdown", down);
     canvas.addEventListener("pointermove", move);
     canvas.addEventListener("pointerup", end);
@@ -353,6 +437,9 @@ export function NativeDuoDevice(props: Props) {
       redraw.current = null;
       if (outputRef.current === output) outputRef.current = null;
       if (touch) sendTouch("end", touch);
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("keyup", key);
+      canvas.removeEventListener("pointerleave", leave);
       canvas.removeEventListener("pointerdown", down);
       canvas.removeEventListener("pointermove", move);
       canvas.removeEventListener("pointerup", end);
@@ -376,8 +463,76 @@ export function NativeDuoDevice(props: Props) {
       <canvas
         ref={canvasRef}
         data-duo-device
-        style={{ display: "block", width: props.width, height: props.height, touchAction: "none" }}
+        style={{
+          display: "block",
+          width: props.width,
+          height: props.height,
+          touchAction: "none",
+          cursor: FINGER_CURSOR,
+        }}
       />
+      <div ref={buttonsRef} className="duo-hardware-controls pointer-events-none absolute inset-0">
+        {[
+          ["lock", "Power"],
+          ["volume_up", "Volume up"],
+          ["volume_down", "Volume down"],
+        ].map(([button, label]) => (
+          <button
+            key={button}
+            type="button"
+            data-duo-button={button}
+            aria-label={label}
+            className="duo-hardware-button pointer-events-auto absolute cursor-pointer"
+            style={{ display: "none" }}
+            onClick={() => props.onButton?.(button!)}
+          >
+            <span className="duo-hardware-icon">
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                {button === "lock" ? (
+                  <>
+                    <rect x="6" y="10" width="12" height="11" rx="2" />
+                    <path d="M8 10V6a4 4 0 0 1 8 0v4" />
+                  </>
+                ) : (
+                  <>
+                    <path d="M11 4 6 8H3v8h3l5 4zM15 12h7" />
+                    {button === "volume_up" && <path d="M18.5 8.5v7" />}
+                  </>
+                )}
+              </svg>
+            </span>
+          </button>
+        ))}
+      </div>
+      <div ref={fingersRef} className="pointer-events-none absolute inset-0" aria-hidden>
+        {[0, 1].map((index) => (
+          <span
+            key={index}
+            data-duo-finger={index}
+            className="absolute"
+            style={{
+              display: "none",
+              width: 20,
+              height: 20,
+              borderRadius: "50%",
+              background: "rgba(255,255,255,0.45)",
+              border: "1.25px solid rgba(0,0,0,0.55)",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.45)",
+              transform: "translate(-50%, -50%)",
+            }}
+          />
+        ))}
+      </div>
       <svg
         ref={overlayRef}
         className="absolute inset-0 pointer-events-none"
