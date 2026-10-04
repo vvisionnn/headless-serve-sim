@@ -236,6 +236,10 @@ function motionSession(task: CommandTask, onExit: () => void) {
 export function createDeviceMotion(host: HostCommands, options: DeviceMotionOptions = {}) {
   const sessions = new Map<string, Promise<ReturnType<typeof motionSession>>>();
   const commanded = new Map<string, DeviceMotionState["commanded"]>();
+  const orientationCommands = new Map<
+    string,
+    { revision: number; pending: number; sentAt: number }
+  >();
   const commandState = (udid: string): DeviceMotionState["commanded"] => {
     let state = commanded.get(udid);
     if (!state) {
@@ -329,8 +333,17 @@ export function createDeviceMotion(host: HostCommands, options: DeviceMotionOpti
       if (!DEVICE_ORIENTATIONS.includes(orientation))
         throw new Error(`unknown orientation: ${orientation}`);
       if (disposed) throw new Error("device-motion disposed");
-      await (await session(udid)).setOrientation(orientation);
-      commandState(udid).orientation = orientation;
+      const state = orientationCommands.get(udid) ?? { revision: 0, pending: 0, sentAt: 0 };
+      orientationCommands.set(udid, state);
+      state.revision++;
+      state.pending++;
+      try {
+        await (await session(udid)).setOrientation(orientation);
+        commandState(udid).orientation = orientation;
+        state.sentAt = Date.now();
+      } finally {
+        state.pending--;
+      }
     },
     async status(udid: string): Promise<DeviceMotionState> {
       const observed: DeviceMotionState["observed"] = {
@@ -343,39 +356,54 @@ export function createDeviceMotion(host: HostCommands, options: DeviceMotionOpti
         source: "iohid+devicectl",
         errors: [],
       };
-      try {
-        const data = await runDevice(["info", "displays", "--device", udid]);
-        observed.displays = Array.isArray(data.result.displays) ? data.result.displays : [];
-      } catch (error) {
-        observed.errors.push(error instanceof Error ? error.message : String(error));
-      }
-      try {
-        const { result: orientation } = await runDevice(["orientation", "get", "--device", udid]);
-        observed.orientation =
-          typeof orientation.deviceOrientation === "string" ? orientation.deviceOrientation : null;
-        observed.nonFlatOrientation =
-          typeof orientation.deviceOrientationNonFlat === "string"
-            ? orientation.deviceOrientationNonFlat
-            : null;
-        observed.orientationLocked =
-          typeof orientation.deviceIsOrientationLocked === "boolean"
-            ? orientation.deviceIsOrientationLocked
-            : null;
-      } catch (error) {
-        observed.errors.push(error instanceof Error ? error.message : String(error));
-      }
-      try {
-        const reply = await (await session(udid)).status();
-        if (typeof reply.observedAngle === "number" && Number.isFinite(reply.observedAngle))
-          observed.hingeAngle = reply.observedAngle;
-        else
+      const orientationRevision = orientationCommands.get(udid)?.revision ?? 0;
+      const orientationPending = (orientationCommands.get(udid)?.pending ?? 0) > 0;
+      const results = await Promise.allSettled([
+        (async () => {
+          const data = await runDevice(["info", "displays", "--device", udid]);
+          observed.displays = Array.isArray(data.result.displays) ? data.result.displays : [];
+        })(),
+        (async () => {
+          const { result: orientation } = await runDevice(["orientation", "get", "--device", udid]);
+          observed.orientation =
+            typeof orientation.deviceOrientation === "string"
+              ? orientation.deviceOrientation
+              : null;
+          observed.nonFlatOrientation =
+            typeof orientation.deviceOrientationNonFlat === "string"
+              ? orientation.deviceOrientationNonFlat
+              : null;
+          observed.orientationLocked =
+            typeof orientation.deviceIsOrientationLocked === "boolean"
+              ? orientation.deviceIsOrientationLocked
+              : null;
+          if (
+            DEVICE_ORIENTATIONS.includes(observed.orientation as DeviceOrientation) &&
+            !orientationPending &&
+            !(orientationCommands.get(udid)?.pending ?? 0) &&
+            orientationRevision === (orientationCommands.get(udid)?.revision ?? 0) &&
+            (observed.orientation === commandState(udid).orientation ||
+              Date.now() - (orientationCommands.get(udid)?.sentAt ?? 0) >= 2000)
+          )
+            commandState(udid).orientation = null;
+        })(),
+        (async () => {
+          const reply = await (await session(udid)).status();
+          if (typeof reply.observedAngle === "number" && Number.isFinite(reply.observedAngle))
+            observed.hingeAngle = reply.observedAngle;
+          if (typeof reply.observedAgeMs === "number" && Number.isFinite(reply.observedAgeMs))
+            observed.hingeAngleAgeMs = reply.observedAgeMs;
+          if (observed.hingeAngle === null)
+            throw new Error(
+              "Hinge angle sensor readback is unavailable; commanded angle is not observed state.",
+            );
+        })(),
+      ]);
+      for (const result of results) {
+        if (result.status === "rejected")
           observed.errors.push(
-            "Hinge angle sensor readback is unavailable; commanded angle is not observed state.",
+            result.reason instanceof Error ? result.reason.message : String(result.reason),
           );
-        if (typeof reply.observedAgeMs === "number" && Number.isFinite(reply.observedAgeMs))
-          observed.hingeAngleAgeMs = reply.observedAgeMs;
-      } catch (error) {
-        observed.errors.push(error instanceof Error ? error.message : String(error));
       }
       return { commanded: { ...commandState(udid) }, observed };
     },

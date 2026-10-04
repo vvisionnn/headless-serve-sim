@@ -1,3 +1,5 @@
+import { HIDUsage } from "./hid-usage";
+
 export function duoHardwareCommands(press: {
   button?: string;
   usagePage?: number;
@@ -5,17 +7,17 @@ export function duoHardwareCommands(press: {
   phase?: "down" | "up" | "press";
 }): { usagePage: number; usage: number; phase: "down" | "up" | "press" }[] | null {
   const phase = press.phase ?? "press";
-  if (press.usagePage === 12 && press.usage !== undefined)
-    return [{ usagePage: 12, usage: press.usage, phase }];
+  if (press.usagePage === HIDUsage.consumerPage && press.usage !== undefined)
+    return [{ usagePage: HIDUsage.consumerPage, usage: press.usage, phase }];
   const usage = {
-    lock: 0x30,
-    side_button: 0x30,
-    siri: 0xcf,
-    volume_up: 0xe9,
-    volume_down: 0xea,
-    app_switcher: 0x40,
+    lock: HIDUsage.power,
+    side_button: HIDUsage.power,
+    siri: HIDUsage.voiceCommand,
+    volume_up: HIDUsage.volumeUp,
+    volume_down: HIDUsage.volumeDown,
+    app_switcher: HIDUsage.menu,
   }[press.button ?? ""];
   if (usage === undefined) return null;
-  const command = { usagePage: 12, usage, phase };
+  const command = { usagePage: HIDUsage.consumerPage, usage, phase };
   return press.button === "app_switcher" ? [command, command] : [command];
 }

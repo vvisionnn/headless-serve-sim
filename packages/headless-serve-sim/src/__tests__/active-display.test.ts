@@ -20,6 +20,24 @@ test("selects observed lit integrated display, not largest framebuffer", async (
   expect(await activeDisplayId(host, "DEVICE")).toBe("1");
 });
 
+test("prefers the active lit inner display over an earlier stale lit cover", async () => {
+  const host = createScriptedHostCommands([
+    {
+      result: {
+        stdout: JSON.stringify({
+          result: {
+            displays: [
+              { displayId: 1, active: false, backlightState: "activeOn", type: { integrated: {} } },
+              { displayId: 3, active: true, backlightState: "activeOn", type: { integrated: {} } },
+            ],
+          },
+        }),
+      },
+    },
+  ]);
+  expect(await activeDisplayId(host, "DEVICE")).toBe("3");
+});
+
 test("lit display wins when CoreDevice active flags contradict backlight", async () => {
   const host = createScriptedHostCommands([
     {

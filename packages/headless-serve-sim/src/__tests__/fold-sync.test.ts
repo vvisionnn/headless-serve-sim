@@ -16,12 +16,19 @@ test("restores body orientation from native state without stale poll overwrites"
   expect(observedDuoOrientation("faceUp", 3, 3, false)).toBeNull();
   expect(observedDuoOrientation("faceDown", 3, 3, false)).toBeNull();
   expect(observedDuoOrientation(null, 3, 3, false)).toBeNull();
+});
+
+test("unconfirmed commands resist stale physical readback, then expire on the server", () => {
   expect(observedDuoOrientation("landscapeLeft", 3, 3, false, "landscapeRight")).toBe(
     "landscape_left",
   );
   expect(observedDuoOrientation("portrait", 3, 3, false, "portraitUpsideDown")).toBe(
     "portrait_upside_down",
   );
+  expect(observedDuoOrientation("portrait", 3, 3, false, null)).toBe("portrait");
+  expect(observedDuoOrientation(null, 3, 3, false, "landscapeRight")).toBe("landscape_left");
+  expect(observedDuoOrientation("portrait", 3, 3, true, "landscapeRight")).toBeNull();
+  expect(observedDuoOrientation("portrait", 3, 4, false, "landscapeRight")).toBeNull();
 });
 
 test("does not apply sensor polling while a preset animation is in progress", () => {

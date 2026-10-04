@@ -1,6 +1,6 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { PassThrough } from "node:stream";
-import type { CommandRequest, HostCommands } from "../runtime/host-commands";
+import type { CommandRequest, CommandResult, HostCommands } from "../runtime/host-commands";
 import { createDeviceMotion } from "../device-motion";
 
 function motionHost(observedAgeMs = 250) {
@@ -221,6 +221,87 @@ test("rejects invalid consumer events before launching native tooling", async ()
   motion.dispose();
 });
 
+test("starts independent motion status probes before any host query settles", async () => {
+  const transport = motionHost();
+  const queries: CommandRequest[] = [];
+  const releases: Array<() => void> = [];
+  transport.host.run = (async (request: CommandRequest) => {
+    queries.push(request);
+    await new Promise<void>((resolve) => releases.push(resolve));
+    return {
+      exitCode: 0,
+      signal: null,
+      stdout: Buffer.from('{"result":{}}'),
+      stderr: Buffer.alloc(0),
+      timedOut: false,
+    };
+  }) as HostCommands["run"];
+  const motion = createDeviceMotion(transport.host, { locateTool: () => "/fixtures/motion" });
+  const status = motion.status("DEVICE");
+  try {
+    await Bun.sleep(0);
+    expect(queries).toHaveLength(2);
+    expect(transport.commands).toEqual([{ id: 1, command: "status" }]);
+  } finally {
+    for (let i = 0; i < 3; i++) {
+      releases.splice(0).forEach((release) => release());
+      await Bun.sleep(0);
+    }
+    await status;
+    motion.dispose();
+  }
+});
+
+test("keeps display, orientation, hinge errors ordered despite reverse probe completion", async () => {
+  const transport = motionHost();
+  transport.holdStatus();
+  let rejectDisplays: () => void = () => {};
+  transport.host.run = (async (request: CommandRequest) => {
+    if (request.args?.includes("get")) throw new Error("orientation failed");
+    return new Promise<CommandResult>((_resolve, reject) => {
+      rejectDisplays = () => reject(new Error("displays failed"));
+    });
+  }) as HostCommands["run"];
+  const motion = createDeviceMotion(transport.host, { locateTool: () => "/fixtures/motion" });
+  try {
+    const status = motion.status("DEVICE");
+    await Bun.sleep(0);
+    transport.reject(0, "hinge failed");
+    await Bun.sleep(0);
+    rejectDisplays();
+    expect((await status).observed.errors).toEqual([
+      "displays failed",
+      "orientation failed",
+      "hinge failed",
+    ]);
+  } finally {
+    motion.dispose();
+  }
+});
+
+test("keeps unavailable sensor error after host probe errors", async () => {
+  const transport = motionHost();
+  transport.holdStatus();
+  transport.host.run = (async (request: CommandRequest): Promise<CommandResult> => {
+    throw new Error(request.args?.includes("get") ? "orientation failed" : "displays failed");
+  }) as HostCommands["run"];
+  const motion = createDeviceMotion(transport.host, { locateTool: () => "/fixtures/motion" });
+  try {
+    const status = motion.status("DEVICE");
+    await Bun.sleep(0);
+    transport.acknowledge(0);
+    const state = await status;
+    expect(state.observed.hingeAngle).toBeNull();
+    expect(state.observed.errors).toEqual([
+      "displays failed",
+      "orientation failed",
+      "Hinge angle sensor readback is unavailable; commanded angle is not observed state.",
+    ]);
+  } finally {
+    motion.dispose();
+  }
+});
+
 test("reads orientation and active displays from simulator state rather than commanded angle", async () => {
   const response = {
     result: {
@@ -288,6 +369,122 @@ test("reads orientation and active displays from simulator state rather than com
   expect(state.observed.errors).toEqual([]);
   motion.dispose();
 });
+
+test("orientation ACK does not let lagging guest readback reverse a new rotation", async () => {
+  let now = 1000,
+    physical = "portrait";
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const transport = motionHost();
+  transport.host.run = (async (request: CommandRequest) => ({
+    exitCode: 0,
+    signal: null,
+    timedOut: false,
+    stderr: Buffer.alloc(0),
+    stdout: Buffer.from(
+      JSON.stringify({
+        result: request.args?.includes("get") ? { deviceOrientation: physical } : {},
+      }),
+    ),
+  })) as HostCommands["run"];
+  const motion = createDeviceMotion(transport.host, { locateTool: () => "/fixtures/motion" });
+  try {
+    const rotation = motion.setOrientation("DEVICE", "landscapeRight");
+    await Bun.sleep(0);
+    transport.acknowledge(0);
+    await rotation;
+    expect((await motion.status("DEVICE")).commanded.orientation).toBe("landscapeRight");
+    now += 500;
+    expect((await motion.status("DEVICE")).commanded.orientation).toBe("landscapeRight");
+    physical = "landscapeRight";
+    expect((await motion.status("DEVICE")).commanded.orientation).toBeNull();
+    physical = "portrait";
+    expect((await motion.status("DEVICE")).commanded.orientation).toBeNull();
+  } finally {
+    motion.dispose();
+    clock.mockRestore();
+  }
+});
+
+test("expires historical orientation commands after fresh guest readback", async () => {
+  const transport = motionHost();
+  transport.host.run = (async (request: CommandRequest) => ({
+    exitCode: 0,
+    signal: null,
+    stdout: Buffer.from(
+      JSON.stringify({
+        result: request.args?.includes("get") ? { deviceOrientation: "portrait" } : {},
+      }),
+    ),
+    stderr: Buffer.alloc(0),
+    timedOut: false,
+  })) as HostCommands["run"];
+  let now = 1000;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const motion = createDeviceMotion(transport.host, { locateTool: () => "/fixtures/motion" });
+  try {
+    const orientation = motion.setOrientation("DEVICE", "landscapeRight");
+    await Bun.sleep(0);
+    transport.acknowledge(0);
+    await orientation;
+    now += 2001;
+    const state = await motion.status("DEVICE");
+    expect(state.observed.orientation).toBe("portrait");
+    expect(state.commanded.orientation).toBeNull();
+  } finally {
+    motion.dispose();
+    clock.mockRestore();
+  }
+});
+
+test.each([true, false])(
+  "does not expire a newer orientation using an overlapping read (pending at start: %s)",
+  async (pendingAtStart) => {
+    const transport = motionHost();
+    let releaseOrientation: () => void = () => {};
+    let holdOrientation = true;
+    transport.host.run = (async (request: CommandRequest) => {
+      if (request.args?.includes("get") && holdOrientation)
+        await new Promise<void>((resolve) => {
+          releaseOrientation = resolve;
+        });
+      return {
+        exitCode: 0,
+        signal: null,
+        stdout: Buffer.from(
+          JSON.stringify({
+            result: request.args?.includes("get") ? { deviceOrientation: "landscapeRight" } : {},
+          }),
+        ),
+        stderr: Buffer.alloc(0),
+        timedOut: false,
+      };
+    }) as HostCommands["run"];
+    const motion = createDeviceMotion(transport.host, { locateTool: () => "/fixtures/motion" });
+    try {
+      const first = motion.setOrientation("DEVICE", "landscapeRight");
+      await Bun.sleep(0);
+      transport.acknowledge(0);
+      await first;
+      const next = pendingAtStart ? motion.setOrientation("DEVICE", "landscapeRight") : null;
+      const status = motion.status("DEVICE");
+      await Bun.sleep(0);
+      const latest = next ?? motion.setOrientation("DEVICE", "landscapeRight");
+      await Bun.sleep(0);
+      const commandIndex = transport.commands.findIndex(
+        (command, index) => index > 0 && command.command === "orientation",
+      );
+      expect(commandIndex).toBeGreaterThan(0);
+      transport.acknowledge(commandIndex);
+      await latest;
+      holdOrientation = false;
+      releaseOrientation();
+      expect((await status).commanded.orientation).toBe("landscapeRight");
+      expect((await motion.status("DEVICE")).commanded.orientation).toBeNull();
+    } finally {
+      motion.dispose();
+    }
+  },
+);
 
 test("preserves old sensor samples and exposes their age without substituting commanded state", async () => {
   const transport = motionHost(60_000);

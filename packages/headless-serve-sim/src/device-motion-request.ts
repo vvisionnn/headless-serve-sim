@@ -4,6 +4,7 @@ import {
   type ConsumerHIDPhase,
   type DeviceOrientation,
 } from "./device-motion";
+import { validateSimulatorControlDevice } from "./simulator-controls";
 
 interface DeviceMotionCommands {
   setOrientation?(device: string, orientation: DeviceOrientation): Promise<void>;
@@ -30,9 +31,7 @@ export async function handleDeviceMotionRequest(
     usage?: number;
     phase?: string;
   };
-  if (typeof p.device !== "string" || !/^[0-9A-Za-z-]+$/.test(p.device)) {
-    throw new Error("missing or invalid device udid");
-  }
+  validateSimulatorControlDevice(p.device);
   if (p.command === "state") return { motion: await motion.status(p.device) };
   if (p.command === "orientation") {
     if (!DEVICE_ORIENTATIONS.includes(p.orientation as DeviceOrientation))

@@ -24,7 +24,7 @@ export interface DeviceMetadata {
 export interface DeviceMetadataSource {
   findSimulator: (udid: string) => Promise<SimulatorDeviceMetadata | null | undefined>;
   loadDeviceFrameSpec: (deviceTypeIdentifier: string) => Promise<DeviceFrameSpec | null>;
-  loadDeviceFrameSpecs?: (deviceTypeIdentifier: string) => Promise<DeviceFrameSpec[]>;
+  loadDeviceFrameSpecs?: (deviceTypeIdentifier: string) => Promise<Array<DeviceFrameSpec | null>>;
 }
 
 export function createDeviceMetadataResolver(
@@ -52,13 +52,19 @@ export function createDeviceMetadataResolver(
       if (!simulator) return undefined;
 
       let deviceFrameSpecs: DeviceFrameSpec[] = [];
+      let complete = false;
       if (simulator.deviceTypeIdentifier) {
         try {
           if (source.loadDeviceFrameSpecs) {
-            deviceFrameSpecs = await source.loadDeviceFrameSpecs(simulator.deviceTypeIdentifier);
+            const specs = await source.loadDeviceFrameSpecs(simulator.deviceTypeIdentifier);
+            deviceFrameSpecs = specs.filter((spec): spec is DeviceFrameSpec => spec !== null);
+            complete = specs.length > 0 && deviceFrameSpecs.length === specs.length;
           } else {
             const spec = await source.loadDeviceFrameSpec(simulator.deviceTypeIdentifier);
-            if (spec) deviceFrameSpecs = [spec];
+            if (spec) {
+              deviceFrameSpecs = [spec];
+              complete = true;
+            }
           }
         } catch {}
       }
@@ -75,7 +81,7 @@ export function createDeviceMetadataResolver(
       cache.set(udid, {
         value,
         expiresAt:
-          deviceFrameSpecs.length > 0 &&
+          complete &&
           deviceFrameSpecs.every(
             (spec) => spec.artwork && (!spec.artwork.composite || spec.screenMask),
           )

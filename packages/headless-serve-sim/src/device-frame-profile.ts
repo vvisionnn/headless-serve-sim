@@ -616,7 +616,7 @@ export interface DeviceFrameProfileLoader {
     deviceTypeIdentifier: string,
     options?: { displayId?: number },
   ): Promise<DeviceFrameSpec | null>;
-  loadAll(deviceTypeIdentifier: string): Promise<DeviceFrameSpec[]>;
+  loadAll(deviceTypeIdentifier: string): Promise<Array<DeviceFrameSpec | null>>;
 }
 
 export function createDeviceFrameProfileLoader(
@@ -652,7 +652,7 @@ export function createDeviceFrameProfileLoader(
         const ordered = primary
           ? [primary, ...displays.filter((display) => display !== primary)]
           : [];
-        const specs = await Promise.all(
+        return await Promise.all(
           ordered.map((display) =>
             loadInstalledDeviceFrameSpecAsyncWithHost(
               host,
@@ -664,7 +664,6 @@ export function createDeviceFrameProfileLoader(
             ),
           ),
         );
-        return specs.filter((spec): spec is DeviceFrameSpec => spec !== null);
       } catch {
         return [];
       }
@@ -683,6 +682,6 @@ export function loadInstalledDeviceFrameSpecAsync(
 
 export function loadInstalledDeviceFrameSpecsAsync(
   deviceTypeIdentifier: string,
-): Promise<DeviceFrameSpec[]> {
+): Promise<Array<DeviceFrameSpec | null>> {
   return productionDeviceFrameProfileLoader.loadAll(deviceTypeIdentifier);
 }

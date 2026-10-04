@@ -9,6 +9,7 @@ import {
   parsePdfMediaBoxSize,
 } from "../device-frame-profile";
 import { createScriptedHostCommands } from "../test-support/scripted-host-commands";
+import { createDeviceMetadataResolver } from "../device-metadata";
 
 const iphone17Pro = {
   identifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
@@ -419,7 +420,7 @@ async function withInstalledDuo(
     loader: ReturnType<typeof createDeviceFrameProfileLoader>,
     rasterized: string[],
   ) => Promise<void>,
-  options: { failFirstMask?: boolean } = {},
+  options: { failFirstMask?: boolean; failFirstProfile?: boolean } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "serve-sim-frame-fixture-"));
   try {
@@ -466,6 +467,7 @@ async function withInstalledDuo(
     }
     const rasterized: string[] = [];
     let maskAttempts = 0;
+    let profileAttempts = 0;
     const host: HostCommands = {
       ...createScriptedHostCommands(),
       run: (async (request) => {
@@ -475,6 +477,12 @@ async function withInstalledDuo(
         if (request.executable === "xcrun") {
           stdout = JSON.stringify({ devicetypes: [{ ...duoType, bundlePath }] });
         } else if (request.executable === "plutil") {
+          if (
+            args.at(-1)!.endsWith("profile.plist") &&
+            options.failFirstProfile &&
+            profileAttempts++ === 1
+          )
+            throw new Error("profile temporarily unavailable");
           stdout = await readFile(args.at(-1)!, "utf8");
         } else if (request.executable === "/usr/bin/sips") {
           if (args[6]!.startsWith(framebufferMaskDirectory)) {
@@ -506,6 +514,42 @@ async function withInstalledDuo(
 }
 
 describe("installed device frame profiles", () => {
+  test("metadata retries a partial installed collection instead of caching its survivor forever", async () => {
+    let now = 1_000;
+    const clock = spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      await withInstalledDuo(
+        async (loader) => {
+          let loads = 0;
+          const resolver = createDeviceMetadataResolver({
+            findSimulator: async () => ({
+              udid: "DEVICE",
+              name: "iPhone Duo",
+              deviceTypeIdentifier: duoType.identifier,
+            }),
+            loadDeviceFrameSpec: (identifier) => loader.load(identifier),
+            loadDeviceFrameSpecs: (identifier) => {
+              loads++;
+              return loader.loadAll(identifier);
+            },
+          });
+          expect((await resolver.resolve("DEVICE"))?.deviceFrameSpecs).toHaveLength(1);
+          now += 5_000;
+          expect(
+            (await resolver.resolve("DEVICE"))?.deviceFrameSpecs?.map((s) => s.displayId),
+          ).toEqual([1, 3]);
+          expect(loads).toBe(2);
+          now += 60_000;
+          await resolver.resolve("DEVICE");
+          expect(loads).toBe(2);
+        },
+        { failFirstProfile: true },
+      );
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   test("retries a failed framebuffer mask conversion despite having composite artwork", async () => {
     let now = 1_000;
     const clock = spyOn(Date, "now").mockImplementation(() => now);
@@ -531,7 +575,7 @@ describe("installed device frame profiles", () => {
     await withInstalledDuo(async (loader) => {
       const frames = await loader.loadAll(duoType.identifier);
 
-      expect(frames.map((frame) => frame.screenMask)).toEqual([
+      expect(frames.map((frame) => frame?.screenMask)).toEqual([
         {
           pngDataUrl: `data:image/png;base64,${Buffer.from("synthetic png").toString("base64")}`,
           width: 1398,
@@ -561,8 +605,8 @@ describe("installed device frame profiles", () => {
     await withInstalledDuo(async (loader, rasterized) => {
       const frames = await loader.loadAll(duoType.identifier);
 
-      expect(frames.map((frame) => frame.displayId)).toEqual([1, 3]);
-      expect(frames.map((frame) => frame.artwork?.composite?.width)).toEqual([1542, 1980]);
+      expect(frames.map((frame) => frame?.displayId)).toEqual([1, 3]);
+      expect(frames.map((frame) => frame?.artwork?.composite?.width)).toEqual([1542, 1980]);
       await loader.load(duoType.identifier, { displayId: 3 });
       expect(rasterized).toHaveLength(2);
     });

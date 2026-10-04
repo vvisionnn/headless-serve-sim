@@ -127,12 +127,31 @@ test("rejects unknown motion commands before any angle update", async () => {
   ).rejects.toThrow("Unknown device motion command");
 });
 
-test("rejects invalid device identity before any device access", async () => {
-  const motion = { setAngle: async () => {}, status: async () => state };
-  await expect(
-    handleDeviceMotionRequest(motion, { device: "bad/device", command: "state" }),
-  ).rejects.toThrow("missing or invalid device udid");
-});
+test.each(["bad/device", "-", "--help", "-DEVICE", "", null])(
+  "rejects invalid device identity %s before any device access",
+  async (device) => {
+    let calls = 0;
+    const motion = {
+      setAngle: async () => {
+        calls++;
+      },
+      status: async () => {
+        calls++;
+        return state;
+      },
+      setOrientation: async () => {
+        calls++;
+      },
+      sendConsumer: async () => {
+        calls++;
+      },
+    };
+    await expect(handleDeviceMotionRequest(motion, { device, command: "state" })).rejects.toThrow(
+      "missing or invalid device udid",
+    );
+    expect(calls).toBe(0);
+  },
+);
 
 describe("motion request validation", () => {
   test.each([NaN, Infinity, -1, 181, "90", null])(

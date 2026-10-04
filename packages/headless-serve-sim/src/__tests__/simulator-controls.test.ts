@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
-import { getSimulatorControlState } from "../simulator-controls";
+import { DEVICE_ORIENTATIONS, getSimulatorControlState } from "../simulator-controls";
+import { DEVICE_ORIENTATIONS as MOTION_ORIENTATIONS } from "../device-motion";
 import { createScriptedHostCommands } from "../test-support/scripted-host-commands";
 import type { CommandResult, HostCommands } from "../runtime/host-commands";
+
+test("uses the same physical orientation catalog for control reads and motion writes", () => {
+  expect(DEVICE_ORIENTATIONS).toBe(MOTION_ORIENTATIONS);
+});
 
 const json = (result: unknown) => ({ result: { stdout: JSON.stringify({ result }) } });
 

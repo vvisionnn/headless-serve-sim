@@ -34,10 +34,11 @@ export async function activeDisplayId(
         }>;
       };
     };
-    const display = data.result?.displays?.find(
+    const litDisplays = data.result?.displays?.filter(
       (candidate) =>
         candidate.backlightState === "activeOn" && candidate.type?.integrated !== undefined,
     );
+    const display = litDisplays?.find((candidate) => candidate.active === true) ?? litDisplays?.[0];
     return display?.displayId && Number.isInteger(display.displayId) && display.displayId > 0
       ? `${display.displayId}`
       : undefined;

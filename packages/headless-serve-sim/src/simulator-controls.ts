@@ -1,14 +1,7 @@
 import type { HostCommands } from "./runtime/host-commands";
+import { DEVICE_ORIENTATIONS, type DeviceOrientation } from "./device-motion";
 
-export const DEVICE_ORIENTATIONS = [
-  "portrait",
-  "portraitUpsideDown",
-  "landscapeLeft",
-  "landscapeRight",
-  "faceUp",
-  "faceDown",
-] as const;
-export type DeviceOrientation = (typeof DEVICE_ORIENTATIONS)[number];
+export { DEVICE_ORIENTATIONS, type DeviceOrientation };
 export type SimulatorControlOption =
   | "volume"
   | "audio-input"

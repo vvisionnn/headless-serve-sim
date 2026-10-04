@@ -8,6 +8,7 @@ export function observedDuoOrientation(
   commanded?: string | null,
 ): SimulatorOrientation | null {
   if (pending || requestedRevision !== currentRevision) return null;
+  // The server retains a command only until guest convergence or a bounded timeout.
   switch (commanded ?? physical) {
     case "portrait":
       return "portrait";
