@@ -17,7 +17,7 @@ import { join, resolve } from "path";
 import { STATE_DIR, stateFileForDevice, listStateFiles } from "./state";
 import { reapOrphanHelpers } from "./orphan-helpers";
 import { textToKeyEvents, UnsupportedCharacterError, sendKeyEventsToWs } from "./text-to-keys";
-import { dirnameOf, sleepSync, isPortFree, servePreview } from "./runtime";
+import { dirnameOf, sleepSync, isPortFree, servePreview, type PreviewServer } from "./runtime";
 import { findBootedDevice, pickDefaultStreamDevices, resolveDevice } from "./device";
 import { document } from "./document-import";
 import { permissions } from "./permissions";
@@ -33,6 +33,9 @@ import {
 } from "./preview-initial-state";
 import { appActions } from "./app-actions";
 import { screenshot } from "./screenshot";
+import { deviceMotionCli } from "./device-motion-cli";
+import { createDeviceMotion } from "./device-motion";
+import { routeNativeDeviceInput } from "./native-device-input";
 import { cameraShmNameForUdid } from "./camera-shm-name";
 import { formatEventLine, type EventLogEntry } from "./event-log";
 import {
@@ -319,8 +322,19 @@ function developerDir(): string | null {
  */
 function helperSpawnEnv(): NodeJS.ProcessEnv {
   const dev = developerDir();
-  if (!dev) return process.env;
-  return withSimulatorFrameworkPath(process.env, dev);
+  const env = dev ? withSimulatorFrameworkPath(process.env, dev) : { ...process.env };
+  const observer = join(__dirname, "simmotion", "headless-serve-sim-display-observer");
+  const workspaceObserver = join(
+    __dirname,
+    "..",
+    "dist",
+    "simmotion",
+    "headless-serve-sim-display-observer",
+  );
+  if (existsSync(observer)) env.HEADLESS_SERVE_SIM_DISPLAY_OBSERVER = observer;
+  else if (existsSync(workspaceObserver))
+    env.HEADLESS_SERVE_SIM_DISPLAY_OBSERVER = workspaceObserver;
+  return env;
 }
 
 // ─── Device helpers ───
@@ -1278,6 +1292,15 @@ async function typeText(
   await sendKeyEventsToWs(state.wsUrl, events);
 }
 
+async function nativeInput(device: string, input: { orientation?: string; button?: string }) {
+  const motion = createDeviceMotion(hostCommands);
+  try {
+    return await routeNativeDeviceInput(hostCommands, device, input, motion);
+  } finally {
+    motion.dispose();
+  }
+}
+
 async function rotate(orientation: string, deviceArg?: string) {
   const state = readState(deviceArg);
   if (!state) {
@@ -1291,6 +1314,7 @@ async function rotate(orientation: string, deviceArg?: string) {
     process.exit(1);
   }
 
+  if (await nativeInput(state.device, { orientation })) return;
   return new Promise<void>((resolve, reject) => {
     const ws = new WebSocket(state.wsUrl);
     ws.binaryType = "arraybuffer";
@@ -1321,6 +1345,7 @@ async function button(buttonName = "home", deviceArg?: string) {
     process.exit(1);
   }
 
+  if (await nativeInput(state.device, { button: buttonName })) return;
   return new Promise<void>((resolve, reject) => {
     const ws = new WebSocket(state.wsUrl);
     ws.binaryType = "arraybuffer";
@@ -2150,7 +2175,7 @@ async function serve(
   const maxScan = portExplicit ? 1 : 50;
   let boundPort = servePort;
   let lastErr: unknown;
-  let bound = false;
+  let server: PreviewServer | null = null;
   for (let i = 0; i < maxScan; i++) {
     const p = servePort + i;
     const middleware = simMiddleware({
@@ -2173,16 +2198,15 @@ async function serve(
       ...(launch?.panes ? { initialState: { panes: launch.panes } } : {}),
     });
     try {
-      await bindPreviewServer(p, middleware, host);
+      server = await bindPreviewServer(p, middleware, host);
       boundPort = p;
-      bound = true;
       break;
     } catch (err: any) {
       lastErr = err;
       if (err?.code !== "EADDRINUSE") break;
     }
   }
-  if (!bound) {
+  if (!server) {
     if ((lastErr as any)?.code === "EADDRINUSE") {
       if (portExplicit) {
         console.error(
@@ -2208,9 +2232,18 @@ async function serve(
   }
   console.log("");
 
-  // Exit cleanly on Ctrl+C
-  process.on("SIGINT", () => process.exit(0));
-  process.on("SIGTERM", () => process.exit(0));
+  const stopPreview = () => {
+    const current = server;
+    server = null;
+    current?.stop();
+  };
+  const shutdown = () => {
+    stopPreview();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+  process.on("exit", stopPreview);
   await new Promise(() => {});
 }
 
@@ -2568,6 +2601,14 @@ program
   .helpOption(false)
   .argument("[args...]")
   .action((args: string[]) => uiSettings(args));
+
+program
+  .command("motion")
+  .description("Control foldable hinge, pose, and physical orientation")
+  .allowUnknownOption(true)
+  .helpOption(false)
+  .argument("[args...]")
+  .action((args: string[]) => deviceMotionCli(args));
 
 program
   .command("events")

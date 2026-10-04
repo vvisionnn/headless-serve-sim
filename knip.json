@@ -1,7 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "tags": ["-lintignore"],
-  "ignoreBinaries": ["swiftc", "xcode-select"],
+  "ignoreBinaries": ["swiftc", "xcode-select", "xcrun"],
   "ignoreExportsUsedInFile": true,
   "workspaces": {
     ".": {

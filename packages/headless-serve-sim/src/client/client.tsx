@@ -35,6 +35,8 @@ import { AxToolbarButton } from "./components/ax-toolbar-button";
 import { BootEmptyState } from "./components/boot-empty-state";
 import { PanelCard } from "./components/design-system";
 import { BareScreen, DeviceBezel } from "./components/device-bezel";
+import { NativeDuoDevice } from "./components/native-duo-device";
+import { DeviceResizeHandles } from "./components/device-resize-handles";
 import { PhonePreview } from "./components/phone-preview";
 import { PhonePreviewLink } from "./components/phone-preview-link";
 import { SimulatorDisconnected } from "./components/simulator-disconnected";
@@ -56,10 +58,18 @@ import { useWebKitDevtools } from "./hooks/use-webkit-devtools";
 import { avccFallbackReducer, initialAvccFallback, AVCC_FRAME_TIMEOUT_MS } from "./avcc-fallback";
 import { parseSimctlList, type SimDevice } from "./utils/devices";
 import { fileExtension } from "./utils/drop";
-import { execOnHost } from "./utils/exec";
+import { execOnHost, hostDeviceMotionRequest } from "./utils/exec";
+import { DeviceMotionTool, type DuoPose } from "./components/device-motion-tool";
+import { createFoldControl } from "./utils/fold-control";
+import { observedDuoOrientation, shouldApplyObservedHinge } from "./utils/fold-sync";
+import { duoHardwareCommands } from "./utils/duo-hardware";
 import { type HardwareButtonPress } from "./utils/hardware-buttons";
 import { hidUsageForCode, reactNativeReloadKeys } from "./utils/hid";
-import { isSoftwareKeyboardShortcut, isTextEntryTarget } from "./utils/shortcuts";
+import {
+  isSoftwareKeyboardShortcut,
+  isTextEntryTarget,
+  isPreviewControlTarget,
+} from "./utils/shortcuts";
 import {
   CONNECTION_STATS_PANEL_WIDTH,
   DEVTOOLS_PANEL_WIDTH,
@@ -378,6 +388,117 @@ function AppWithConfig({
       : "Simulator Preview";
   }, [selectedDevice?.name]);
 
+  const foldable =
+    config.deviceTypeIdentifier === "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo";
+  const [hingeAngle, setHingeAngle] = useState(180);
+  const [foldError, setFoldError] = useState<string | null>(null);
+  const [showBezels, setShowBezels] = useState(true);
+  const [duoOrientation, setDuoOrientation] = useState<SimulatorOrientation>("portrait");
+  const [deviceScale, setDeviceScale] = useState(1);
+  const duoResizeRef = useRef<HTMLDivElement | null>(null);
+  const [duoBounds, setDuoBounds] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    fittedWidth: number;
+    fittedHeight: number;
+  } | null>(null);
+  const updateDuoBounds = useCallback((bounds: NonNullable<typeof duoBounds>) => {
+    const element = duoResizeRef.current;
+    if (element) {
+      element.style.left = `${bounds.x}px`;
+      element.style.top = `${bounds.y}px`;
+      element.style.width = `${bounds.width}px`;
+      element.style.height = `${bounds.height}px`;
+    }
+    setDuoBounds((previous) =>
+      previous &&
+      Math.abs(previous.fittedWidth - bounds.fittedWidth) < 1 &&
+      Math.abs(previous.fittedHeight - bounds.fittedHeight) < 1
+        ? previous
+        : bounds,
+    );
+  }, []);
+  const [slowAnimations, setSlowAnimations] = useState(false);
+  const [keyboardCapture, setKeyboardCapture] = useState(false);
+  const hingeEditRef = useRef(0);
+  const hingePendingRef = useRef(false);
+  const orientationEditRef = useRef(0);
+  const orientationPendingRef = useRef(false);
+  const foldControl = useMemo(
+    () =>
+      createFoldControl(async (angle) => {
+        await hostDeviceMotionRequest({ device: config.device, command: "angle", angle });
+      }),
+    [config.device],
+  );
+  const changeHingeAngle = useCallback(
+    (angle: number) => {
+      const edit = ++hingeEditRef.current;
+      hingePendingRef.current = true;
+      setHingeAngle(angle);
+      setFoldError(null);
+      void foldControl
+        .set(angle)
+        .catch((error: unknown) => {
+          if (edit === hingeEditRef.current)
+            setFoldError(error instanceof Error ? error.message : String(error));
+        })
+        .finally(() => {
+          if (edit === hingeEditRef.current) hingePendingRef.current = false;
+        });
+    },
+    [foldControl],
+  );
+  const changeDuoPose = useCallback(
+    (pose: DuoPose) => {
+      changeHingeAngle(pose === "closed" ? 0 : pose === "book" ? 130 : 180);
+    },
+    [changeHingeAngle],
+  );
+  const duoPose: DuoPose = hingeAngle === 0 ? "closed" : hingeAngle === 180 ? "open" : "book";
+  useEffect(() => {
+    if (!foldable) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const read = async () => {
+      const edit = hingeEditRef.current;
+      const orientationEdit = orientationEditRef.current;
+      try {
+        const state = await hostDeviceMotionRequest({ device: config.device, command: "state" });
+        const orientation = observedDuoOrientation(
+          state?.observed.orientation,
+          orientationEdit,
+          orientationEditRef.current,
+          orientationPendingRef.current,
+          state?.commanded.orientation,
+        );
+        if (!stopped && orientation) setDuoOrientation(orientation);
+        const observed = state?.observed.hingeAngle;
+        if (
+          !stopped &&
+          shouldApplyObservedHinge({
+            requestedRevision: edit,
+            currentRevision: hingeEditRef.current,
+            pending: hingePendingRef.current,
+            animating: false,
+            angle: observed,
+          })
+        )
+          setHingeAngle(observed!);
+      } catch (error) {
+        if (!stopped) setFoldError(error instanceof Error ? error.message : String(error));
+      }
+      if (!stopped) timer = setTimeout(read, 2000);
+    };
+    void read();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [foldable, config.device]);
+
   const deviceType: DeviceType =
     config.deviceFrameSpec?.family ??
     getDeviceType(
@@ -457,6 +578,20 @@ function AppWithConfig({
     fallback:
       config.deviceFrameSpec?.nativeScreen ?? fallbackScreenSize(deviceType, resolvedDeviceName),
   });
+  const deviceFrameSpecs =
+    config.deviceFrameSpecs ?? (config.deviceFrameSpec ? [config.deviceFrameSpec] : []);
+  const selectedFrameSpec =
+    deviceFrameSpecs.length > 0
+      ? matchDeviceFrameSpec(
+          {
+            deviceTypeIdentifier: config.deviceTypeIdentifier,
+            modelName: config.deviceFrameSpec?.modelName,
+            family: deviceType === "vision" ? null : deviceType,
+          },
+          activeStreamConfig,
+          deviceFrameSpecs,
+        ).spec
+      : null;
   const recordingDeviceFrameSpec: DeviceFrameSpec | DeviceType | null = config.deviceFrameSpec
     ? (matchDeviceFrameSpec(
         {
@@ -465,7 +600,7 @@ function AppWithConfig({
           family: deviceType === "vision" ? null : deviceType,
         },
         activeStreamConfig,
-        [config.deviceFrameSpec],
+        deviceFrameSpecs,
       ).spec ?? (deviceType === "vision" ? null : deviceType))
     : deviceType === "vision"
       ? null
@@ -477,7 +612,7 @@ function AppWithConfig({
     : 1;
 
   // Touch/button relay via direct WebSocket
-  const [streamMode, setStreamMode] = useState<StreamMode>("perf");
+  const [streamMode, setStreamMode] = useState<StreamMode>(foldable ? "quality" : "perf");
   const pendingStreamModeRef = useRef<PendingStreamMode | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   useEffect(() => {
@@ -516,7 +651,8 @@ function AppWithConfig({
               prev &&
               prev.width === cfg.width &&
               prev.height === cfg.height &&
-              prev.orientation === cfg.orientation
+              prev.orientation === cfg.orientation &&
+              prev.displayId === cfg.displayId
                 ? prev
                 : cfg,
             );
@@ -612,12 +748,30 @@ function AppWithConfig({
     },
     [sendWs, logEvent],
   );
+  const sendHardwareButton = useCallback(
+    (press: HardwareButtonPress) => {
+      const commands = foldable ? duoHardwareCommands(press) : null;
+      if (!commands) {
+        sendWs(0x04, press);
+        return;
+      }
+      void (async () => {
+        for (const [index, command] of commands.entries()) {
+          if (index > 0) await new Promise((resolve) => setTimeout(resolve, 150));
+          await hostDeviceMotionRequest({ device: config.device, command: "consumer", ...command });
+        }
+      })().catch((error: unknown) =>
+        setFoldError(error instanceof Error ? error.message : String(error)),
+      );
+    },
+    [foldable, config.device, sendWs],
+  );
   const onStreamButton = useCallback(
     (button: string) => {
-      sendWs(0x04, { button });
+      sendHardwareButton({ button });
       logEvent({ kind: "button", details: { button } });
     },
-    [sendWs, logEvent],
+    [sendHardwareButton, logEvent],
   );
   const onStreamDigitalCrown = useCallback((delta: number) => sendWs(0x0a, { delta }), [sendWs]);
   const onStreamRequestKeyframe = useCallback(() => sendWs(0x0b, {}), [sendWs]);
@@ -641,19 +795,52 @@ function AppWithConfig({
       prev &&
       prev.width === next.width &&
       prev.height === next.height &&
-      prev.orientation === next.orientation
+      prev.orientation === next.orientation &&
+      prev.displayId === next.displayId &&
+      prev.deviceComposition === next.deviceComposition
         ? prev
         : next,
     );
   }, []);
   const rotateDevice = useCallback(
     (orientation: SimulatorOrientation) => {
-      sendWs(0x07, { orientation });
+      if (foldable) {
+        const physical = {
+          portrait: "portrait",
+          portrait_upside_down: "portraitUpsideDown",
+          landscape_left: "landscapeRight",
+          landscape_right: "landscapeLeft",
+        }[orientation];
+        const edit = ++orientationEditRef.current;
+        orientationPendingRef.current = true;
+        setDuoOrientation(orientation);
+        void hostDeviceMotionRequest({
+          device: config.device,
+          command: "orientation",
+          orientation: physical,
+        })
+          .catch((error: unknown) => {
+            if (edit === orientationEditRef.current)
+              setFoldError(error instanceof Error ? error.message : String(error));
+          })
+          .finally(() => {
+            if (edit === orientationEditRef.current) orientationPendingRef.current = false;
+          });
+      } else sendWs(0x07, { orientation });
     },
-    [sendWs],
+    [sendWs, foldable, config.device],
   );
-  const currentOrientation =
-    (activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ?? "portrait";
+  useEffect(() => {
+    if (foldable && streaming)
+      sendWs(0x0f, {
+        rotation: rotationDegreesForOrientation(duoOrientation),
+        scale: deviceScale,
+        includeFrame: showBezels,
+      });
+  }, [foldable, streaming, duoOrientation, deviceScale, showBezels, sendWs]);
+  const currentOrientation = foldable
+    ? duoOrientation
+    : ((activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ?? "portrait");
   const canRotate = deviceType !== "watch" && deviceType !== "vision";
   const rotateBy = useCallback(
     (direction: "left" | "right") => {
@@ -678,12 +865,14 @@ function AppWithConfig({
   // downloads. Failures are non-fatal (the Screenshot card surfaces errors).
   const captureAndDownloadScreenshot = useCallback(async () => {
     try {
-      const shot = await captureScreenshot(config.device);
+      const shot = await captureScreenshot(config.device, {
+        display: activeStreamConfig.displayId ? `${activeStreamConfig.displayId}` : "",
+      });
       downloadScreenshot(shot, screenshotFilename(new Date()));
     } catch (e) {
       console.warn("Screenshot (⌘S) failed:", e);
     }
-  }, [config.device]);
+  }, [config.device, activeStreamConfig.displayId]);
 
   useEffect(() => {
     setLiveStreamConfig(null);
@@ -696,11 +885,18 @@ function AppWithConfig({
       prev &&
       prev.width === streamConfig.width &&
       prev.height === streamConfig.height &&
-      prev.orientation === streamConfig.orientation
+      prev.orientation === streamConfig.orientation &&
+      prev.displayId === streamConfig.displayId
         ? prev
         : null,
     );
-  }, [streamConfig, streamConfig?.width, streamConfig?.height, streamConfig?.orientation]);
+  }, [
+    streamConfig,
+    streamConfig?.width,
+    streamConfig?.height,
+    streamConfig?.orientation,
+    streamConfig?.displayId,
+  ]);
 
   const sendKey = useCallback(
     (type: "down" | "up", usage: number) => {
@@ -809,9 +1005,10 @@ function AppWithConfig({
 
   const simContainerRef = useRef<HTMLDivElement | null>(null);
   const recordingSourceRef = useRef<SimulatorRecordingSource | null>(null);
+  const duoRecordingSourceRef = useRef<SimulatorRecordingSource | null>(null);
   const [simFocused, setSimFocused] = useState(true);
   const simFocusedRef = useRef(true);
-  simFocusedRef.current = simFocused;
+  simFocusedRef.current = simFocused || keyboardCapture;
   const pressedKeysRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
@@ -824,12 +1021,12 @@ function AppWithConfig({
   }, []);
 
   useEffect(() => {
-    if (simFocused) return;
+    if (simFocused || keyboardCapture) return;
     const held = pressedKeysRef.current;
     if (held.size === 0) return;
     for (const usage of held) sendWs(0x06, { type: "up", usage });
     held.clear();
-  }, [simFocused, sendWs]);
+  }, [simFocused, keyboardCapture, sendWs]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent, type: "down" | "up") => {
@@ -870,7 +1067,12 @@ function AppWithConfig({
         if (type === "down" && !e.repeat) toggleSoftwareKeyboard();
         return;
       }
-      if (!simFocusedRef.current) return;
+      const heldUsage = hidUsageForCode(e.code);
+      if (type === "up" && heldUsage != null && pressedKeysRef.current.delete(heldUsage)) {
+        sendWs(0x06, { type, usage: heldUsage });
+        return;
+      }
+      if (!simFocusedRef.current || isPreviewControlTarget(e.target)) return;
       if (e.code === "KeyH" && e.metaKey && e.shiftKey) {
         e.preventDefault();
         if (type === "down" && !e.repeat) goHome();
@@ -1036,12 +1238,15 @@ function AppWithConfig({
     return () => observer.disconnect();
   }, []);
   const deviceAvailWidth = measuredBayWidth > 0 ? measuredBayWidth : computedBayWidth;
-  const deviceAvailHeight = Math.max(0, cardHeight - TOP_BAR_HEIGHT - DEVICE_GAP);
+  const deviceAvailHeight = Math.max(
+    0,
+    cardHeight - TOP_BAR_HEIGHT - DEVICE_GAP - (foldable ? 90 : 0),
+  );
 
   // Which way the device is turned. Prefer the reported orientation; fall back
   // to comparing the streamed aspect against the profile's native one, exactly
   // as the recorder does, so both agree on the frame's rotation.
-  const bezelSpec = config.deviceFrameSpec ?? null;
+  const bezelSpec = selectedFrameSpec ?? config.deviceFrameSpec ?? null;
   const bezelRotation = useMemo(() => {
     const reported = rotationDegreesForOrientation(
       (activeStreamConfig as { orientation?: SimulatorOrientation }).orientation,
@@ -1063,9 +1268,10 @@ function AppWithConfig({
             availHeight: deviceAvailHeight,
             maxScreenWidth: frameMaxWidth,
             maxScale: SIMULATOR_RESIZE_MAX_SCALE,
+            zoom: deviceScale,
           })
         : null,
-    [bezelSpec, bezelRotation, deviceAvailWidth, deviceAvailHeight, frameMaxWidth],
+    [bezelSpec, bezelRotation, deviceAvailWidth, deviceAvailHeight, frameMaxWidth, deviceScale],
   );
 
   // No installed frame profile (vision, or an Xcode without DeviceKit artwork):
@@ -1081,10 +1287,42 @@ function AppWithConfig({
         aspect: frameAspectRatioValue,
         maxWidth: frameMaxWidth,
         maxScale: SIMULATOR_RESIZE_MAX_SCALE,
+        zoom: deviceScale,
       }),
-    [deviceAvailWidth, deviceAvailHeight, frameAspectRatioValue, frameMaxWidth],
+    [deviceAvailWidth, deviceAvailHeight, frameAspectRatioValue, frameMaxWidth, deviceScale],
   );
 
+  const fittedDevice = useMemo(
+    () =>
+      bezelSpec && showBezels
+        ? fitDeviceBezel({
+            spec: bezelSpec,
+            rotation: bezelRotation,
+            availWidth: deviceAvailWidth,
+            availHeight: deviceAvailHeight,
+            maxScreenWidth: frameMaxWidth,
+            maxScale: SIMULATOR_RESIZE_MAX_SCALE,
+          })
+        : fitDeviceFrame({
+            viewportWidth: deviceAvailWidth,
+            viewportHeight: deviceAvailHeight,
+            topBarHeight: 0,
+            sideRailsWidth: 0,
+            assemblyBorder: 0,
+            aspect: frameAspectRatioValue,
+            maxWidth: frameMaxWidth,
+            maxScale: SIMULATOR_RESIZE_MAX_SCALE,
+          }),
+    [
+      bezelSpec,
+      showBezels,
+      bezelRotation,
+      deviceAvailWidth,
+      deviceAvailHeight,
+      frameMaxWidth,
+      frameAspectRatioValue,
+    ],
+  );
   const deviceWidth = bezelGeom ? bezelGeom.width : frameGeom.width;
   // A narrow device (watch, or a tall phone in a short window) would squeeze the
   // toolbar's device name to nothing, so the card keeps its own floor and simply
@@ -1095,13 +1333,13 @@ function AppWithConfig({
   }, []);
   const pressHardwareButton = useCallback(
     (press: HardwareButtonPress) => {
-      sendWs(0x04, press);
+      sendHardwareButton(press);
       logEvent({
         kind: "button",
         details: { button: press.button ?? `usage:0x${(press.usage ?? 0).toString(16)}` },
       });
     },
-    [sendWs, logEvent],
+    [sendHardwareButton, logEvent],
   );
   const screenContent = (
     <>
@@ -1133,7 +1371,7 @@ function AppWithConfig({
         onDecoderRecover={onDecoderRecover}
         onStreamScroll={onStreamScroll}
       />
-      {axOverlayEnabled && <AxDomOverlay />}
+      {axOverlayEnabled && !foldable && <AxDomOverlay />}
       {mediaDrop.isDragOver && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[rgba(0,0,0,0.55)] text-white pointer-events-none">
           <svg
@@ -1177,7 +1415,7 @@ function AppWithConfig({
         {/* Centre — the toolbar card, then the device itself on the canvas. */}
         <div
           ref={centerRef}
-          className="flex min-w-0 flex-1 flex-col items-center justify-center"
+          className="relative flex min-w-0 flex-1 flex-col items-center justify-center"
           style={{ gap: DEVICE_GAP, height: cardHeight }}
         >
           <PanelCard
@@ -1190,9 +1428,7 @@ function AppWithConfig({
             <SimulatorToolbar
               exec={execOnHost}
               onRotate={rotateDevice}
-              orientation={
-                (activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ?? null
-              }
+              orientation={currentOrientation}
               deviceUdid={config.device}
               deviceName={selectedDevice?.name ?? null}
               deviceRuntime={selectedDevice?.runtime ?? null}
@@ -1243,25 +1479,102 @@ function AppWithConfig({
             </SimulatorToolbar>
           </PanelCard>
 
-          {bezelGeom && bezelSpec ? (
-            <DeviceBezel
-              spec={bezelSpec}
-              geometry={bezelGeom}
-              screenRef={attachScreen}
-              onPressButton={pressHardwareButton}
+          {foldable ? (
+            <div
+              ref={attachScreen}
+              className="relative shrink-0"
+              style={{ width: deviceAvailWidth, height: deviceAvailHeight, marginBottom: 16 }}
               {...mediaDrop.dropZoneProps}
             >
-              {screenContent}
-            </DeviceBezel>
+              <div
+                aria-hidden
+                className="pointer-events-none absolute"
+                style={{ width: 1, height: 1, overflow: "hidden", visibility: "hidden" }}
+              >
+                {screenContent}
+              </div>
+              <NativeDuoDevice
+                sourceRef={recordingSourceRef}
+                recordingSourceRef={duoRecordingSourceRef}
+                width={deviceAvailWidth}
+                height={deviceAvailHeight}
+                onTouch={(touch) => sendWs(0x03, touch)}
+                onMultiTouch={(touch) => sendWs(0x05, touch)}
+                onScroll={(scroll) => sendWs(0x0d, scroll)}
+                axEnabled={axOverlayEnabled}
+                includeFrame={showBezels}
+                onBoundsChange={updateDuoBounds}
+              />
+              {duoBounds && (
+                <div
+                  ref={duoResizeRef}
+                  className="absolute pointer-events-none"
+                  style={{
+                    left: duoBounds.x,
+                    top: duoBounds.y,
+                    width: duoBounds.width,
+                    height: duoBounds.height,
+                  }}
+                >
+                  <DeviceResizeHandles
+                    fittedSize={{ width: duoBounds.fittedWidth, height: duoBounds.fittedHeight }}
+                    availableSize={{ width: deviceAvailWidth - 24, height: deviceAvailHeight - 24 }}
+                    scale={deviceScale}
+                    onScaleChange={setDeviceScale}
+                  />
+                </div>
+              )}
+            </div>
           ) : (
-            <BareScreen
-              width={frameGeom.width}
-              height={frameGeom.height}
-              screenRef={attachScreen}
-              {...mediaDrop.dropZoneProps}
+            <div
+              className="relative shrink-0"
+              style={{
+                width: showBezels && bezelGeom ? bezelGeom.width : frameGeom.width,
+                height: showBezels && bezelGeom ? bezelGeom.height : frameGeom.height,
+              }}
             >
-              {screenContent}
-            </BareScreen>
+              {showBezels && bezelGeom && bezelSpec ? (
+                <DeviceBezel
+                  spec={bezelSpec}
+                  geometry={bezelGeom}
+                  screenRef={attachScreen}
+                  onPressButton={pressHardwareButton}
+                  {...mediaDrop.dropZoneProps}
+                >
+                  {screenContent}
+                </DeviceBezel>
+              ) : (
+                <BareScreen
+                  width={frameGeom.width}
+                  height={frameGeom.height}
+                  screenRef={attachScreen}
+                  {...mediaDrop.dropZoneProps}
+                >
+                  {screenContent}
+                </BareScreen>
+              )}
+              <DeviceResizeHandles
+                fittedSize={fittedDevice}
+                availableSize={{ width: deviceAvailWidth - 24, height: deviceAvailHeight - 24 }}
+                scale={deviceScale}
+                onScaleChange={setDeviceScale}
+              />
+            </div>
+          )}
+          {foldable && (
+            <PanelCard
+              className="absolute bottom-0 shrink-0"
+              style={{ width: Math.min(400, deviceAvailWidth) }}
+            >
+              <DeviceMotionTool
+                disabled={!streaming}
+                angle={hingeAngle}
+                pose={duoPose}
+                onAngleChange={changeHingeAngle}
+                onPoseChange={changeDuoPose}
+                error={foldError}
+              />
+            </PanelCard>
           )}
         </div>
 
@@ -1285,12 +1598,42 @@ function AppWithConfig({
                     : null
           }
           udid={config.device}
-          deviceFrameSpec={recordingDeviceFrameSpec}
+          foldable={
+            foldable
+              ? {
+                  angle: hingeAngle,
+                  pose: duoPose,
+                  onAngleChange: changeHingeAngle,
+                  onPoseChange: changeDuoPose,
+                  error: foldError,
+                }
+              : undefined
+          }
+          onOrientationChange={(orientation) => {
+            orientationEditRef.current++;
+            setDuoOrientation(orientation);
+          }}
+          displayId={activeStreamConfig.displayId}
+          view={{
+            bezels: showBezels,
+            scale: deviceScale,
+            slowAnimations,
+            keyboardCapture,
+            onKeyboardCaptureChange: setKeyboardCapture,
+            onBezelsChange: setShowBezels,
+            onScaleChange: setDeviceScale,
+            onSoftwareKeyboard: toggleSoftwareKeyboard,
+            onSlowAnimationsChange: (enabled) => {
+              setSlowAnimations(enabled);
+              sendWs(0x08, { option: "debug_slow_animations", enabled });
+            },
+          }}
+          deviceFrameSpec={foldable ? null : recordingDeviceFrameSpec}
           streaming={streaming}
           streamMode={streamMode}
           streamModeAvailable={useAvccVideo}
           onStreamModeChange={onModeChange}
-          recordingSourceRef={recordingSourceRef}
+          recordingSourceRef={foldable ? duoRecordingSourceRef : recordingSourceRef}
           execToken={config.execToken}
           uiSettingsRevision={uiSettingsRevision}
           currentApp={currentApp}

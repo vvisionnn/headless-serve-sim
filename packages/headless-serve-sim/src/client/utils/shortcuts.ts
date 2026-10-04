@@ -17,6 +17,15 @@ export function isTextEntryTarget(target: EventTarget | null): boolean {
   );
 }
 
+export function isPreviewControlTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  return (
+    isTextEntryTarget(target) ||
+    (!!element && ["BUTTON", "SELECT", "SUMMARY", "A"].includes(element.tagName)) ||
+    !!element?.closest?.('[role="button"], [role="switch"], [role="radio"], [tabindex]')
+  );
+}
+
 export interface ShortcutModifiers {
   code: string;
   metaKey: boolean;

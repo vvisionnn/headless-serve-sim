@@ -1,6 +1,9 @@
 import type { StreamConfig } from "headless-serve-sim-client/simulator";
 
-type ScreenConfigLike = Pick<StreamConfig, "width" | "height" | "orientation">;
+type ScreenConfigLike = Pick<
+  StreamConfig,
+  "width" | "height" | "orientation" | "displayId" | "deviceComposition"
+>;
 
 /**
  * A config with usable pixel dimensions, or null. Guards against a helper that
@@ -32,5 +35,8 @@ export function resolveActiveScreenConfig(sources: {
   injected?: ScreenConfigLike | null;
   fallback: { width: number; height: number };
 }): ScreenConfigLike {
-  return usable(sources.live) ?? usable(sources.ws) ?? usable(sources.injected) ?? sources.fallback;
+  const live = usable(sources.live);
+  const ws = usable(sources.ws);
+  if (ws?.displayId !== undefined && live?.displayId !== ws.displayId) return ws;
+  return live ?? ws ?? usable(sources.injected) ?? sources.fallback;
 }

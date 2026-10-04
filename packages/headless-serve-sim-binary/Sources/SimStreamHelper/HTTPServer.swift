@@ -143,7 +143,7 @@ final class HTTPServer {
         server["/metrics"] = { [weak self] _ in
             guard let self else { return .internalServerError }
             do {
-                let app = try AccessibilityBridge.shared.frontmostApp(udid: self.deviceUDID)
+                let app = try AccessibilityBridge.shared.frontmostApp(udid: self.deviceUDID, displayID: UInt32(self.clientManager.screenConfig()["displayId"] as? Int ?? 0))
                 guard let process = resolveForegroundProcess(
                     app: app,
                     resolvePid: { self.processPidResolver.resolve(bundleId: $0) }
@@ -171,7 +171,8 @@ final class HTTPServer {
         server["/ax"] = { [weak self] _ in
             guard let self else { return .internalServerError }
             do {
-                let data = try AccessibilityBridge.shared.describeUI(udid: self.deviceUDID)
+                let displayID = self.clientManager.screenConfig()["displayId"] as? Int ?? 0
+                let data = try AccessibilityBridge.shared.describeUI(udid: self.deviceUDID, displayID: UInt32(displayID))
                 var headers = self.corsHeaders
                 headers["Content-Type"] = "application/json"
                 headers["Cache-Control"] = "no-cache, no-store"
@@ -202,7 +203,7 @@ final class HTTPServer {
         server["/foreground"] = { [weak self] _ in
             guard let self else { return .internalServerError }
             do {
-                let info = try AccessibilityBridge.shared.frontmostApp(udid: self.deviceUDID)
+                let info = try AccessibilityBridge.shared.frontmostApp(udid: self.deviceUDID, displayID: UInt32(self.clientManager.screenConfig()["displayId"] as? Int ?? 0))
                 let data = try JSONSerialization.data(withJSONObject: info)
                 var headers = self.corsHeaders
                 headers["Content-Type"] = "application/json"

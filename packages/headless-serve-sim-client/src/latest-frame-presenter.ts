@@ -31,11 +31,10 @@ export class LatestFramePresenter<Frame extends ClosableFrame, Metadata> {
       return;
     }
     if (
-      !this.pending &&
-      this.scheduled == null &&
       Number.isFinite(this.immediateIntervalMs) &&
       this.now() - this.lastPresentedAt >= this.immediateIntervalMs
     ) {
+      this.clear(true);
       this.presentAndClose(frame, metadata);
       return;
     }

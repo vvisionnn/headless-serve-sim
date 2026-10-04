@@ -32,6 +32,26 @@ function concat(...parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
+test("keeps native composition metadata adjacent to its encoded frame", () => {
+  const chunks = new AvccDemuxer().push(
+    concat(frame(0x07, [123, 125]), frame(AVCC_TAG_KEYFRAME, [9])),
+  );
+  expect(chunks.map((chunk) => chunk.type)).toEqual(["metadata", "keyframe"]);
+});
+
+test("keeps native sample timing adjacent to its composition and encoded picture", () => {
+  const payload = new Uint8Array(24);
+  const view = new DataView(payload.buffer);
+  view.setBigUint64(0, 123456789012n);
+  view.setBigUint64(8, 16667n);
+  view.setBigUint64(16, 17n);
+  const chunks = new AvccDemuxer().push(
+    concat(frame(0x08, [...payload]), frame(0x07, [123, 125]), frame(AVCC_TAG_KEYFRAME, [9])),
+  );
+  expect(chunks.map((chunk) => chunk.type)).toEqual(["timing", "metadata", "keyframe"]);
+  expect(chunks[0]!.payload).toEqual(payload);
+});
+
 describe("AvccDemuxer", () => {
   test("parses a single complete chunk", () => {
     const d = new AvccDemuxer();

@@ -20,6 +20,9 @@ guard args.count >= 2 else {
 }
 
 let deviceUDID = args[1]
+FrameCapture.loadSimulatorFrameworks()
+let deviceType = FrameCapture.findSimDevice(udid: deviceUDID)?.value(forKey: "deviceType") as? NSObject
+let isDuo = deviceType?.value(forKey: "identifier") as? String == "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo"
 var port: UInt16 = 3100
 var listenHost: String? = "127.0.0.1"
 
@@ -34,7 +37,7 @@ if let hostIdx = args.firstIndex(of: "--host"), hostIdx + 1 < args.count {
 
 // Streaming quality mode: perf (default) favors smoothness on weak links;
 // quality spends more bits. Set via env or --mode; also switchable live over /ws.
-var streamMode: StreamMode = .perf
+var streamMode: StreamMode = isDuo ? .quality : .perf
 if let envMode = ProcessInfo.processInfo.environment["SERVE_SIM_STREAM_MODE"],
    let m = StreamMode(rawValue: envMode) {
     streamMode = m
@@ -68,7 +71,7 @@ if let raw = ProcessInfo.processInfo.environment["SERVE_SIM_H264_BASE_LAYER"],
 let temporalLayerDescription = temporalLayerFraction.map { "\($0)" } ?? "off"
 print("[main] H.264 base-layer fraction: \(temporalLayerDescription)")
 
-let useLowLatency = ProcessInfo.processInfo.environment["SERVE_SIM_H264_LOW_LATENCY"] != "0"
+let useLowLatency = !isDuo && ProcessInfo.processInfo.environment["SERVE_SIM_H264_LOW_LATENCY"] != "0"
 var expectedFrameRateOverride: Int?
 if let raw = ProcessInfo.processInfo.environment["SERVE_SIM_H264_EXPECTED_FPS"],
    let parsed = Int(raw), parsed > 0 {
@@ -82,16 +85,23 @@ if let raw = ProcessInfo.processInfo.environment["SERVE_SIM_H264_MAX_DIMENSION"]
    let parsed = Int(raw), parsed >= 64 {
     h264MaxDimension = parsed
 }
+if isDuo { h264MaxDimension = max(h264MaxDimension, DuoOutput.maxEncodedDimension) }
 print("[main] H.264 max encoded dimension: \(h264MaxDimension)")
 
-let avccHighWaterBytes = 256 * 1024
+let avccHighWaterBytes = isDuo ? 2 * 1024 * 1024 : 256 * 1024
 let httpServer = HTTPServer(deviceUDID: deviceUDID, port: port, listenHost: listenHost)
 let frameCapture = FrameCapture()
+frameCapture.onDisplayChanged = { displayID, rotation in
+    hidInjector.setActiveDisplayID(frameCapture.touchDisplayID, rotation: rotation,
+                                   hasMultipleIntegratedDisplays: frameCapture.hasMultipleIntegratedDisplays)
+    httpServer.clientManager.setDisplay(id: displayID, rotation: rotation)
+    duoPump?.update(displayId: displayID)
+}
 let frameSnapshotter = FrameSnapshotter()
 let frameAdmission = FrameAdmissionController(maxH264InFlight: h264InFlightDepth)
 let keyframeRequest = KeyframeRequest()
 let jpegSeedRequest = KeyframeRequest()
-let videoEncoder = VideoEncoder(quality: 0.7)
+let videoEncoder = VideoEncoder(quality: isDuo ? 0.95 : 0.7)
 let h264Encoder = H264Encoder(
     fps: 60,
     maxQP: streamMode == .quality ? 40 : 48,
@@ -151,6 +161,7 @@ h264Encoder.onEncoded = { encoded in
 httpServer.clientManager.onAvccClientConnect = {
     keyframeRequest.request()
     jpegSeedRequest.request()
+    duoPump?.update()
 }
 // A viewer's send queue overflowed (or it explicitly asked over /ws) — force a
 // fresh IDR so it can resync after we dropped deltas.
@@ -225,9 +236,11 @@ do {
 
 // Wire client manager → HID injector
 httpServer.clientManager.onTouch = { touch in
+    let displayID = touch.displayId.flatMap { frameCapture.connectedIntegratedDisplayID($0) }
+    guard touch.displayId == nil || displayID != nil else { return }
     hidInjector.sendTouch(type: touch.type, x: touch.x, y: touch.y,
                           screenWidth: screenWidth, screenHeight: screenHeight,
-                          edge: touch.edge ?? 0)
+                          edge: touch.edge ?? 0, displayID: displayID)
 }
 httpServer.clientManager.onButton = { payload in
     // A raw usage takes precedence: the bezel's hardware buttons send page +
@@ -241,10 +254,13 @@ httpServer.clientManager.onButton = { payload in
     hidInjector.sendButton(button: button, deviceUDID: deviceUDID)
 }
 httpServer.clientManager.onMultiTouch = { multiTouch in
+    let displayID = multiTouch.displayId.flatMap { frameCapture.connectedIntegratedDisplayID($0) }
+    guard multiTouch.displayId == nil || displayID != nil else { return }
     hidInjector.sendMultiTouch(type: multiTouch.type,
                                x1: multiTouch.x1, y1: multiTouch.y1,
                                x2: multiTouch.x2, y2: multiTouch.y2,
-                               screenWidth: screenWidth, screenHeight: screenHeight)
+                               screenWidth: screenWidth, screenHeight: screenHeight,
+                               displayID: displayID)
 }
 httpServer.clientManager.onKey = { key in
     hidInjector.sendKey(type: key.type, usage: key.usage)
@@ -280,6 +296,8 @@ do {
 
 // Begin adaptive bitrate/QP control (no-op until a viewer connects).
 adaptiveDriver.start()
+
+var duoPump: DuoFramePump?
 
 // Start frame capture — encoder is initialized lazily on first frame.
 // The framebuffer surface may not be available immediately after boot,
@@ -362,6 +380,64 @@ let frameHandler: (CVPixelBuffer, CMTime, Bool) -> Void = { pixelBuffer, timesta
     }
 }
 
+let modelPath = URL(fileURLWithPath: FrameCapture.getDeveloperDir()).appendingPathComponent("../SharedFrameworks/DeviceKit.framework/Versions/A/PlugIns/CoreDevicePopDeviceKitExtension.devicekitplugin/Contents/Resources/V68.usdz").standardizedFileURL
+if isDuo, #available(macOS 15.0, *) {
+    let panelSnapshotters = [1: FrameSnapshotter(), 3: FrameSnapshotter()]
+    duoPump = DuoFramePump { panels, state in
+        await nativeDuoCompose(panels: panels, state: state)
+    }
+    frameCapture.onPanelFrame = { id, buffer in
+        guard let snapshot = panelSnapshotters[id]?.snapshot(buffer) else { return }
+        duoPump?.offer(panel: id, buffer: snapshot)
+    }
+    frameCapture.onHingeChanged = { angle in duoPump?.update(angle: angle) }
+    frameCapture.onDisplayBlanked = { id, blanked in duoPump?.update(blankedDisplay: id, blanked: blanked) }
+    httpServer.clientManager.onDeviceView = { view in duoPump?.update(rotation: view.rotation, scale: view.scale, includeFrame: view.includeFrame) }
+    httpServer.clientManager.setDeviceComposition(true)
+}
+
+@available(macOS 15.0, *) @MainActor enum NativeDuo {
+    static var renderer: DuoRenderer?
+    static let rawRenderer = RawPanelRenderer()
+}
+@available(macOS 15.0, *) @MainActor func nativeDuoCompose(panels: [Int: CVPixelBuffer], state: DuoFramePump.State) async {
+    let id = frameCapture.activeDisplayID ?? 3
+    let rawRotation = frameCapture.displayRotation
+    guard let panel = panels[id] else { return }
+    do {
+        let buffer: CVPixelBuffer
+        let pieces: [[String: Any]], bounds: [Double], mask: String, scale: Double
+        if state.includeFrame {
+            if NativeDuo.renderer == nil { NativeDuo.renderer = try await DuoRenderer(modelURL: modelPath) }
+            guard let renderer = NativeDuo.renderer else { return }
+            renderer.update(angle: state.angle, rotation: state.rotation, scale: DuoOutput.renderScale(for: state.scale), width: DuoOutput.size.width, height: DuoOutput.size.height, yaw: state.yaw)
+            buffer = try await renderer.render(panels: panels, blankedDisplays: state.blankedDisplays)
+            pieces = renderer.projectionPieces.map { piece -> [String: Any] in
+                var result = piece
+                result["region"] = result.removeValue(forKey: "rect")
+                return result
+            }
+            bounds = renderer.frameBounds
+            mask = renderer.alphaMask
+            scale = state.scale
+        } else {
+            let renderer = NativeDuo.rawRenderer
+            buffer = try renderer.render(panel, displayId: id, rotation: rawRotation, scale: DuoOutput.renderScale(for: state.scale), width: DuoOutput.size.width, height: DuoOutput.size.height, blanked: state.blankedDisplays.contains(id))
+            pieces = renderer.projectionPieces
+            bounds = renderer.frameBounds
+            mask = renderer.alphaMask
+            scale = state.scale
+        }
+        let metadata: [String: Any] = ["includeFrame": state.includeFrame,
+            "angle": state.angle, "rotation": state.rotation, "scale": scale,
+            "displayId": id, "blanked": state.blankedDisplays.contains(id), "rawWidth": CVPixelBufferGetWidth(panel), "rawHeight": CVPixelBufferGetHeight(panel),
+            "rawRotation": rawRotation, "mask": mask, "bounds": bounds, "pieces": pieces]
+        let data = try JSONSerialization.data(withJSONObject: metadata)
+        CVBufferSetAttachment(buffer, "headless-serve-sim.composition" as CFString, data as CFData, .shouldPropagate)
+        frameHandler(buffer, CMClockGetTime(CMClockGetHostTimeClock()), true)
+    } catch { fputs("[duo] Native render failed: \(error)\n", stderr) }
+}
+
 do {
     try frameCapture.start(
         deviceUDID: deviceUDID,
@@ -376,7 +452,8 @@ do {
             }
         },
         requiresIdleFrame: {
-            httpServer.clientManager.hasMJPEGClients() || keyframeRequest.isPending()
+            if duoPump != nil, keyframeRequest.isPending() { duoPump?.update() }
+            return httpServer.clientManager.hasMJPEGClients() || keyframeRequest.isPending()
         },
         onFrame: frameHandler
     )
@@ -392,6 +469,7 @@ do {
 signal(SIGINT) { _ in
     print("\n[main] Shutting down...")
     frameCapture.stop()
+    duoPump?.stop()
     videoEncoder.stop()
     h264Encoder.stop()
     adaptiveDriver.stop()
@@ -401,6 +479,7 @@ signal(SIGINT) { _ in
 
 signal(SIGTERM) { _ in
     frameCapture.stop()
+    duoPump?.stop()
     videoEncoder.stop()
     h264Encoder.stop()
     adaptiveDriver.stop()

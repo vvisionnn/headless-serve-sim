@@ -212,6 +212,52 @@
   outline-offset: 2px;
 }
 
+.duo-pose-button[data-selected="true"] button {
+  background: var(--color-accent-tint);
+  border-color: var(--color-control-border);
+  color: var(--color-fg);
+}
+.duo-hinge-slider {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 28px;
+  background: transparent;
+  cursor: ew-resize;
+}
+.duo-hinge-slider::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-track-fill);
+}
+.duo-hinge-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 14px;
+  width: 14px;
+  margin-top: -5.5px;
+  border-radius: 4px;
+  background: var(--color-thumb);
+  border: 1px solid var(--color-control-border);
+  box-shadow: 0 1px 2px var(--color-scrim);
+}
+.duo-hinge-slider::-moz-range-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-track-fill);
+}
+.duo-hinge-slider::-moz-range-thumb {
+  height: 14px;
+  width: 14px;
+  border-radius: 4px;
+  background: var(--color-thumb);
+  border: 1px solid var(--color-control-border);
+}
+.duo-hinge-slider:focus-visible {
+  outline: 2px solid var(--color-accent-solid);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 /* Scrollbars inside cards: a thin dark thumb on no track, so a long panel
    reports its length without drawing a second border down its edge. */
 .bg-inset::-webkit-scrollbar,

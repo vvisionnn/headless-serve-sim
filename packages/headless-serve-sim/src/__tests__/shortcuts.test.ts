@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   isSoftwareKeyboardShortcut,
   isTextEntryTarget,
+  isPreviewControlTarget,
   type ShortcutModifiers,
 } from "../client/utils/shortcuts";
 
@@ -36,6 +37,13 @@ describe("isSoftwareKeyboardShortcut", () => {
     expect(isSoftwareKeyboardShortcut(keyEvent({ altKey: true }))).toBe(false);
     expect(isSoftwareKeyboardShortcut(keyEvent({ ctrlKey: true }))).toBe(false);
   });
+});
+
+test("keyboard capture leaves native preview controls operable", () => {
+  for (const tagName of ["BUTTON", "SELECT", "SUMMARY", "A"]) {
+    expect(isPreviewControlTarget({ tagName } as unknown as EventTarget)).toBe(true);
+  }
+  expect(isPreviewControlTarget({ tagName: "CANVAS" } as unknown as EventTarget)).toBe(false);
 });
 
 describe("isTextEntryTarget", () => {

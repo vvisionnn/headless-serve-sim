@@ -1,4 +1,6 @@
 import { simEndpoint } from "./sim-endpoint";
+import type { ConsumerHIDPhase, DeviceMotionState } from "../../device-motion";
+import type { SimulatorControlState } from "../../simulator-controls";
 
 export interface ExecResult {
   stdout: string;
@@ -37,6 +39,8 @@ type SocketReply = {
   error?: string;
   status?: Record<string, string>;
   ok?: boolean;
+  motion?: DeviceMotionState;
+  state?: SimulatorControlState;
 };
 
 interface PendingRequest {
@@ -220,6 +224,37 @@ export async function hostUiRequest(
   const reply = await socketRequest({ ui: payload }, opts?.signal);
   if (reply.error) throw new Error(reply.error);
   return reply.status ?? null;
+}
+
+export async function hostDeviceMotionRequest(
+  payload: {
+    device: string;
+    command: string;
+    angle?: number;
+    pose?: string;
+    orientation?: string;
+    usagePage?: number;
+    usage?: number;
+    phase?: ConsumerHIDPhase;
+  },
+  opts?: { signal?: AbortSignal },
+): Promise<DeviceMotionState | null> {
+  const reply = await socketRequest({ ui: { action: "device-motion", ...payload } }, opts?.signal);
+  if (reply.error) throw new Error(reply.error);
+  return reply.motion ?? null;
+}
+
+export async function hostSimulatorControlRequest(
+  payload: { device: string; option?: string; value?: unknown },
+  opts?: { signal?: AbortSignal },
+): Promise<SimulatorControlState> {
+  const reply = await socketRequest(
+    { ui: { action: "simulator-control", ...payload } },
+    opts?.signal,
+  );
+  if (reply.error) throw new Error(reply.error);
+  if (!reply.state) throw new Error("Simulator control state unavailable");
+  return reply.state;
 }
 
 export function shellEscape(s: string): string {

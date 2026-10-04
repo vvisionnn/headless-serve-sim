@@ -135,6 +135,53 @@ function drawAsset(
   context.drawImage(images.get(asset.pngDataUrl)!, rect.x, rect.y, rect.width, rect.height);
 }
 
+function paintComposite(
+  context: CanvasRenderingContext2D,
+  frame: DeviceFrameSpec,
+  images: ReadonlyMap<string, CanvasImageSource>,
+): void {
+  const artwork = frame.artwork!;
+  const composite = artwork.composite!;
+  const chrome = artwork.chromeRectPx;
+  if (composite.width === chrome.width && composite.height === chrome.height) {
+    drawAsset(context, images, composite, chrome);
+    return;
+  }
+
+  // Only the straight edges/interior resize; border widths and corners stay native-sized.
+  const capX = Math.min(frame.outerRadiiPx.x, composite.width / 2, chrome.width / 2);
+  const capY = Math.min(frame.outerRadiiPx.y, composite.height / 2, chrome.height / 2);
+  const sourceX = [0, capX, composite.width - capX, composite.width];
+  const sourceY = [0, capY, composite.height - capY, composite.height];
+  const targetX = [
+    chrome.x,
+    chrome.x + capX,
+    chrome.x + chrome.width - capX,
+    chrome.x + chrome.width,
+  ];
+  const targetY = [
+    chrome.y,
+    chrome.y + capY,
+    chrome.y + chrome.height - capY,
+    chrome.y + chrome.height,
+  ];
+  for (let y = 0; y < 3; y++) {
+    for (let x = 0; x < 3; x++) {
+      context.drawImage(
+        images.get(composite.pngDataUrl)!,
+        sourceX[x]!,
+        sourceY[y]!,
+        sourceX[x + 1]! - sourceX[x]!,
+        sourceY[y + 1]! - sourceY[y]!,
+        targetX[x]!,
+        targetY[y]!,
+        targetX[x + 1]! - targetX[x]!,
+        targetY[y + 1]! - targetY[y]!,
+      );
+    }
+  }
+}
+
 export function paintDeviceFrameArtwork(
   context: CanvasRenderingContext2D,
   frame: DeviceFrameSpec,
@@ -143,8 +190,9 @@ export function paintDeviceFrameArtwork(
 ): boolean {
   const artwork = frame.artwork;
   if (!artwork) return false;
+  if (!artwork.composite && !artwork.slices) return false;
   const assets = [
-    ...Object.values(artwork.slices),
+    ...(artwork.composite ? [artwork.composite] : Object.values(artwork.slices!)),
     ...artwork.controls.map((control) => control.image),
   ];
   if (assets.some((asset) => !images.has(asset.pngDataUrl))) return false;
@@ -157,57 +205,61 @@ export function paintDeviceFrameArtwork(
   }
 
   const chrome = artwork.chromeRectPx;
-  const slices = artwork.slices;
-  const right = chrome.x + chrome.width;
-  const bottom = chrome.y + chrome.height;
-  drawAsset(context, images, slices.topLeft, {
-    x: chrome.x,
-    y: chrome.y,
-    width: slices.topLeft.width,
-    height: slices.topLeft.height,
-  });
-  drawAsset(context, images, slices.top, {
-    x: chrome.x + slices.topLeft.width,
-    y: chrome.y,
-    width: Math.max(0, chrome.width - slices.topLeft.width - slices.topRight.width),
-    height: slices.top.height,
-  });
-  drawAsset(context, images, slices.topRight, {
-    x: right - slices.topRight.width,
-    y: chrome.y,
-    width: slices.topRight.width,
-    height: slices.topRight.height,
-  });
-  drawAsset(context, images, slices.right, {
-    x: right - slices.right.width,
-    y: chrome.y + slices.topRight.height,
-    width: slices.right.width,
-    height: Math.max(0, chrome.height - slices.topRight.height - slices.bottomRight.height),
-  });
-  drawAsset(context, images, slices.bottomRight, {
-    x: right - slices.bottomRight.width,
-    y: bottom - slices.bottomRight.height,
-    width: slices.bottomRight.width,
-    height: slices.bottomRight.height,
-  });
-  drawAsset(context, images, slices.bottom, {
-    x: chrome.x + slices.bottomLeft.width,
-    y: bottom - slices.bottom.height,
-    width: Math.max(0, chrome.width - slices.bottomLeft.width - slices.bottomRight.width),
-    height: slices.bottom.height,
-  });
-  drawAsset(context, images, slices.bottomLeft, {
-    x: chrome.x,
-    y: bottom - slices.bottomLeft.height,
-    width: slices.bottomLeft.width,
-    height: slices.bottomLeft.height,
-  });
-  drawAsset(context, images, slices.left, {
-    x: chrome.x,
-    y: chrome.y + slices.topLeft.height,
-    width: slices.left.width,
-    height: Math.max(0, chrome.height - slices.topLeft.height - slices.bottomLeft.height),
-  });
+  if (artwork.composite) {
+    paintComposite(context, frame, images);
+  } else {
+    const slices = artwork.slices!;
+    const right = chrome.x + chrome.width;
+    const bottom = chrome.y + chrome.height;
+    drawAsset(context, images, slices.topLeft, {
+      x: chrome.x,
+      y: chrome.y,
+      width: slices.topLeft.width,
+      height: slices.topLeft.height,
+    });
+    drawAsset(context, images, slices.top, {
+      x: chrome.x + slices.topLeft.width,
+      y: chrome.y,
+      width: Math.max(0, chrome.width - slices.topLeft.width - slices.topRight.width),
+      height: slices.top.height,
+    });
+    drawAsset(context, images, slices.topRight, {
+      x: right - slices.topRight.width,
+      y: chrome.y,
+      width: slices.topRight.width,
+      height: slices.topRight.height,
+    });
+    drawAsset(context, images, slices.right, {
+      x: right - slices.right.width,
+      y: chrome.y + slices.topRight.height,
+      width: slices.right.width,
+      height: Math.max(0, chrome.height - slices.topRight.height - slices.bottomRight.height),
+    });
+    drawAsset(context, images, slices.bottomRight, {
+      x: right - slices.bottomRight.width,
+      y: bottom - slices.bottomRight.height,
+      width: slices.bottomRight.width,
+      height: slices.bottomRight.height,
+    });
+    drawAsset(context, images, slices.bottom, {
+      x: chrome.x + slices.bottomLeft.width,
+      y: bottom - slices.bottom.height,
+      width: Math.max(0, chrome.width - slices.bottomLeft.width - slices.bottomRight.width),
+      height: slices.bottom.height,
+    });
+    drawAsset(context, images, slices.bottomLeft, {
+      x: chrome.x,
+      y: bottom - slices.bottomLeft.height,
+      width: slices.bottomLeft.width,
+      height: slices.bottomLeft.height,
+    });
+    drawAsset(context, images, slices.left, {
+      x: chrome.x,
+      y: chrome.y + slices.topLeft.height,
+      width: slices.left.width,
+      height: Math.max(0, chrome.height - slices.topLeft.height - slices.bottomLeft.height),
+    });
+  }
 
   for (const control of artwork.controls) {
     if (!includeControls) break;
@@ -258,7 +310,7 @@ async function prepare(
   if (!artwork) return null;
   try {
     const assets = [
-      ...Object.values(artwork.slices),
+      ...(artwork.composite ? [artwork.composite] : Object.values(artwork.slices ?? {})),
       ...artwork.controls.map((control) => control.image),
     ];
     const urls = [...new Set(assets.map((asset) => asset.pngDataUrl))];

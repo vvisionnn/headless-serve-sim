@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useRef } from "react";
+import {
+  extractJpegComposition,
+  type SimulatorComposition,
+} from "headless-serve-sim-client/simulator";
 import { createMjpegFrameParser } from "../utils/mjpeg-frame-parser";
 
 /**
@@ -13,14 +17,19 @@ import { createMjpegFrameParser } from "../utils/mjpeg-frame-parser";
  * arrives over the input WebSocket — so this hook only deals with frame bytes.
  */
 export function useMjpegStream(streamUrl: string | null) {
-  const subscribersRef = useRef<Set<(blobUrl: string, bytes?: number) => void>>(new Set());
+  const subscribersRef = useRef<
+    Set<(blobUrl: string, bytes?: number, composition?: SimulatorComposition) => void>
+  >(new Set());
 
-  const subscribeFrame = useCallback((cb: (blobUrl: string, bytes?: number) => void) => {
-    subscribersRef.current.add(cb);
-    return () => {
-      subscribersRef.current.delete(cb);
-    };
-  }, []);
+  const subscribeFrame = useCallback(
+    (cb: (blobUrl: string, bytes?: number, composition?: SimulatorComposition) => void) => {
+      subscribersRef.current.add(cb);
+      return () => {
+        subscribersRef.current.delete(cb);
+      };
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!streamUrl) return;
@@ -55,7 +64,7 @@ export function useMjpegStream(streamUrl: string | null) {
 
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done || stopped) break;
 
           for (const jpeg of parser.push(value)) {
             // Blob copies synchronously, so the parser's view can be reused
@@ -66,8 +75,9 @@ export function useMjpegStream(streamUrl: string | null) {
               URL.revokeObjectURL(blobUrl);
               continue;
             }
+            const composition = extractJpegComposition(jpeg);
             for (const cb of subscribersRef.current) {
-              cb(blobUrl, jpeg.byteLength);
+              cb(blobUrl, jpeg.byteLength, composition);
             }
           }
         }

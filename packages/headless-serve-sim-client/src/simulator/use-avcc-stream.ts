@@ -1,4 +1,6 @@
 import { useEffect } from "react";
+import type { SimulatorComposition } from "../types.js";
+import { extractJpegComposition } from "../jpeg-composition.js";
 import {
   AvccDemuxer,
   avcCodecString,
@@ -22,7 +24,21 @@ export interface AvccFrameInfo {
   keyframe: boolean;
   /** Cumulative count of pipeline recoveries (decoder recreated / reconnected). */
   recoveries: number;
+  composition?: SimulatorComposition;
 }
+
+export type AvccEncodedEvent =
+  | { type: "description"; data: Uint8Array }
+  | {
+      type: "picture";
+      keyframe: boolean;
+      data: Uint8Array;
+      timestampMicroseconds: number;
+      durationMicroseconds: number;
+      sequence: number;
+      composition?: SimulatorComposition;
+    }
+  | { type: "error"; error: Error };
 
 export interface UseAvccStreamOptions {
   /** Base server URL, e.g. "http://localhost:3100". */
@@ -50,6 +66,8 @@ export interface UseAvccStreamOptions {
    * delivering bytes while painting nothing, so byte arrival — not paint — is
    * what proves the stream is still alive. */
   onProgress?: () => void;
+  /** Encoded source packets, before any decoder-only backpressure decisions. */
+  onEncoded?: (event: AvccEncodedEvent) => void;
 }
 
 /**
@@ -76,6 +94,7 @@ export function useAvccStream({
   onDecoderError,
   onRequestKeyframe,
   onProgress,
+  onEncoded,
 }: UseAvccStreamOptions): void {
   useEffect(() => {
     if (!enabled || !isAvccSupported()) return;
@@ -86,6 +105,7 @@ export function useAvccStream({
     let currentCodec: string | null = null;
     let currentDescription: Uint8Array | null = null;
     let decoderGeneration = 0;
+    let connectionGeneration = 0;
     let dropped = 0;
     let recoveries = 0;
     // True until the next keyframe decodes. While set, deltas are skipped so we
@@ -103,7 +123,16 @@ export function useAvccStream({
       t0: number;
       keyframe: boolean;
       generation: number;
+      composition?: SimulatorComposition;
     }[] = [];
+    let composition: SimulatorComposition | undefined;
+    let sourceTiming:
+      | {
+          timestampMicroseconds: number;
+          durationMicroseconds: number;
+          sequence: number;
+        }
+      | undefined;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let connController: AbortController | null = null;
     let reconnecting = false;
@@ -168,7 +197,7 @@ export function useAvccStream({
       },
       () => dropped++,
       () => performance.now(),
-      12,
+      1000 / 120,
     );
 
     let decoder: VideoDecoder | null = null;
@@ -184,6 +213,23 @@ export function useAvccStream({
             frame.close();
             return;
           }
+          if (pend.composition && frame.displayWidth * frame.displayHeight >= 8_000_000) {
+            presenter.clear(true);
+            try {
+              paint(frame, frame.displayWidth, frame.displayHeight, {
+                bytes: pend.bytes,
+                decodeMs: performance.now() - pend.t0,
+                codec: currentCodec,
+                keyframe: pend.keyframe,
+                recoveries,
+                composition: pend.composition,
+                dropped,
+              });
+            } finally {
+              frame.close();
+            }
+            return;
+          }
           presenter.enqueue(frame, {
             width: frame.displayWidth,
             height: frame.displayHeight,
@@ -193,6 +239,7 @@ export function useAvccStream({
               codec: currentCodec,
               keyframe: pend.keyframe,
               recoveries,
+              composition: pend.composition,
             },
           });
         },
@@ -244,6 +291,7 @@ export function useAvccStream({
     };
 
     const resetDecoderForKeyframe = () => {
+      onEncoded?.({ type: "error", error: new Error("encoded reference chain reset") });
       recoveries++;
       awaitingKeyframe = true;
       closeDecoder();
@@ -267,16 +315,50 @@ export function useAvccStream({
     };
 
     const handleChunk = (
-      type: "description" | "keyframe" | "delta" | "seed" | "disposable-delta",
+      type:
+        | "description"
+        | "keyframe"
+        | "delta"
+        | "seed"
+        | "disposable-delta"
+        | "metadata"
+        | "timing",
       payload: Uint8Array,
     ) => {
+      if (type === "timing") {
+        sourceTiming = undefined;
+        if (payload.byteLength === 24) {
+          const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+          const timestampMicroseconds = Number(view.getBigUint64(0));
+          const durationMicroseconds = Number(view.getBigUint64(8));
+          const sequence = Number(view.getBigUint64(16));
+          if (
+            Number.isSafeInteger(timestampMicroseconds) &&
+            Number.isSafeInteger(durationMicroseconds) &&
+            durationMicroseconds > 0 &&
+            Number.isSafeInteger(sequence)
+          )
+            sourceTiming = { timestampMicroseconds, durationMicroseconds, sequence };
+        }
+        return;
+      }
+      if (type === "metadata") {
+        try {
+          composition = JSON.parse(new TextDecoder().decode(payload)) as SimulatorComposition;
+        } catch {
+          composition = undefined;
+        }
+        return;
+      }
       if (type === "seed") {
         // JPEG seed — paint immediately for an instant first frame.
         const seedBytes = payload.byteLength;
+        const seedComposition = extractJpegComposition(payload);
+        const seedGeneration = connectionGeneration;
         createImageBitmap(new Blob([payload as BlobPart], { type: "image/jpeg" }))
           .then((bmp) => {
             try {
-              if (!stopped && !painted) {
+              if (!stopped && !painted && seedGeneration === connectionGeneration) {
                 paint(bmp, bmp.width, bmp.height, {
                   bytes: seedBytes,
                   decodeMs: null,
@@ -284,6 +366,7 @@ export function useAvccStream({
                   dropped,
                   keyframe: false,
                   recoveries,
+                  composition: seedComposition,
                 });
               }
             } finally {
@@ -294,12 +377,24 @@ export function useAvccStream({
         return;
       }
       if (type === "description") {
+        onEncoded?.({ type: "description", data: payload });
         // A reconfigure invalidates any in-flight decodes for the old config and
         // requires a fresh IDR before any delta will decode.
         configureDecoder(payload);
         return;
       }
       // keyframe | reference delta | disposable temporal enhancement delta
+      const timing = sourceTiming;
+      sourceTiming = undefined;
+      if (timing)
+        onEncoded?.({
+          type: "picture",
+          keyframe: type === "keyframe",
+          data: payload,
+          ...timing,
+          composition,
+        });
+      else onEncoded?.({ type: "error", error: new Error("encoded frame timing is unavailable") });
       if (!decoder || decoder.state !== "configured") {
         dropped++;
         return;
@@ -345,6 +440,7 @@ export function useAvccStream({
           t0,
           keyframe: type === "keyframe",
           generation: decoderGeneration,
+          composition,
         });
         timestamp += 16667; // ~60fps tick; not displayed, just monotonic.
       } catch {
@@ -356,7 +452,11 @@ export function useAvccStream({
 
     const reconnect = () => {
       if (stopped || reconnecting) return;
+      onEncoded?.({ type: "error", error: new Error("encoded stream disconnected") });
+      sourceTiming = undefined;
       reconnecting = true;
+      connectionGeneration++;
+      composition = undefined;
       recoveries++;
       closeDecoder();
       currentCodec = null;
@@ -399,6 +499,8 @@ export function useAvccStream({
     }, 250);
 
     const read = async () => {
+      connectionGeneration++;
+      composition = undefined;
       const ctrl = new AbortController();
       connController = ctrl;
       connectionStartedAtMs = performance.now();
@@ -423,13 +525,18 @@ export function useAvccStream({
       } catch {
         /* aborted or network error */
       } finally {
-        if (!stopped && !reconnecting && connController === ctrl) scheduleRetry();
+        if (!stopped && !reconnecting && connController === ctrl) {
+          onEncoded?.({ type: "error", error: new Error("encoded stream disconnected") });
+          sourceTiming = undefined;
+          scheduleRetry();
+        }
       }
     };
 
     void read();
 
     return () => {
+      onEncoded?.({ type: "error", error: new Error("encoded stream disconnected") });
       stopped = true;
       if (retryTimer) clearTimeout(retryTimer);
       clearInterval(watchdogTimer);
@@ -448,5 +555,6 @@ export function useAvccStream({
     onDecoderError,
     onRequestKeyframe,
     onProgress,
+    onEncoded,
   ]);
 }

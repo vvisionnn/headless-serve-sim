@@ -2,10 +2,11 @@ import { resolve } from "path";
 import { findBootedDevice, resolveDevice } from "./device";
 import type { HostCommands } from "./runtime/host-commands";
 import { createNodeHostCommands } from "./runtime/node-host-commands";
+import { activeDisplayId } from "./active-display";
 
 // ─── Argument parsing ───
 //
-// `screenshot [path] [--type <png|jpeg|tiff|bmp>] [--display <internal|external>]
+// `screenshot [path] [--type <png|jpeg|tiff|bmp>] [--display <screen-id|internal|external>]
 //             [--mask <ignored|alpha|black>] [-d <udid|name>] [-q]`
 //
 // Single-action verb (no sub-verbs). Captures the simulator display to a PNG (or
@@ -18,7 +19,7 @@ export const SCREENSHOT_DISPLAYS = ["internal", "external"] as const;
 export const SCREENSHOT_MASKS = ["ignored", "alpha", "black"] as const;
 
 export type ScreenshotType = (typeof SCREENSHOT_TYPES)[number];
-export type ScreenshotDisplay = (typeof SCREENSHOT_DISPLAYS)[number];
+export type ScreenshotDisplay = (typeof SCREENSHOT_DISPLAYS)[number] | `${number}`;
 export type ScreenshotMask = (typeof SCREENSHOT_MASKS)[number];
 
 export interface ParsedScreenshot {
@@ -34,7 +35,7 @@ function isType(v: string): v is ScreenshotType {
   return (SCREENSHOT_TYPES as readonly string[]).includes(v);
 }
 function isDisplay(v: string): v is ScreenshotDisplay {
-  return (SCREENSHOT_DISPLAYS as readonly string[]).includes(v);
+  return (SCREENSHOT_DISPLAYS as readonly string[]).includes(v) || /^[1-9]\d*$/.test(v);
 }
 function isMask(v: string): v is ScreenshotMask {
   return (SCREENSHOT_MASKS as readonly string[]).includes(v);
@@ -113,6 +114,7 @@ interface ScreenshotCaptureOptions {
   now?: () => number;
   cwd?: () => string;
   resolvePath?: (...paths: string[]) => string;
+  activeDisplay?: (udid: string) => Promise<ScreenshotDisplay | undefined>;
 }
 
 export interface ScreenshotCaptureModule {
@@ -133,7 +135,8 @@ export function createScreenshotCapture(
         ? resolvePath(request.path)
         : resolvePath(cwd(), `screenshot-${now()}.${extForType(request.type)}`);
       const args = ["simctl", "io", udid, "screenshot", "--type", request.type];
-      if (request.display) args.push("--display", request.display);
+      const display = request.display ?? (await options.activeDisplay?.(udid));
+      if (display) args.push("--display", display);
       if (request.mask) args.push("--mask", request.mask);
       args.push(outPath);
 
@@ -156,7 +159,12 @@ export function createScreenshotCapture(
 let productionCapture: ScreenshotCaptureModule | null = null;
 
 function productionScreenshotCapture(): ScreenshotCaptureModule {
-  productionCapture ??= createScreenshotCapture(createNodeHostCommands());
+  if (!productionCapture) {
+    const host = createNodeHostCommands();
+    productionCapture = createScreenshotCapture(host, {
+      activeDisplay: (udid) => activeDisplayId(host, udid),
+    });
+  }
   return productionCapture;
 }
 
@@ -168,7 +176,7 @@ export async function screenshot(args: string[]): Promise<void> {
     console.error(
       "\nUsage:\n" +
         "  headless-serve-sim screenshot [path] [--type <png|jpeg|tiff|bmp>]\n" +
-        "                                [--display <internal|external>]\n" +
+        "                                [--display <screen-id|internal|external>]\n" +
         "                                [--mask <ignored|alpha|black>] [-d <udid|name>]\n" +
         "\nCaptures the simulator display. Defaults to a PNG named\n" +
         "screenshot-<timestamp>.png in the current directory when no path is given.",

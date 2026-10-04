@@ -65,9 +65,25 @@ final class H264Encoder {
     private var session: VTCompressionSession?
     private var width: Int32 = 0
     private var height: Int32 = 0
+    private struct ColorMetadata: Equatable {
+        let primaries: String?
+        let transfer: String?
+        let matrix: String?
+
+        init(_ source: CVPixelBuffer) {
+            primaries = CVBufferCopyAttachment(source, kCVImageBufferColorPrimariesKey, nil) as? String
+            transfer = CVBufferCopyAttachment(source, kCVImageBufferTransferFunctionKey, nil) as? String
+            let attachedMatrix = CVBufferCopyAttachment(source, kCVImageBufferYCbCrMatrixKey, nil) as? String
+            matrix = attachedMatrix ?? (primaries == kCVImageBufferColorPrimaries_ITU_R_709_2 as String
+                ? kCVImageBufferYCbCrMatrix_ITU_R_709_2 as String : nil)
+        }
+    }
+    private var colorMetadata: ColorMetadata?
     private let fps: Int32
     private var bitrate: Int
     private var maxQP: Int
+    private var appliedBitrate: Int = 0
+    private var appliedMaxQP: Int = 0
     private let keyframeIntervalSeconds: Int
     /// Fraction of the frame rate carried by the reference base layer. `nil`
     /// disables the temporal hierarchy entirely.
@@ -82,6 +98,7 @@ final class H264Encoder {
     private let stateQueue = DispatchQueue(label: "H264Encoder.state")
     private var emittedDescription = false
     private var frameCount: Int64 = 0
+    private var encodedSequence: UInt64 = 0
 
     init(
         fps: Int = 60,
@@ -110,9 +127,11 @@ final class H264Encoder {
         lock.lock()
         let w = Int32(CVPixelBufferGetWidth(source))
         let h = Int32(CVPixelBufferGetHeight(source))
-        if session == nil || w != width || h != height {
+        let nextColor = ColorMetadata(source)
+        if session == nil || w != width || h != height || colorMetadata != nextColor {
             width = w
             height = h
+            colorMetadata = nextColor
             rebuildSession()
         }
         guard let session else {
@@ -121,6 +140,18 @@ final class H264Encoder {
             return
         }
 
+        // The remote encoder can still be initializing after the first submit
+        // returns. Apply queued controls only once this session has output.
+        if stateQueue.sync(execute: { emittedDescription }) {
+            if appliedBitrate != bitrate {
+                VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: bitrate))
+                appliedBitrate = bitrate
+            }
+            if appliedMaxQP != maxQP {
+                applyMaxQP(maxQP, to: session)
+                appliedMaxQP = maxQP
+            }
+        }
         frameCount += 1
         // Presentation time is the HOST CLOCK, not a frame counter.
         //
@@ -136,8 +167,8 @@ final class H264Encoder {
         let frameProps: NSDictionary? = forceKeyframe
             ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue!] as NSDictionary
             : nil
-        lock.unlock()
-
+        // Property writes and invalidation must not overlap synchronous submission;
+        // VideoToolbox's asynchronous output does not take this session lock.
         let status = VTCompressionSessionEncodeFrame(
             session,
             imageBuffer: source,
@@ -155,7 +186,7 @@ final class H264Encoder {
                 self.countersLock.unlock()
                 return
             }
-            if let encoded = self.extract(from: sb) {
+            if let encoded = self.extract(from: sb, source: source) {
                 self.countersLock.lock()
                 self.emittedCount += 1
                 self.countersLock.unlock()
@@ -167,6 +198,7 @@ final class H264Encoder {
                 self.countersLock.unlock()
             }
         }
+        lock.unlock()
         countersLock.lock()
         if status == noErr { submittedCount += 1 } else { submitFailedCount += 1 }
         countersLock.unlock()
@@ -193,8 +225,6 @@ final class H264Encoder {
         // pins at the ceiling on a healthy link, so skip the redundant VT writes.
         guard clamped != bitrate else { return }
         bitrate = clamped
-        guard let session else { return }
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: clamped))
     }
 
     /// Live-update the max frame QP (sharpness ceiling, 1–51). Lower = sharper
@@ -204,8 +234,6 @@ final class H264Encoder {
         let clamped = min(51, max(1, qp))
         guard clamped != maxQP else { return }
         maxQP = clamped
-        guard let session else { return }
-        applyMaxQP(clamped, to: session)
     }
 
     // MARK: - private
@@ -283,6 +311,15 @@ final class H264Encoder {
         for (key, value) in props {
             VTSessionSetProperty(sess, key: key, value: value as CFTypeRef)
         }
+        if let colorMetadata {
+            for (key, value) in [
+                (kVTCompressionPropertyKey_ColorPrimaries, colorMetadata.primaries),
+                (kVTCompressionPropertyKey_TransferFunction, colorMetadata.transfer),
+                (kVTCompressionPropertyKey_YCbCrMatrix, colorMetadata.matrix),
+            ] {
+                if let value { VTSessionSetProperty(sess, key: key, value: value as CFString) }
+            }
+        }
         // Split the stream into a reference base layer plus disposable
         // enhancement frames, so congestion can shed the enhancement layer
         // without breaking prediction. OFF by default: under RealTime pressure
@@ -300,6 +337,8 @@ final class H264Encoder {
         // Sharpness ceiling for screen-content text; the adaptive controller
         // relaxes this under congestion to protect frame rate over sharpness.
         applyMaxQP(maxQP, to: sess)
+        appliedBitrate = bitrate
+        appliedMaxQP = maxQP
         VTCompressionSessionPrepareToEncodeFrames(sess)
         session = sess
         stateQueue.sync {
@@ -308,7 +347,7 @@ final class H264Encoder {
 
     }
 
-    private func extract(from sample: CMSampleBuffer) -> Encoded? {
+    private func extract(from sample: CMSampleBuffer, source: CVPixelBuffer) -> Encoded? {
         let isKeyframe = !notSync(sample)
         guard let dataBuf = CMSampleBufferGetDataBuffer(sample) else { return nil }
 
@@ -322,11 +361,25 @@ final class H264Encoder {
         let tag: UInt8 = isKeyframe
             ? AVCCEnvelope.keyframeTag
             : (disposable ? AVCCEnvelope.disposableDeltaTag : AVCCEnvelope.deltaTag)
-        let envelope = AVCCEnvelope.wrap(
+        var envelope = AVCCEnvelope.wrap(
             tag: tag,
             payloadPointer: UnsafeRawPointer(dataPointer),
             payloadCount: totalLength
         )
+        if let metadata = CVBufferCopyAttachment(source, "headless-serve-sim.composition" as CFString, nil) as? Data {
+            envelope = AVCCEnvelope.wrap(tag: 0x07, payload: metadata) + envelope
+        }
+        let timestamp = CMTimeConvertScale(CMSampleBufferGetPresentationTimeStamp(sample),
+                                           timescale: 1_000_000, method: .default)
+        guard timestamp.isNumeric, timestamp.value >= 0 else { return nil }
+        let duration = CMTimeConvertScale(CMSampleBufferGetDuration(sample), timescale: 1_000_000, method: .default)
+        let sequence = stateQueue.sync { () -> UInt64 in
+            encodedSequence &+= 1
+            return encodedSequence
+        }
+        envelope = AVCCEnvelope.timing(timestamp: UInt64(timestamp.value),
+            duration: duration.isNumeric && duration.value > 0 ? UInt64(duration.value) : UInt64((1_000_000.0 / Double(fps)).rounded()),
+            sequence: sequence) + envelope
 
         var description: Data?
         if isKeyframe, let format = CMSampleBufferGetFormatDescription(sample) {
@@ -367,6 +420,85 @@ final class H264Encoder {
         return !dependedOn
     }
 
+    /// Add the VUI output-order bound omitted by the default VT encoder.
+    /// Pixels and reference pictures are unchanged; unknown SPS forms pass through.
+    static func lowDelaySPS(_ original: Data) -> Data {
+        guard original.count >= 4, original[1] == 100 else { return original }
+        var rbsp: [UInt8] = [], zeros = 0
+        for byte in original {
+            if zeros >= 2 && byte == 3 { zeros = 0; continue }
+            rbsp.append(byte)
+            zeros = byte == 0 ? zeros + 1 : 0
+        }
+        var bits = rbsp.flatMap { byte in (0..<8).reversed().map { Int((byte >> $0) & 1) } }
+        var offset = 32
+        func read(_ count: Int = 1) -> Int? {
+            guard offset + count <= bits.count else { return nil }
+            defer { offset += count }
+            return bits[offset..<(offset + count)].reduce(0) { ($0 << 1) | $1 }
+        }
+        func ue() -> Int? {
+            var count = 0
+            while let bit = read() {
+                if bit == 1 {
+                    guard let suffix = read(count) else { return nil }
+                    return (1 << count) - 1 + suffix
+                }
+                count += 1
+                if count > 30 { return nil }
+            }
+            return nil
+        }
+        guard ue() != nil, ue() == 1, ue() == 0, ue() == 0,
+              read() != nil, read() == 0, ue() != nil, let order = ue() else { return original }
+        if order == 0 { guard ue() != nil else { return original } }
+        else if order != 2 { return original }
+        guard let references = ue(), references <= 16, read() != nil,
+              ue() != nil, ue() != nil, let frameOnly = read() else { return original }
+        if frameOnly == 0 { guard read() != nil else { return original } }
+        guard read() != nil, let crop = read() else { return original }
+        if crop == 1 { for _ in 0..<4 { guard ue() != nil else { return original } } }
+        guard let vui = read() else { return original }
+        if vui == 1 {
+            guard let aspect = read() else { return original }
+            if aspect == 1 {
+                guard let id = read(8) else { return original }
+                if id == 255 { guard read(32) != nil else { return original } }
+            }
+            guard let overscan = read() else { return original }
+            if overscan == 1 { guard read() != nil else { return original } }
+            guard let video = read() else { return original }
+            if video == 1 {
+                guard read(4) != nil, let color = read() else { return original }
+                if color == 1 { guard read(24) != nil else { return original } }
+            }
+            guard let chroma = read() else { return original }
+            if chroma == 1 { guard ue() != nil, ue() != nil else { return original } }
+            guard let timing = read() else { return original }
+            if timing == 1 { guard read(32) != nil, read(32) != nil, read() != nil else { return original } }
+            guard read() == 0, read() == 0, read() != nil, read() == 0 else { return original }
+            bits = Array(bits.prefix(offset - 1))
+        } else {
+            bits = Array(bits.prefix(offset - 1)) + [1, 0, 0, 0, 0, 0, 0, 0, 0]
+        }
+        bits += [1, 1] // bitstream restriction; motion vectors may cross picture edges.
+        for value in [0, 0, 16, 16, 0, max(1, references)] {
+            let binary = String(value + 1, radix: 2).map { $0 == "1" ? 1 : 0 }
+            bits += Array(repeating: 0, count: binary.count - 1) + binary
+        }
+        bits.append(1)
+        while !bits.count.isMultiple(of: 8) { bits.append(0) }
+        var output = Data()
+        zeros = 0
+        for index in stride(from: 0, to: bits.count, by: 8) {
+            let byte = UInt8(bits[index..<(index + 8)].reduce(0) { ($0 << 1) | $1 })
+            if zeros >= 2 && byte <= 3 { output.append(3); zeros = 0 }
+            output.append(byte)
+            zeros = byte == 0 ? zeros + 1 : 0
+        }
+        return output
+    }
+
     /// avcC parameter-set blob (ISO/IEC 14496-15 §5.2.4.1) carrying SPS + PPS.
     private func avcCBlob(from format: CMFormatDescription) -> Data? {
         var spsCount = 0
@@ -387,14 +519,14 @@ final class H264Encoder {
             parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil
         ) == noErr, let ppsPtr else { return nil }
 
-        let sps = UnsafeBufferPointer(start: spsPtr, count: spsSize)
+        let sps = Self.lowDelaySPS(Data(bytes: spsPtr, count: spsSize))
         let pps = UnsafeBufferPointer(start: ppsPtr, count: ppsSize)
         var blob = Data()
         blob.append(0x01)
         blob.append(sps[1]); blob.append(sps[2]); blob.append(sps[3])
         blob.append(0xFF)
         blob.append(0xE1)
-        blob.append(UInt8((spsSize >> 8) & 0xFF)); blob.append(UInt8(spsSize & 0xFF))
+        blob.append(UInt8((sps.count >> 8) & 0xFF)); blob.append(UInt8(sps.count & 0xFF))
         blob.append(contentsOf: sps)
         blob.append(0x01)
         blob.append(UInt8((ppsSize >> 8) & 0xFF)); blob.append(UInt8(ppsSize & 0xFF))

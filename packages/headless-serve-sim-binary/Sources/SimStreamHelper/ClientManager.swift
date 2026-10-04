@@ -10,6 +10,8 @@ final class ClientManager {
     private var screenWidth = 0
     private var screenHeight = 0
     private var screenOrientation = "portrait"
+    private var displayID: Int?
+    private var deviceComposition = false
 
     /// Latest JPEG frame data, replaced on each new frame
     private var latestFrame: Data?
@@ -46,6 +48,7 @@ final class ClientManager {
     var onDigitalCrown: ((DigitalCrownEventPayload) -> Void)?
     var onScroll: ((ScrollEventPayload) -> Void)?
     var onSoftwareKeyboard: (() -> Void)?
+    var onDeviceView: ((DeviceViewPayload) -> Void)?
 
     // MARK: - Configuration
 
@@ -58,6 +61,22 @@ final class ClientManager {
         if changed { broadcastConfig() }
     }
 
+    func setDisplay(id: Int?, rotation: Int) {
+        let orientation: String
+        switch rotation {
+        case 90: orientation = "landscape_left"
+        case 180: orientation = "portrait_upside_down"
+        case 270: orientation = "landscape_right"
+        default: orientation = "portrait"
+        }
+        configLock.lock()
+        let changed = id != displayID || orientation != screenOrientation
+        displayID = id
+        screenOrientation = orientation
+        configLock.unlock()
+        if changed { broadcastConfig() }
+    }
+
     private func setScreenOrientation(_ orientation: String) {
         configLock.lock()
         let changed = orientation != screenOrientation
@@ -66,14 +85,22 @@ final class ClientManager {
         if changed { broadcastConfig() }
     }
 
+    func setDeviceComposition(_ enabled: Bool) {
+        configLock.lock(); deviceComposition = enabled; configLock.unlock()
+        broadcastConfig()
+    }
+
     func screenConfig() -> [String: Any] {
         configLock.lock()
         defer { configLock.unlock() }
-        return [
+        var config: [String: Any] = [
             "width": screenWidth,
             "height": screenHeight,
             "orientation": screenOrientation,
         ]
+        if let displayID { config["displayId"] = displayID }
+        if deviceComposition { config["deviceComposition"] = true; config["orientation"] = "portrait" }
+        return config
     }
 
     /// Tag for a server->client screen-config push. Distinct from the
@@ -336,6 +363,9 @@ final class ClientManager {
             onScroll?(json)
         } else if type == 0x0E { // WS_MSG_SOFTWARE_KEYBOARD
             onSoftwareKeyboard?()
+        } else if type == 0x0F {
+            guard let view = try? JSONDecoder().decode(DeviceViewPayload.self, from: data[1...]) else { return }
+            onDeviceView?(view)
         }
     }
 

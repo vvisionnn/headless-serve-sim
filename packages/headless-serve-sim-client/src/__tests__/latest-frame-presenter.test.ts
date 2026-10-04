@@ -81,6 +81,34 @@ describe("LatestFramePresenter", () => {
     expect(teardown.closed).toBe(1);
   });
 
+  test("does not wait another display tick after a newer paced frame is ready", () => {
+    const callbacks = new Map<number, () => void>();
+    const painted: number[] = [];
+    let now = 20;
+    let discarded = 0;
+    const presenter = new LatestFramePresenter<Frame, null>(
+      (callback) => {
+        callbacks.set(1, callback);
+        return 1;
+      },
+      (handle) => callbacks.delete(handle),
+      (frame) => painted.push(frame.id),
+      () => discarded++,
+      () => now,
+      12,
+    );
+    presenter.enqueue(new Frame(1), null);
+    now = 25;
+    const pending = new Frame(2);
+    presenter.enqueue(pending, null);
+    now = 33;
+    presenter.enqueue(new Frame(3), null);
+    expect(painted).toEqual([1, 3]);
+    expect(pending.closed).toBe(1);
+    expect(discarded).toBe(1);
+    expect(callbacks.size).toBe(0);
+  });
+
   test("presents normally paced frames immediately while coalescing a burst", () => {
     const callbacks = new Map<number, () => void>();
     const painted: number[] = [];

@@ -93,6 +93,62 @@ class ArtworkContext {
 }
 
 describe("DeviceKit frame artwork", () => {
+  test("paints a native-size composite instead of placeholder slices", () => {
+    const composite = asset("composite", 1314, 2730);
+    const compositeFrame = {
+      ...frame,
+      artwork: { ...frame.artwork!, composite },
+    };
+    const context = new ArtworkContext();
+    const images = new Map([
+      ["composite", { id: "composite" } as never],
+      ["action", { id: "action" } as never],
+      ["power", { id: "power" } as never],
+    ]);
+
+    expect(
+      paintDeviceFrameArtwork(
+        context as unknown as CanvasRenderingContext2D,
+        compositeFrame,
+        images,
+      ),
+    ).toBe(true);
+    expect(context.calls.map((call) => call.args)).toEqual([
+      [{ id: "action" }, 12, 480, 48, 102],
+      [{ id: "composite" }, 27, 0, 1314, 2730],
+      [{ id: "power" }, 1302, 786, 48, 303],
+    ]);
+  });
+
+  test("keeps composite border corners at native size when its interior grows", () => {
+    const compositeFrame: DeviceFrameSpec = {
+      ...frame,
+      outerRadiiPx: { x: 300, y: 300 },
+      artwork: {
+        width: 2169,
+        height: 3015,
+        chromeRectPx: { x: 30, y: 30, width: 2109, height: 2955 },
+        composite: asset("composite", 1980, 2772),
+        controls: [],
+      },
+    };
+    const context = new ArtworkContext();
+    const images = new Map([["composite", { id: "composite" } as never]]);
+
+    expect(
+      paintDeviceFrameArtwork(
+        context as unknown as CanvasRenderingContext2D,
+        compositeFrame,
+        images,
+      ),
+    ).toBe(true);
+    const draws = context.calls.filter((call) => call.name === "drawImage");
+    expect(draws).toHaveLength(9);
+    expect(draws[0]?.args.slice(1)).toEqual([0, 0, 300, 300, 30, 30, 300, 300]);
+    expect(draws[1]?.args.slice(1)).toEqual([300, 0, 1380, 300, 330, 30, 1509, 300]);
+    expect(draws[8]?.args.slice(1)).toEqual([1680, 2472, 300, 300, 1839, 2685, 300, 300]);
+  });
+
   test("places left and right controls at DeviceKit's resting offsets", () => {
     const artwork = frame.artwork!;
 
@@ -145,7 +201,7 @@ describe("DeviceKit frame artwork", () => {
   test("nine-slices real metal around the body and respects control z-order", () => {
     const images = new Map<string, CanvasImageSource>();
     const assets = [
-      ...Object.values(frame.artwork!.slices),
+      ...Object.values(frame.artwork!.slices!),
       ...frame.artwork!.controls.map((control) => control.image),
     ];
     for (const item of assets) images.set(item.pngDataUrl, { id: item.pngDataUrl } as never);
@@ -176,7 +232,7 @@ describe("DeviceKit frame artwork", () => {
   test("preserves DeviceKit's transparent edge instead of filling a synthetic body", () => {
     const images = new Map<string, CanvasImageSource>();
     const assets = [
-      ...Object.values(frame.artwork!.slices),
+      ...Object.values(frame.artwork!.slices!),
       ...frame.artwork!.controls.map((control) => control.image),
     ];
     for (const item of assets) images.set(item.pngDataUrl, { id: item.pngDataUrl } as never);
@@ -187,6 +243,31 @@ describe("DeviceKit frame artwork", () => {
     ).toBe(true);
 
     expect(context.calls.filter((call) => call.name === "fill")).toEqual([]);
+  });
+
+  test("prepares composite artwork without decoding the unused placeholder slices", async () => {
+    const loaded: string[] = [];
+    const compositeFrame: DeviceFrameSpec = {
+      ...frame,
+      artwork: { ...frame.artwork!, composite: asset("composite", 1314, 2730) },
+    };
+    const prepared = await prepareDeviceFrameArtwork(compositeFrame, {
+      async loadImage(dataUrl) {
+        loaded.push(dataUrl);
+        if (dataUrl.startsWith("top")) throw new Error("unused placeholder");
+        return { id: dataUrl } as never;
+      },
+      createCanvas(width, height) {
+        return {
+          width,
+          height,
+          getContext: () => new ArtworkContext(),
+        } as unknown as HTMLCanvasElement;
+      },
+    });
+
+    expect(prepared).not.toBeNull();
+    expect(loaded).toEqual(["composite", "action", "power"]);
   });
 
   test("decodes each vector raster once and prepares a native-size frame canvas", async () => {

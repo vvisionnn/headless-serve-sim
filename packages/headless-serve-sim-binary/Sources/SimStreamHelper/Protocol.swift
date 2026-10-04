@@ -16,6 +16,12 @@ enum WSMessageType: UInt8 {
     case softwareKeyboard = 0x0E // client → server: empty body, toggles the on-screen keyboard
 }
 
+struct DeviceViewPayload: Codable {
+    let rotation: Double?
+    let scale: Double?
+    let includeFrame: Bool?
+}
+
 struct SetModePayload: Codable {
     let mode: String  // "perf" | "quality"
 }
@@ -25,6 +31,7 @@ struct TouchEventPayload: Codable {
     let x: Double      // normalized 0..1
     let y: Double      // normalized 0..1
     let edge: UInt32?  // IndigoHIDEdge value (0=none, 3=bottom, etc.) — omit for regular touches
+    let displayId: Int?
 }
 
 struct ButtonEventPayload: Codable {
@@ -45,6 +52,7 @@ struct MultiTouchEventPayload: Codable {
     let y1: Double
     let x2: Double      // finger 2 normalized 0..1
     let y2: Double
+    let displayId: Int?
 }
 
 struct KeyEventPayload: Codable {

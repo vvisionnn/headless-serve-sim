@@ -1,4 +1,4 @@
-import type { Readable } from "node:stream";
+import type { Readable, Writable } from "node:stream";
 
 export type CommandChunk = string | Uint8Array;
 
@@ -12,6 +12,7 @@ interface CommandRequestOptions {
   timeoutMs?: number;
   maxOutputBytes?: number;
   detached?: boolean;
+  interactive?: boolean;
 }
 
 export type CommandRequest = CommandRequestOptions &
@@ -38,6 +39,7 @@ export interface CommandResult {
 
 export interface CommandTask {
   readonly pid: number | undefined;
+  readonly stdin?: Writable | null;
   readonly stdout: Readable | null;
   readonly stderr: Readable | null;
   readonly result: Promise<CommandResult>;

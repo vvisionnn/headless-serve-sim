@@ -5,6 +5,7 @@ import type {
   SimulatorRecordingSource,
 } from "headless-serve-sim-client/simulator";
 import { Chevron } from "../icons";
+import { NativeStreamRecorder } from "../native-stream-recorder";
 import { SegmentedGroup } from "./design-system";
 import { SettingSwitch } from "./setting-switch";
 import { StreamModeToggle, type StreamMode } from "./stream-mode-toggle";
@@ -99,6 +100,7 @@ export function ScreenRecordingTool({
   streamMode,
   streamModeAvailable,
   onStreamModeChange,
+  touchMarkersAvailable = true,
   initiallyOpen = false,
 }: {
   sourceRef: MutableRefObject<SimulatorRecordingSource | null>;
@@ -108,6 +110,7 @@ export function ScreenRecordingTool({
   streamMode: StreamMode;
   streamModeAvailable: boolean;
   onStreamModeChange: (mode: StreamMode) => void;
+  touchMarkersAvailable?: boolean;
   initiallyOpen?: boolean;
 }) {
   const [open, setOpen] = useState(initiallyOpen);
@@ -124,11 +127,13 @@ export function ScreenRecordingTool({
     prepared: null,
     failed: false,
   });
-  const recorderRef = useRef<CanvasScreenRecorder | null>(null);
+  const recorderRef = useRef<CanvasScreenRecorder | NativeStreamRecorder | null>(null);
   const startedAtRef = useRef(0);
   const mountedRef = useRef(true);
   const deviceKeyRef = useRef(deviceKey);
-  const support = browserRecordingSupport();
+  const nativeRecording = !touchMarkersAvailable && Boolean(sourceRef.current?.subscribeEncoded);
+  const browserSupport = browserRecordingSupport();
+  const support = nativeRecording ? { ...browserSupport, auto: true, mp4: true } : browserSupport;
   const exactDeviceFrame = isExactDeviceFrame(deviceFrameSpec) ? deviceFrameSpec : null;
   const artworkKey = frameArtworkKey(deviceKey, deviceFrameSpec);
   const artworkLoading = Boolean(
@@ -223,22 +228,26 @@ export function ScreenRecordingTool({
 
     recorderRef.current?.cancel();
     setArtifact(null);
-    const recorder = new CanvasScreenRecorder({
+    const options = {
       source,
       format,
-      includeTouches,
+      includeTouches: touchMarkersAvailable && includeTouches,
       deviceFrame: includeFrame ? (deviceFrameSpec ?? null) : null,
       deviceFrameArtwork:
         includeFrame && exactDeviceFrame && frameArtwork.key === artworkKey
           ? frameArtwork.prepared
           : null,
-      onError: (nextError) => {
+      onError: (nextError: Error) => {
         if (!mountedRef.current || recorderRef.current !== recorder) return;
         recorderRef.current = null;
         setPhase("idle");
         setError(nextError.message);
       },
-    });
+    };
+    const recorder =
+      nativeRecording && format !== "webm"
+        ? new NativeStreamRecorder(options)
+        : new CanvasScreenRecorder(options);
     recorderRef.current = recorder;
     try {
       recorder.start();
@@ -259,7 +268,9 @@ export function ScreenRecordingTool({
     frameArtwork,
     includeFrame,
     includeTouches,
+    touchMarkersAvailable,
     sourceRef,
+    nativeRecording,
   ]);
 
   const stop = useCallback(async () => {
@@ -325,10 +336,13 @@ export function ScreenRecordingTool({
 
           <SettingSwitch
             label="Show touches"
-            checked={includeTouches}
-            disabled={busy}
+            checked={touchMarkersAvailable && includeTouches}
+            disabled={busy || !touchMarkersAvailable}
             onChange={setIncludeTouches}
           />
+          {!touchMarkersAvailable && (
+            <p className="text-micro text-fg-3">Touch markers are unavailable in the 3D view.</p>
+          )}
           <SettingSwitch
             label="Device frame"
             decoratedLabel={

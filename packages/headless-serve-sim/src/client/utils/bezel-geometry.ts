@@ -106,6 +106,7 @@ export function fitDeviceBezel(p: {
   availHeight: number;
   maxScreenWidth: number;
   maxScale: number;
+  zoom?: number;
 }): BezelGeometry {
   const { spec, rotation } = p;
   const insets = spec.insetsPx;
@@ -142,7 +143,14 @@ export function fitDeviceBezel(p: {
   if (rotatedScreen.width > 0 && rotatedScreen.width * scale > screenCap) {
     scale = screenCap / rotatedScreen.width;
   }
-  scale = Math.max(0, scale);
+  scale = Math.max(
+    0,
+    Math.min(
+      scale * Math.max(0, p.zoom ?? 1),
+      p.availWidth / Math.max(1, boundsWidth),
+      p.availHeight / Math.max(1, boundsHeight),
+    ),
+  );
 
   return {
     width: boundsWidth * scale,

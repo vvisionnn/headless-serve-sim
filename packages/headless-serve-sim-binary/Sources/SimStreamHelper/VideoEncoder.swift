@@ -44,7 +44,8 @@ final class VideoEncoder {
         CGImageDestinationAddImage(dest, cgImage, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
         guard CGImageDestinationFinalize(dest) else { return }
 
-        onEncodedFrame?(data as Data)
+        let composition = CVBufferCopyAttachment(pixelBuffer, "headless-serve-sim.composition" as CFString, nil) as? Data
+        onEncodedFrame?(JPEGComposition.embed(composition, in: data as Data))
     }
 
     func stop() {

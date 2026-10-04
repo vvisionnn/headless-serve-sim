@@ -14,7 +14,7 @@ import { execOnHost, shellEscape } from "./exec";
 const READ_CHUNK_BYTES = 6 * 1024 * 1024;
 const READ_CHUNK_B64_LEN = (READ_CHUNK_BYTES / 3) * 4;
 
-export type ScreenshotDisplay = "" | "internal" | "external";
+export type ScreenshotDisplay = "" | "internal" | "external" | `${number}`;
 export type ScreenshotMask = "" | "ignored" | "alpha" | "black";
 
 export interface Screenshot {

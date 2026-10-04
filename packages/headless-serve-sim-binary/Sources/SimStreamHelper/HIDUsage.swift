@@ -2,13 +2,10 @@ import Foundation
 
 /// USB HID usages for the hardware inputs the simulator understands.
 ///
-/// These are delivered with `IndigoHIDMessageForHIDArbitrary` on the *digitizer*
-/// target (`0x32`) — the same target touches use. That matters: Xcode 27 stopped
-/// consuming the dedicated hardware-button (`0x33`) and keyboard (`0x64`) Indigo
-/// targets, having moved those planes to CoreDevice's virtual HID services, but
-/// the digitizer target still accepts arbitrary HID reports on every toolchain
-/// we support. Routing buttons and keys as HID usages therefore works on Xcode
-/// 26 and 27 alike, with no version sniffing.
+/// The default path delivers these with `IndigoHIDMessageForHIDArbitrary` on
+/// target `0x32`. Multi-integrated Home instead uses the verified legacy
+/// hardware-button route (`0x33`); arbitrary-HID transport success does not
+/// guarantee guest consumption of button or keyboard events.
 enum HIDUsage {
     /// Usage pages (USB HID spec).
     static let consumerPage: UInt32 = 0x0C

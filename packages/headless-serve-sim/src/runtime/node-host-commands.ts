@@ -88,7 +88,11 @@ class NodeHostCommands implements HostCommands {
         logFd = this.#open(stdioMode.logFile, stdioMode.append ? "a" : "w");
       }
       const stdin =
-        request.input === undefined ? (stdioMode === "inherit" ? "inherit" : "ignore") : "pipe";
+        request.interactive || request.input !== undefined
+          ? "pipe"
+          : stdioMode === "inherit"
+            ? "inherit"
+            : "ignore";
       const output =
         stdioMode === "capture" || stdioMode === "stream"
           ? "pipe"
@@ -178,6 +182,7 @@ class NodeHostCommands implements HostCommands {
 
     return {
       pid: child.pid,
+      stdin: child.stdin,
       stdout: child.stdout as Readable | null,
       stderr: child.stderr as Readable | null,
       result,
@@ -212,7 +217,11 @@ class NodeHostCommands implements HostCommands {
         logFd = this.#open(stdioMode.logFile, stdioMode.append ? "a" : "w");
       }
       const stdin =
-        request.input === undefined ? (stdioMode === "inherit" ? "inherit" : "ignore") : "pipe";
+        request.interactive || request.input !== undefined
+          ? "pipe"
+          : stdioMode === "inherit"
+            ? "inherit"
+            : "ignore";
       const output =
         stdioMode === "capture" || stdioMode === "stream"
           ? "pipe"

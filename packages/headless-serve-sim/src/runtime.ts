@@ -41,6 +41,7 @@ export interface PreviewServer {
 type ConnectMiddleware = ((req: IncomingMessage, res: ServerResponse, next: () => void) => void) & {
   /** WebSocket upgrade hook (exec channel); returns true when handled. */
   handleUpgrade?: (req: IncomingMessage, socket: Duplex, head: Buffer) => boolean;
+  dispose?: () => void;
 };
 
 /** Run a Connect-style middleware as an HTTP server. */
@@ -87,5 +88,10 @@ export async function servePreview(opts: {
     server.listen(opts.port, opts.host ?? "127.0.0.1");
   });
 
-  return { stop: () => server.close() };
+  return {
+    stop: () => {
+      opts.middleware.dispose?.();
+      server.close();
+    },
+  };
 }

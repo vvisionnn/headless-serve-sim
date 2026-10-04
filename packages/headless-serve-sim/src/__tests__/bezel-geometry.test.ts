@@ -27,6 +27,17 @@ const SPEC: DeviceFrameSpec = {
 const NO_CAP = { maxScreenWidth: 1e6, maxScale: 1 };
 
 describe("fitDeviceBezel", () => {
+  test("applies user scale without exceeding available device bounds", () => {
+    const input = { spec: SPEC, rotation: 0, availWidth: 800, availHeight: 600, ...NO_CAP };
+    const fitted = fitDeviceBezel(input);
+    const smaller = fitDeviceBezel({ ...input, zoom: 0.5 });
+    const larger = fitDeviceBezel({ ...input, zoom: 2 });
+    expect(smaller.width).toBeCloseTo(fitted.width * 0.5);
+    expect(smaller.screenRadii.topLeft).toBeCloseTo(fitted.screenRadii.topLeft * 0.5);
+    expect(larger.width).toBeLessThanOrEqual(input.availWidth);
+    expect(larger.height).toBeLessThanOrEqual(input.availHeight);
+  });
+
   test("fits the whole artwork, not just the screen, and places the screen inside it", () => {
     // Height-bound: 2730 * scale == 2730, so scale == 1.
     const g = fitDeviceBezel({

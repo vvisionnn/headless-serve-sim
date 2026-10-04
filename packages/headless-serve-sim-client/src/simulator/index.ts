@@ -49,9 +49,10 @@ export type {
   DeviceFrameMatch,
   DeviceFrameSpec,
 } from "./device-frame-spec.js";
-export type { SimulatorOrientation, StreamConfig } from "../types.js";
+export type { SimulatorComposition, SimulatorOrientation, StreamConfig } from "../types.js";
+export { extractJpegComposition } from "../jpeg-composition.js";
 export { useAvccStream } from "./use-avcc-stream.js";
-export type { UseAvccStreamOptions } from "./use-avcc-stream.js";
+export type { UseAvccStreamOptions, AvccEncodedEvent } from "./use-avcc-stream.js";
 export {
   AvccDemuxer,
   avcCodecString,

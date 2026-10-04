@@ -35,7 +35,15 @@ const canCopyImage =
   typeof navigator.clipboard?.write === "function" &&
   typeof ClipboardItem !== "undefined";
 
-export function ScreenshotTool({ udid }: { udid: string }) {
+export function ScreenshotTool({
+  udid,
+  displayId,
+  foldable = false,
+}: {
+  udid: string;
+  displayId?: number;
+  foldable?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,13 +57,18 @@ export function ScreenshotTool({ udid }: { udid: string }) {
     setError(null);
     setCopied(false);
     try {
-      setShot(await captureScreenshot(udid, { display, mask }));
+      setShot(
+        await captureScreenshot(udid, {
+          display: display || (displayId ? `${displayId}` : ""),
+          mask,
+        }),
+      );
     } catch (e: any) {
       setError(e?.message ?? "screenshot failed");
     } finally {
       setPending(null);
     }
-  }, [udid, display, mask]);
+  }, [udid, display, displayId, mask]);
 
   const copy = useCallback(async () => {
     if (!shot) return;
@@ -90,11 +103,19 @@ export function ScreenshotTool({ udid }: { udid: string }) {
             label="Display"
             value={display}
             onChange={(v) => setDisplay(v as Display)}
-            options={[
-              ["", "Default"],
-              ["internal", "Internal"],
-              ["external", "External"],
-            ]}
+            options={
+              foldable
+                ? [
+                    ["", "Active"],
+                    ["1", "Cover"],
+                    ["3", "Inner"],
+                  ]
+                : [
+                    ["", "Default"],
+                    ["internal", "Internal"],
+                    ["external", "External"],
+                  ]
+            }
           />
           <ChipGroup
             label="Mask"

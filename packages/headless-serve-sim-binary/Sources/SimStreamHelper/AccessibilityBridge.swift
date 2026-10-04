@@ -92,7 +92,7 @@ final class AccessibilityBridge: NSObject {
     /// matching the `axe describe-ui` flat-array output. Throws on
     /// framework load failure or if the simulator returns no frontmost
     /// application (e.g. SpringBoard hasn't come up yet).
-    func describeUI(udid: String) throws -> Data {
+    func describeUI(udid: String, displayID: UInt32 = 0) throws -> Data {
         try ensureLoaded()
 
         guard let device = FrameCapture.findSimDevice(udid: udid) else {
@@ -121,7 +121,7 @@ final class AccessibilityBridge: NSObject {
             throw AccessibilityError.translatorUnavailable
         }
         let frontmost = unsafeBitCast(frontmostIMP, to: FrontmostFunc.self)
-        guard let translation = frontmost(translator, frontmostSel, 0, token as NSString) as? NSObject else {
+        guard let translation = frontmost(translator, frontmostSel, displayID, token as NSString) as? NSObject else {
             throw AccessibilityError.noFrontmostApplication
         }
         translation.setValue(token, forKey: "bridgeDelegateToken")
@@ -175,6 +175,7 @@ final class AccessibilityBridge: NSObject {
             var children = (root["children"] as? [[String: Any]]) ?? []
             let discovered = discoverByGrid(
                 token: token,
+                displayID: displayID,
                 bounds: screenFrame,
                 coverage: &coverage,
                 visited: &visited,
@@ -193,7 +194,7 @@ final class AccessibilityBridge: NSObject {
     /// `/appstate` SSE clients (the SpringBoard log stream is edge-triggered
     /// so a fresh subscriber sees nothing until the user re-foregrounds an
     /// app). Throws when SpringBoard hasn't surfaced an app yet.
-    func frontmostApp(udid: String) throws -> [String: Any] {
+    func frontmostApp(udid: String, displayID: UInt32 = 0) throws -> [String: Any] {
         try ensureLoaded()
 
         guard let device = FrameCapture.findSimDevice(udid: udid) else {
@@ -214,7 +215,7 @@ final class AccessibilityBridge: NSObject {
             throw AccessibilityError.translatorUnavailable
         }
         let frontmost = unsafeBitCast(frontmostIMP, to: FrontmostFunc.self)
-        guard let translation = frontmost(translator, frontmostSel, 0, token as NSString) as? NSObject else {
+        guard let translation = frontmost(translator, frontmostSel, displayID, token as NSString) as? NSObject else {
             throw AccessibilityError.noFrontmostApplication
         }
         translation.setValue(token, forKey: "bridgeDelegateToken")
@@ -293,6 +294,7 @@ final class AccessibilityBridge: NSObject {
     /// the grid size. Caller owns the token.
     private func discoverByGrid(
         token: String,
+        displayID: UInt32,
         bounds: CGRect,
         coverage: inout AccessibilityCoverage,
         visited: inout Set<ObjectIdentifier>,
@@ -328,7 +330,7 @@ final class AccessibilityBridge: NSObject {
                 if coverage.contains(point) { continue }
                 pointBudget -= 1
 
-                guard let translation = objectAtPoint(translator, pointSel, point, 0, token as NSString) as? NSObject else {
+                guard let translation = objectAtPoint(translator, pointSel, point, displayID, token as NSString) as? NSObject else {
                     continue
                 }
                 translation.setValue(token, forKey: "bridgeDelegateToken")

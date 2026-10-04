@@ -50,13 +50,19 @@ declare global {
       deviceTypeIdentifier?: string;
       /** Exact installed CoreSimulator + DeviceKit geometry for recording chrome. */
       deviceFrameSpec?: DeviceFrameSpec;
+      deviceFrameSpecs?: DeviceFrameSpec[];
       /**
        * Live screen geometry baked in at page-serve time (from the helper's
        * /config). Lets the first paint size the device frame to the real device
        * instead of a generic fallback that resizes when the control-socket
        * config arrives a moment later.
        */
-      screenConfig?: { width: number; height: number; orientation?: SimulatorOrientation };
+      screenConfig?: {
+        width: number;
+        height: number;
+        orientation?: SimulatorOrientation;
+        displayId?: number;
+      };
     };
   }
 }

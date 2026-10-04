@@ -153,6 +153,40 @@ describe("node host commands", () => {
     });
   });
 
+  test("keeps interactive stdin open for persistent simulator helpers", async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      pid: number;
+      stdin: PassThrough;
+      stdout: PassThrough;
+      stderr: PassThrough;
+      kill: () => boolean;
+      unref: () => void;
+    };
+    child.pid = 789;
+    child.stdin = new PassThrough();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => {
+      child.emit("close", 0, null);
+      return true;
+    };
+    child.unref = () => {};
+    let options: { stdio?: unknown } = {};
+    const host = createNodeHostCommands({
+      environment: {},
+      spawn: ((_executable: unknown, _args: unknown, next: { stdio?: unknown }) => {
+        options = next;
+        return child;
+      }) as never,
+    });
+    const task = host.start({ executable: "tool", stdio: "stream", interactive: true });
+    expect(options.stdio).toEqual(["pipe", "pipe", "pipe"]);
+    expect(task.stdin).toBe(child.stdin);
+    expect(task.stdin?.writableEnded).toBe(false);
+    task.stop();
+    await task.result;
+  });
+
   test("captures an asynchronous argv process through the same Interface", async () => {
     const child = new EventEmitter() as EventEmitter & {
       pid: number;

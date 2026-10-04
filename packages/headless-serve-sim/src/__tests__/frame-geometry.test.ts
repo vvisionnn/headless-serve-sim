@@ -37,6 +37,22 @@ function fit(over: {
   });
 }
 
+test("bare screen zoom changes size without clipping the available viewport", () => {
+  const input = {
+    viewportWidth: 800,
+    viewportHeight: 600,
+    topBarHeight: 0,
+    sideRailsWidth: 0,
+    assemblyBorder: 0,
+    aspect: 0.5,
+    maxWidth: 100000,
+    maxScale: 1,
+  };
+  const base = fitDeviceFrame(input);
+  expect(fitDeviceFrame({ ...input, zoom: 0.5 }).height).toBe(base.height * 0.5);
+  expect(fitDeviceFrame({ ...input, zoom: 2 }).height).toBeLessThanOrEqual(600);
+});
+
 describe("fitDeviceFrame — bounding", () => {
   test("portrait is height-bound: height fills the remaining height, width follows aspect", () => {
     // Tall viewport, narrow portrait device. availH dominates.

@@ -6,10 +6,27 @@ export type SimulatorOrientation =
   | "landscape_left"
   | "landscape_right";
 
+export interface SimulatorComposition {
+  includeFrame?: boolean;
+  angle: number;
+  rotation: number;
+  scale: number;
+  displayId: number;
+  rawWidth: number;
+  rawHeight: number;
+  rawRotation: number;
+  mask: string;
+  bounds: number[];
+  pieces: { displayId: number; quad: number[][]; region: number[] }[];
+}
+
 export interface StreamConfig {
   width: number;
   height: number;
-  /** Last orientation requested through headless-serve-sim, when known. */
+  deviceComposition?: boolean;
+  /** Active native display, when the runtime exposes screen properties. */
+  displayId?: number;
+  /** Native display orientation, when known. */
   orientation?: SimulatorOrientation;
 }
 

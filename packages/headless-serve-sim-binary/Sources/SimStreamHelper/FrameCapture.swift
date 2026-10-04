@@ -19,11 +19,23 @@ final class FrameCapture {
     private var frameCount: UInt64 = 0
     private(set) var capturedWidth: Int = 0
     private(set) var capturedHeight: Int = 0
+    var onDisplayChanged: ((Int?, Int) -> Void)?
+    var onPanelFrame: ((Int, CVPixelBuffer) -> Void)?
+    var onHingeChanged: ((Double) -> Void)?
+    var onDisplayBlanked: ((Int, Bool) -> Void)?
+    private(set) var activeDisplayID: Int?
+    private(set) var touchDisplayID: Int?
+    private(set) var hasMultipleIntegratedDisplays = false
+    private(set) var displayRotation: Int = 0
+    private var displayBinding = FrameDisplayBinding()
+    private var observedDisplay: FrameObservedDisplay?
+    private var displayMonitor: FrameDisplayMonitor?
     private var idleTimer: DispatchSourceTimer?
     private let captureQueue = DispatchQueue(label: "frame-capture", qos: .userInteractive)
     private var lastCaptureTimeMs: UInt64 = 0
     private var lastSeeds: [ObjectIdentifier: UInt32] = [:]
     private var rewireTickCount: Int = 0
+    private var panelIDs: [ObjectIdentifier: Int] = [:]
     /// Interval at which the idle timer re-emits the current frame even when
     /// the simulator isn't rendering anything new. This is load-bearing for two
     /// consumers:
@@ -38,6 +50,7 @@ final class FrameCapture {
 
     private var descriptors: [NSObject] = []
     private var callbackUUIDs: [ObjectIdentifier: NSUUID] = [:]
+    private var screenProperties: [ObjectIdentifier: NSObject] = [:]
     private var ioClient: NSObject?
     private var activeDescriptor: NSObject?
     private var cachedSurfaceID: IOSurfaceID?
@@ -70,6 +83,28 @@ final class FrameCapture {
         self.ioClient = io
 
         try wireUpFramebuffer()
+        let integratedDisplays = descriptors.filter {
+            FrameDisplayProperties.read($0, width: 0, height: 0).screenType == 0
+        }
+        if integratedDisplays.count > 1 {
+            let monitor = FrameDisplayMonitor()
+            monitor.onHinge = { [weak self] angle in self?.onHingeChanged?(angle) }
+            displayMonitor = monitor
+            let allowedIDs = Set(integratedDisplays.compactMap { FrameDisplayProperties.read($0, width: 0, height: 0).screenID })
+            monitor.start(deviceUDID: deviceUDID, allowedIDs: allowedIDs,
+                          observerPath: ProcessInfo.processInfo.environment["HEADLESS_SERVE_SIM_DISPLAY_OBSERVER"]) { [weak self, weak monitor] display in
+                self?.captureQueue.async { [weak self, weak monitor] in
+                    guard let self, let monitor, self.displayMonitor === monitor else { return }
+                    guard self.observedDisplay != display else { return }
+                    self.observedDisplay = display
+                    self.onDisplayBlanked?(display.displayID, display.blanked)
+                    self.captureFrame(refreshDisplay: true)
+                }
+            }
+        }
+        if hasMultipleIntegratedDisplays, onPanelFrame != nil {
+            for descriptor in integratedDisplays { capturePanel(descriptor, force: true) }
+        }
         startIdleTimer()
         print("[capture] Frame callbacks registered (event-driven) + 5fps idle floor")
     }
@@ -77,10 +112,8 @@ final class FrameCapture {
     /// Find all framebuffer display descriptors, register callbacks on each,
     /// and cache them. Safe to re-call if the cached descriptors become stale.
     ///
-    /// The simulator exposes multiple `com.apple.framebuffer.display` ports
-    /// (main screen + secondary planes/overlays). We can't reliably tell which
-    /// one is the primary up-front, so we listen on all of them and let
-    /// `captureFrame()` pick whichever currently has the largest live surface.
+    /// Listen on all display ports so foldable devices can switch the active
+    /// panel without restarting capture. Older runtimes fall back to area.
     private func wireUpFramebuffer() throws {
         guard let io = ioClient else {
             throw makeError(3, "No IO client")
@@ -100,11 +133,19 @@ final class FrameCapture {
             }
         }
         callbackUUIDs.removeAll()
+        screenProperties.removeAll()
         lastSeeds.removeAll()
         activeDescriptor = nil
         cachedSurfaceID = nil
         cachedPixelBuffer = nil
         descriptors = candidates
+        panelIDs = Dictionary(uniqueKeysWithValues: candidates.compactMap { descriptor in
+            let properties = FrameDisplayProperties.read(descriptor, width: 0, height: 0)
+            return properties.screenType == 0 ? properties.screenID.map { (ObjectIdentifier(descriptor), $0) } : nil
+        })
+        hasMultipleIntegratedDisplays = candidates.filter {
+            FrameDisplayProperties.read($0, width: 0, height: 0).screenType == 0
+        }.count > 1
 
         // Registering screen callbacks is what causes SimulatorKit to wire the
         // display pipeline to our client and populate `framebufferSurface`.
@@ -112,18 +153,10 @@ final class FrameCapture {
             try registerFrameCallbacks(desc: desc)
         }
 
-        if let best = pickBestDescriptor() {
-            activeDescriptor = best
-            let surfSel = NSSelectorFromString("framebufferSurface")
-            if let surfObj = best.perform(surfSel)?.takeUnretainedValue() {
-                let surf = unsafeBitCast(surfObj, to: IOSurface.self)
-                capturedWidth = IOSurfaceGetWidth(surf)
-                capturedHeight = IOSurfaceGetHeight(surf)
-                print("[capture] Framebuffer: \(capturedWidth)x\(capturedHeight) (direct IOSurface, zero-copy)")
-            }
-        }
-
         captureFrame()
+        if capturedWidth > 0, capturedHeight > 0 {
+            print("[capture] Framebuffer: \(capturedWidth)x\(capturedHeight) (direct IOSurface, zero-copy)")
+        }
     }
 
     private func findFramebufferDescriptors(io: NSObject) throws -> [NSObject] {
@@ -153,22 +186,57 @@ final class FrameCapture {
         return candidates
     }
 
-    /// Return the descriptor whose live surface has the largest area.
-    /// Secondary planes/overlays are typically smaller than the main screen.
-    private func pickBestDescriptor() -> NSObject? {
+    private func pickBestDescriptor() -> (descriptor: NSObject, candidate: FrameDisplayCandidate)? {
         let surfSel = NSSelectorFromString("framebufferSurface")
-        var best: NSObject?
-        var bestArea: Int = 0
+        var liveDescriptors: [NSObject] = []
+        var candidates: [FrameDisplayCandidate] = []
         for desc in descriptors {
             guard let surfObj = desc.perform(surfSel)?.takeUnretainedValue() else { continue }
             let surf = unsafeBitCast(surfObj, to: IOSurface.self)
-            let area = IOSurfaceGetWidth(surf) * IOSurfaceGetHeight(surf)
-            if area > bestArea {
-                best = desc
-                bestArea = area
+            liveDescriptors.append(desc)
+            candidates.append(FrameDisplayProperties.read(desc, width: IOSurfaceGetWidth(surf),
+                                                          height: IOSurfaceGetHeight(surf),
+                                                          properties: screenProperties[ObjectIdentifier(desc)]))
+        }
+        guard let index = FrameDisplaySelector.select(candidates, activeDisplayID: observedDisplay?.displayID) else { return nil }
+        if let observedDisplay, candidates[index].screenID == observedDisplay.displayID {
+            switch observedDisplay.rotation {
+            case 180: candidates[index].uiOrientation = 2
+            case 270: candidates[index].uiOrientation = 3
+            case 90: candidates[index].uiOrientation = 4
+            default: candidates[index].uiOrientation = 1
             }
         }
-        return best
+        return (liveDescriptors[index], candidates[index])
+    }
+
+    @discardableResult
+    private func refreshDisplayBinding() -> Bool {
+        guard let selected = pickBestDescriptor() else {
+            if touchDisplayID != nil {
+                touchDisplayID = nil
+                onDisplayChanged?(activeDisplayID, displayRotation)
+            }
+            return false
+        }
+        let nextTouchDisplayID = FrameDisplaySelector.touchDisplayID(selected.candidate,
+                                                                    hasMultipleIntegratedDisplays: hasMultipleIntegratedDisplays)
+        let touchDisplayChanged = touchDisplayID != nextTouchDisplayID
+        touchDisplayID = nextTouchDisplayID
+        let change = displayBinding.update(descriptorID: ObjectIdentifier(selected.descriptor),
+                                           candidate: selected.candidate)
+        activeDescriptor = selected.descriptor
+        if change.bindingChanged {
+            lastSeeds.removeAll()
+            cachedSurfaceID = nil
+            cachedPixelBuffer = nil
+        }
+        if change.stateChanged || touchDisplayChanged {
+            activeDisplayID = displayBinding.state.displayID
+            displayRotation = displayBinding.state.rotation
+            onDisplayChanged?(activeDisplayID, displayRotation)
+        }
+        return change.bindingChanged
     }
 
     // MARK: - Frame callbacks via objc_msgSend
@@ -189,19 +257,30 @@ final class FrameCapture {
         let msgSend = unsafeBitCast(msgSendPtr, to: MsgSendFunc.self)
 
         let uuid = NSUUID()
-        callbackUUIDs[ObjectIdentifier(desc)] = uuid
+        let descriptorID = ObjectIdentifier(desc)
+        callbackUUIDs[descriptorID] = uuid
+        let propertiesSel = NSSelectorFromString("screenProperties")
+        if desc.responds(to: propertiesSel),
+           let properties = desc.perform(propertiesSel)?.takeUnretainedValue() as? NSObject {
+            screenProperties[descriptorID] = properties
+        }
 
         let frameCallback: @convention(block) () -> Void = { [weak self] in
             self?.captureFrame()
         }
         let surfacesCallback: @convention(block) () -> Void = { [weak self] in
             guard let self else { return }
-            self.activeDescriptor = self.pickBestDescriptor()
             self.cachedSurfaceID = nil
             self.cachedPixelBuffer = nil
-            self.captureFrame()
+            self.captureFrame(refreshDisplay: true)
         }
-        let propsCallback: @convention(block) () -> Void = {}
+        let propsCallback: @convention(block) (NSObject) -> Void = { [weak self] properties in
+            guard let self else { return }
+            // The callback snapshot is live; descriptor.screenProperties can
+            // retain its initial backlight state after a panel switch.
+            self.screenProperties[descriptorID] = properties
+            self.captureFrame(refreshDisplay: true)
+        }
 
         msgSend(
             desc, regSel,
@@ -216,6 +295,10 @@ final class FrameCapture {
                        repeating: .milliseconds(Int(Self.idleIntervalMs)))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
+            // Probe native screen state even when H.264 needs no idle pixels.
+            if self.refreshDisplayBinding() {
+                self.captureFrame()
+            }
             let nowMs = DispatchTime.now().uptimeNanoseconds / 1_000_000
             if (nowMs - self.lastCaptureTimeMs) >= Self.idleIntervalMs {
                 self.onIdle?()
@@ -245,9 +328,31 @@ final class FrameCapture {
 
     // MARK: - Frame capture
 
-    private func captureFrame() {
-        guard let desc = activeDescriptor ?? pickBestDescriptor() else { return }
-        activeDescriptor = desc
+    private func capturePanel(_ descriptor: NSObject, force: Bool = false) {
+        guard let onPanelFrame, let id = panelIDs[ObjectIdentifier(descriptor)],
+              let object = descriptor.perform(NSSelectorFromString("framebufferSurface"))?.takeUnretainedValue() else { return }
+        let surface = unsafeBitCast(object, to: IOSurface.self)
+        let width = IOSurfaceGetWidth(surface), height = IOSurfaceGetHeight(surface)
+        guard width > 0, height > 0 else { return }
+        let key = ObjectIdentifier(descriptor), seed = IOSurfaceGetSeed(surface)
+        if !force, lastSeeds[key] == seed { return }
+        lastSeeds[key] = seed
+        var buffer: Unmanaged<CVPixelBuffer>?
+        guard CVPixelBufferCreateWithIOSurface(kCFAllocatorDefault, surface, nil, &buffer) == kCVReturnSuccess,
+              let buffer else { return }
+        frameCount += 1
+        onPanelFrame(id, buffer.takeRetainedValue())
+    }
+
+    private func captureFrame(refreshDisplay: Bool = false) {
+        if refreshDisplay || activeDescriptor == nil {
+            refreshDisplayBinding()
+        }
+        if hasMultipleIntegratedDisplays, onPanelFrame != nil {
+            for descriptor in descriptors { capturePanel(descriptor, force: refreshDisplay) }
+            return
+        }
+        guard let desc = activeDescriptor else { return }
 
         let surfSel = NSSelectorFromString("framebufferSurface")
         guard let surfObj = desc.perform(surfSel)?.takeUnretainedValue() else { return }
@@ -301,12 +406,31 @@ final class FrameCapture {
         onFrame?(pb, timestamp, seedChanged)
     }
 
+    /// Explicit touch targets must still have a registered Integrated framebuffer.
+    func connectedIntegratedDisplayID(_ id: Int) -> Int? {
+        captureQueue.sync {
+            guard hasMultipleIntegratedDisplays,
+                  let descriptor = descriptors.first(where: {
+                      panelIDs[ObjectIdentifier($0)] == id && callbackUUIDs[ObjectIdentifier($0)] != nil
+                  }),
+                  let object = descriptor.perform(NSSelectorFromString("framebufferSurface"))?.takeUnretainedValue() else { return nil }
+            let surface = unsafeBitCast(object, to: IOSurface.self)
+            let candidate = FrameDisplayProperties.read(descriptor, width: IOSurfaceGetWidth(surface),
+                height: IOSurfaceGetHeight(surface), properties: screenProperties[ObjectIdentifier(descriptor)])
+            guard candidate.screenID == id else { return nil }
+            return FrameDisplaySelector.touchDisplayID(candidate, hasMultipleIntegratedDisplays: true)
+        }
+    }
+
     func getScreenSize() -> (width: Int, height: Int)? {
         guard capturedWidth > 0, capturedHeight > 0 else { return nil }
         return (capturedWidth, capturedHeight)
     }
 
     func stop() {
+        displayMonitor?.stop()
+        displayMonitor = nil
+        observedDisplay = nil
         idleTimer?.cancel()
         idleTimer = nil
 
@@ -318,8 +442,15 @@ final class FrameCapture {
             }
         }
         callbackUUIDs.removeAll()
+        screenProperties.removeAll()
         descriptors.removeAll()
+        panelIDs.removeAll()
         lastSeeds.removeAll()
+        displayBinding = FrameDisplayBinding()
+        activeDisplayID = nil
+        touchDisplayID = nil
+        hasMultipleIntegratedDisplays = false
+        displayRotation = 0
         activeDescriptor = nil
         cachedSurfaceID = nil
         cachedPixelBuffer = nil

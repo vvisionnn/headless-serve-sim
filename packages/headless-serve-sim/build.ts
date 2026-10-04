@@ -40,7 +40,12 @@ copyFileSync(resolve(nativeRoot, "bin/headless-serve-sim-bin"), packagedHelper);
 chmodSync(packagedHelper, 0o755);
 
 const packagedNativeSources = resolve(distDir, "native-sources");
-for (const component of ["SimAXSettings", "SimCameraHelper", "SimCameraInjector"]) {
+for (const component of [
+  "SimAXSettings",
+  "SimCameraHelper",
+  "SimCameraInjector",
+  "SimDeviceMotion",
+]) {
   cpSync(resolve(nativeRoot, "Sources", component), resolve(packagedNativeSources, component), {
     recursive: true,
   });
@@ -218,29 +223,20 @@ const binJsSize = (await binJsResult.outputs[0]!.text()).length;
 console.log(`dist/headless-serve-sim.js   ${kb(binJsSize)}`);
 
 // ─── 5. Compiled single-file executable ──────────────────────────────────
-// Bun.build doesn't expose --compile yet, so shell out. The define arg carries
-// the base64 HTML (~100 KB) which is well under the macOS ARG_MAX.
-
-const compile = spawnSync(
-  "bun",
-  [
-    "build",
-    "--compile",
-    "--minify",
-    resolve(root, "src/index.ts"),
-    "--outfile",
-    resolve(distDir, "headless-serve-sim"),
-    "--define",
-    `__PREVIEW_HTML_B64__=${JSON.stringify(htmlB64)}`,
-    // `ws` must stay a runtime-resolved specifier so Bun substitutes its
-    // native implementation — bundling the Node implementation breaks
-    // upgrades (raw handshake writes never flush under Bun's node:http).
-    "--external",
-    "ws",
-  ],
-  { stdio: "inherit" },
-);
-if (compile.status !== 0) process.exit(compile.status ?? 1);
+// Compile the source entry in-process: this preserves its native file import
+// and keeps the preview define out of the OS argument-size limit.
+const compile = await Bun.build({
+  entrypoints: [resolve(root, "src/index.ts")],
+  target: "bun",
+  minify: true,
+  external: ["ws"],
+  define: PREVIEW_DEFINE,
+  compile: { outfile: resolve(distDir, "headless-serve-sim") },
+});
+if (!compile.success) {
+  for (const log of compile.logs) console.error(log);
+  process.exit(1);
+}
 console.log("dist/headless-serve-sim      (compiled binary)");
 
 // ─── 6. SimCameraInjector dylib + SimCameraHelper host CLI ───────────────
@@ -283,5 +279,14 @@ if (axSettingsBuild.status !== 0) {
   process.exit(axSettingsBuild.status ?? 1);
 }
 console.log("dist/simax/headless-serve-sim-ax-settings");
+
+for (const [component, directory] of [["SimDeviceMotion", "simmotion"]]) {
+  const result = spawnSync(
+    "bash",
+    [resolve(packagedNativeSources, component!, "build.sh"), resolve(distDir, directory!)],
+    { stdio: "inherit" },
+  );
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
 
 console.log("Done.");

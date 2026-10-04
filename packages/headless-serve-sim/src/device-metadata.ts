@@ -1,5 +1,8 @@
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
-import { loadInstalledDeviceFrameSpecAsync } from "./device-frame-profile";
+import {
+  loadInstalledDeviceFrameSpecAsync,
+  loadInstalledDeviceFrameSpecsAsync,
+} from "./device-frame-profile";
 import type { HostCommands } from "./runtime/host-commands";
 import { createNodeHostCommands } from "./runtime/node-host-commands";
 
@@ -15,11 +18,13 @@ export interface DeviceMetadata {
   deviceName: string;
   deviceTypeIdentifier?: string;
   deviceFrameSpec?: DeviceFrameSpec;
+  deviceFrameSpecs?: DeviceFrameSpec[];
 }
 
 export interface DeviceMetadataSource {
   findSimulator: (udid: string) => Promise<SimulatorDeviceMetadata | null | undefined>;
   loadDeviceFrameSpec: (deviceTypeIdentifier: string) => Promise<DeviceFrameSpec | null>;
+  loadDeviceFrameSpecs?: (deviceTypeIdentifier: string) => Promise<DeviceFrameSpec[]>;
 }
 
 export function createDeviceMetadataResolver(
@@ -46,25 +51,36 @@ export function createDeviceMetadataResolver(
       }
       if (!simulator) return undefined;
 
-      let deviceFrameSpec: DeviceFrameSpec | null = null;
+      let deviceFrameSpecs: DeviceFrameSpec[] = [];
       if (simulator.deviceTypeIdentifier) {
         try {
-          deviceFrameSpec = await source.loadDeviceFrameSpec(simulator.deviceTypeIdentifier);
+          if (source.loadDeviceFrameSpecs) {
+            deviceFrameSpecs = await source.loadDeviceFrameSpecs(simulator.deviceTypeIdentifier);
+          } else {
+            const spec = await source.loadDeviceFrameSpec(simulator.deviceTypeIdentifier);
+            if (spec) deviceFrameSpecs = [spec];
+          }
         } catch {}
       }
+      const deviceFrameSpec =
+        deviceFrameSpecs.find((spec) => spec.deviceName === "primary") ?? deviceFrameSpecs[0];
 
       const value: DeviceMetadata = {
         deviceName: simulator.name,
         ...(simulator.deviceTypeIdentifier
           ? { deviceTypeIdentifier: simulator.deviceTypeIdentifier }
           : {}),
-        ...(deviceFrameSpec ? { deviceFrameSpec } : {}),
+        ...(deviceFrameSpec ? { deviceFrameSpec, deviceFrameSpecs } : {}),
       };
       cache.set(udid, {
         value,
-        expiresAt: deviceFrameSpec?.artwork
-          ? Number.POSITIVE_INFINITY
-          : now() + DEVICE_METADATA_RETRY_MS,
+        expiresAt:
+          deviceFrameSpecs.length > 0 &&
+          deviceFrameSpecs.every(
+            (spec) => spec.artwork && (!spec.artwork.composite || spec.screenMask),
+          )
+            ? Number.POSITIVE_INFINITY
+            : now() + DEVICE_METADATA_RETRY_MS,
       });
       return value;
     })();
@@ -123,10 +139,15 @@ async function findInstalledSimulator(
 export function createInstalledDeviceMetadataSource(
   host: HostCommands,
   loadDeviceFrameSpec: DeviceMetadataSource["loadDeviceFrameSpec"] = loadInstalledDeviceFrameSpecAsync,
+  loadDeviceFrameSpecs: DeviceMetadataSource["loadDeviceFrameSpecs"] = loadDeviceFrameSpec ===
+  loadInstalledDeviceFrameSpecAsync
+    ? loadInstalledDeviceFrameSpecsAsync
+    : undefined,
 ): DeviceMetadataSource {
   return {
     findSimulator: (udid) => findInstalledSimulator(host, udid),
     loadDeviceFrameSpec,
+    ...(loadDeviceFrameSpecs ? { loadDeviceFrameSpecs } : {}),
   };
 }
 

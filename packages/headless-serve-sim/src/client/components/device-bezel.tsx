@@ -66,6 +66,16 @@ function useFrameArtwork(spec: DeviceFrameSpec | null): string | null {
   return url;
 }
 
+function orientedScreenMask(spec: DeviceFrameSpec, rotation: number): string {
+  const mask = spec.screenMask!;
+  if (!rotation) return mask.pngDataUrl;
+  const sideways = Math.abs(rotation) === 90;
+  const width = sideways ? mask.height : mask.width;
+  const height = sideways ? mask.width : mask.height;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><image href="${mask.pngDataUrl}" width="${mask.width}" height="${mask.height}" transform="translate(${width / 2} ${height / 2}) rotate(${rotation}) translate(${-mask.width / 2} ${-mask.height / 2})"/></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg).replace(/[()']/g, (character) => `%${character.charCodeAt(0).toString(16)}`)}`;
+}
+
 export function DeviceBezel({
   spec,
   geometry,
@@ -149,7 +159,17 @@ export function DeviceBezel({
           top: screen.y,
           width: screen.width,
           height: screen.height,
-          borderRadius: `${screenRadii.topLeft}px ${screenRadii.topRight}px ${screenRadii.bottomRight}px ${screenRadii.bottomLeft}px`,
+          borderRadius: spec.screenMask
+            ? undefined
+            : `${screenRadii.topLeft}px ${screenRadii.topRight}px ${screenRadii.bottomRight}px ${screenRadii.bottomLeft}px`,
+          ...(spec.screenMask
+            ? {
+                maskImage: `url(${orientedScreenMask(spec, rotation)})`,
+                maskSize: "100% 100%",
+                maskRepeat: "no-repeat",
+                maskMode: "alpha",
+              }
+            : {}),
         }}
         {...dropProps}
       >

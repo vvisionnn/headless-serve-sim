@@ -38,6 +38,14 @@ describe("parseScreenshotArgs", () => {
     expect(parseScreenshotArgs(["--display=external"])).toMatchObject({ display: "external" });
   });
 
+  test("--display accepts numeric screen IDs for foldable displays", () => {
+    expect(parseScreenshotArgs(["--display", "1"])).toMatchObject({ display: "1" });
+    expect(parseScreenshotArgs(["--display=3"])).toMatchObject({ display: "3" });
+    expect(parseScreenshotArgs(["--display", "0"])).toEqual({
+      error: expect.stringContaining("Invalid --display"),
+    });
+  });
+
   test("--display rejects an unknown value", () => {
     expect(parseScreenshotArgs(["--display", "bogus"])).toEqual({
       error: expect.stringContaining("Invalid --display"),
@@ -118,6 +126,18 @@ describe("parseScreenshotArgs", () => {
 });
 
 describe("screenshot capture module", () => {
+  test("defaults to the observed active display instead of simctl's first framebuffer", async () => {
+    const host = createScriptedHostCommands([{}]);
+    const capture = createScreenshotCapture(host, {
+      activeDisplay: async () => "1",
+    });
+
+    await capture.capture("DEVICE", { path: "/tmp/shot.png", type: "png", quiet: false });
+
+    expect(host.calls[0]?.request.args).toContain("--display");
+    expect(host.calls[0]?.request.args).toContain("1");
+  });
+
   test("captures with exact display and mask argv", async () => {
     const host = createScriptedHostCommands([{}]);
     const capture = createScreenshotCapture(host);

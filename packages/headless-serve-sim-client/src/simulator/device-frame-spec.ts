@@ -31,7 +31,8 @@ export interface DeviceFrameArtwork {
   width: number;
   height: number;
   chromeRectPx: { x: number; y: number; width: number; height: number };
-  slices: {
+  composite?: DeviceFrameArtworkAsset;
+  slices?: {
     topLeft: DeviceFrameArtworkAsset;
     top: DeviceFrameArtworkAsset;
     topRight: DeviceFrameArtworkAsset;
@@ -48,6 +49,9 @@ export interface DeviceFrameSpec {
   deviceTypeIdentifier: string;
   modelName: string;
   family: DeviceFrameFamily;
+  displayId?: number;
+  deviceName?: string;
+  nativeRotation?: number;
   nativeScreen: { width: number; height: number };
   insetsPx: DeviceFrameInsets;
   screenRadiiPx: {
@@ -62,6 +66,7 @@ export interface DeviceFrameSpec {
   cutoutRectPx?: { x: number; y: number; width: number; height: number } | null;
   chromeIdentifier: string;
   artwork?: DeviceFrameArtwork;
+  screenMask?: DeviceFrameArtworkAsset;
 }
 
 export interface DeviceFrameIdentity {
@@ -79,19 +84,38 @@ function portraitDimensions(screen: { width: number; height: number }) {
   return screen.width <= screen.height ? screen : { width: screen.height, height: screen.width };
 }
 
+function uniqueDisplaySpec(
+  specs: readonly DeviceFrameSpec[],
+  screen: { width: number; height: number },
+): DeviceFrameSpec | null {
+  if (specs.length === 1) return specs[0]!;
+  const requested = portraitDimensions(screen);
+  const matches = specs.filter((spec) => {
+    const native = portraitDimensions(spec.nativeScreen);
+    return native.width === requested.width && native.height === requested.height;
+  });
+  return matches.length === 1 ? matches[0]! : null;
+}
+
 export function matchDeviceFrameSpec(
   identity: DeviceFrameIdentity,
   screen: { width: number; height: number },
   specs: readonly DeviceFrameSpec[],
 ): DeviceFrameMatch {
   if (identity.deviceTypeIdentifier) {
-    const exact = specs.find((spec) => spec.deviceTypeIdentifier === identity.deviceTypeIdentifier);
+    const exact = uniqueDisplaySpec(
+      specs.filter((spec) => spec.deviceTypeIdentifier === identity.deviceTypeIdentifier),
+      screen,
+    );
     if (exact) return { spec: exact, matchedBy: "identifier" };
   }
 
   const requestedName = identity.modelName?.trim().toLocaleLowerCase();
   if (requestedName) {
-    const exact = specs.find((spec) => spec.modelName.toLocaleLowerCase() === requestedName);
+    const exact = uniqueDisplaySpec(
+      specs.filter((spec) => spec.modelName.toLocaleLowerCase() === requestedName),
+      screen,
+    );
     if (exact) return { spec: exact, matchedBy: "name" };
   }
 

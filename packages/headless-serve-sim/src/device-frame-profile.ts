@@ -25,6 +25,8 @@ export interface BuildDeviceFrameSpecInput {
   capabilities: unknown;
   profile: unknown;
   chrome: unknown;
+  displayId?: number;
+  screenMask?: DeviceFrameArtworkAsset | null;
   sensorBarSize?: { width: number; height: number } | null;
   resolveArtworkAsset?: (name: string, scale: number) => DeviceFrameArtworkAsset | null;
 }
@@ -44,6 +46,10 @@ function familyForProduct(productFamily: string): DeviceFrameFamily | null {
   if (productFamily === "iPad") return "ipad";
   if (productFamily === "Apple Watch") return "watch";
   return null;
+}
+
+function usesCompositeArtwork(chromeIdentifier: string): boolean {
+  return /^com\.apple\.dt\.devicekit\.chrome\.phone(14|15)$/.test(chromeIdentifier);
 }
 
 const SLICE_KEYS = [
@@ -91,13 +97,21 @@ function buildArtwork(
   )
     return undefined;
 
-  const slices = {} as DeviceFrameArtwork["slices"];
-  for (const key of SLICE_KEYS) {
-    const name = images[key];
-    if (typeof name !== "string") return undefined;
-    const asset = resolveAsset(name, scale);
-    if (!asset) return undefined;
-    slices[key] = asset;
+  let composite: DeviceFrameArtworkAsset | undefined;
+  let slices: DeviceFrameArtwork["slices"];
+  if (usesCompositeArtwork(String(chromeRoot.identifier))) {
+    if (typeof images.composite !== "string") return undefined;
+    composite = resolveAsset(images.composite, scale) ?? undefined;
+    if (!composite) return undefined;
+  } else {
+    slices = {} as NonNullable<DeviceFrameArtwork["slices"]>;
+    for (const key of SLICE_KEYS) {
+      const name = images[key];
+      if (typeof name !== "string") return undefined;
+      const asset = resolveAsset(name, scale);
+      if (!asset) return undefined;
+      slices[key] = asset;
+    }
   }
 
   const controls: DeviceFrameArtworkControl[] = [];
@@ -141,9 +155,22 @@ function buildArtwork(
     width: chromeX + chromeWidth + paddingRight * scale,
     height: chromeY + chromeHeight + paddingBottom * scale,
     chromeRectPx: { x: chromeX, y: chromeY, width: chromeWidth, height: chromeHeight },
-    slices,
+    ...(composite ? { composite } : { slices }),
     controls,
   };
+}
+
+function integratedDisplays(capabilities: unknown): Record<string, unknown>[] {
+  const displays = record(record(capabilities)?.capabilities)?.displays;
+  return (Array.isArray(displays) ? displays : [])
+    .map(record)
+    .filter((display): display is Record<string, unknown> => display?.displayType === "integrated");
+}
+
+function selectDisplay(displays: Record<string, unknown>[], displayId?: number) {
+  return displayId === undefined
+    ? (displays.find((display) => display.deviceName === "primary") ?? displays[0])
+    : displays.find((display) => display.screenID === displayId);
 }
 
 export function buildDeviceFrameSpec({
@@ -151,6 +178,8 @@ export function buildDeviceFrameSpec({
   capabilities,
   profile,
   chrome,
+  displayId,
+  screenMask,
   sensorBarSize = null,
   resolveArtworkAsset,
 }: BuildDeviceFrameSpecInput): DeviceFrameSpec | null {
@@ -160,16 +189,11 @@ export function buildDeviceFrameSpec({
   const chromeRoot = record(chrome);
   if (!family || !capabilityRoot || !profileRoot || !chromeRoot) return null;
 
-  const chromeIdentifier = profileRoot.chromeIdentifier;
+  const displays = integratedDisplays(capabilities);
+  const display = selectDisplay(displays, displayId);
+  const chromeIdentifier = display?.chromeIdentifier ?? profileRoot.chromeIdentifier;
   if (typeof chromeIdentifier !== "string" || chromeRoot.identifier !== chromeIdentifier)
     return null;
-
-  const displays = Array.isArray(capabilityRoot.displays)
-    ? capabilityRoot.displays.map(record).filter((value) => value !== null)
-    : [];
-  const display =
-    displays.find((value) => value.deviceName === "primary") ??
-    displays.find((value) => value.displayType === "integrated");
   const scale = finite(display?.scale);
   const width = finite(display?.width);
   const height = finite(display?.height);
@@ -202,7 +226,7 @@ export function buildDeviceFrameSpec({
 
   const radius = (key: string) => (finite(display[key]) ?? 0) * scale;
   const cutout =
-    family !== "iphone"
+    family !== "iphone" || usesCompositeArtwork(chromeIdentifier)
       ? "none"
       : capabilityRoot.DeviceSupportsDynamicIsland === true
         ? "dynamic-island"
@@ -226,6 +250,13 @@ export function buildDeviceFrameSpec({
     deviceTypeIdentifier: deviceType.identifier,
     modelName: deviceType.name,
     family,
+    ...(displays.length > 1
+      ? {
+          displayId: finite(display.screenID) ?? undefined,
+          deviceName: typeof display.deviceName === "string" ? display.deviceName : undefined,
+          nativeRotation: finite(display.nativeRotation) ?? 0,
+        }
+      : {}),
     nativeScreen: { width, height },
     insetsPx: {
       top: top * scale,
@@ -253,6 +284,7 @@ export function buildDeviceFrameSpec({
     cutoutRectPx,
     chromeIdentifier,
     ...(artwork ? { artwork } : {}),
+    ...(screenMask ? { screenMask } : {}),
   };
 }
 
@@ -314,27 +346,15 @@ export function parsePdfMediaBoxSize(pdf: string): { width: number; height: numb
   if (!match) return null;
   const width = Number(match[3]) - Number(match[1]);
   const height = Number(match[4]) - Number(match[2]);
-  return width > 0 && height > 0 && Number.isFinite(width) && Number.isFinite(height)
-    ? { width, height }
-    : null;
+  if (!(width > 0 && height > 0 && Number.isFinite(width) && Number.isFinite(height))) return null;
+  const rotation = Number(pdf.match(/\/Rotate\s+(-?\d+)/)?.[1] ?? 0);
+  return Math.abs(rotation % 180) === 90 ? { width: height, height: width } : { width, height };
 }
 
 async function readPdfMediaBoxAsync(
   path: string,
 ): Promise<{ width: number; height: number } | null> {
   return parsePdfMediaBoxSize(await readFile(path, "latin1"));
-}
-
-function primaryDisplayScale(capabilities: unknown): number | null {
-  const capabilityRoot = record(record(capabilities)?.capabilities);
-  const displays = Array.isArray(capabilityRoot?.displays)
-    ? capabilityRoot.displays.map(record).filter((value) => value !== null)
-    : [];
-  const display =
-    displays.find((value) => value.deviceName === "primary") ??
-    displays.find((value) => value.displayType === "integrated");
-  const scale = finite(display?.scale);
-  return scale && scale > 0 ? scale : null;
 }
 
 function artworkAssetNames(chrome: unknown): string[] {
@@ -350,7 +370,13 @@ function artworkAssetNames(chrome: unknown): string[] {
       return typeof name === "string" ? [name] : [];
     },
   );
-  return [...new Set([...sliceNames, ...controlNames])];
+  const compositeName = images?.composite;
+  const bodyNames = usesCompositeArtwork(String(chromeRoot?.identifier))
+    ? typeof compositeName === "string"
+      ? [compositeName]
+      : []
+    : sliceNames;
+  return [...new Set([...bodyNames, ...controlNames])];
 }
 
 async function rasterizeArtworkAsset(
@@ -360,6 +386,7 @@ async function rasterizeArtworkAsset(
   chromeResources: string,
   tempDirectory: string,
   index: number,
+  targetSize?: { width: number; height: number },
 ): Promise<DeviceFrameArtworkAsset | null> {
   if (!assetNameIsSafe(name)) return null;
   const pdfPath = join(chromeResources, `${name}.pdf`);
@@ -371,8 +398,8 @@ async function rasterizeArtworkAsset(
     return null;
   }
   if (!mediaBox) return null;
-  const width = Math.max(1, Math.round(mediaBox.width * scale));
-  const height = Math.max(1, Math.round(mediaBox.height * scale));
+  const width = Math.max(1, Math.round(targetSize?.width ?? mediaBox.width * scale));
+  const height = Math.max(1, Math.round(targetSize?.height ?? mediaBox.height * scale));
   const pngPath = join(tempDirectory, `asset-${index}.png`);
   try {
     await hostOutput(
@@ -463,11 +490,15 @@ async function loadInstalledDeviceFrameSpecAsyncWithHost(
   host: HostCommands,
   state: DeviceFrameProfileState,
   deviceTypeIdentifier: string,
+  chromeDirectory: string,
+  framebufferMaskDirectory: string,
+  displayId?: number,
 ): Promise<DeviceFrameSpec | null> {
-  const cached = state.installedSpecCache.get(deviceTypeIdentifier);
+  const cacheKey = `${deviceTypeIdentifier}:${displayId ?? "primary"}`;
+  const cached = state.installedSpecCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.value);
 
-  const inFlight = state.installedSpecLoads.get(deviceTypeIdentifier);
+  const inFlight = state.installedSpecLoads.get(cacheKey);
   if (inFlight) return inFlight;
 
   const load = (async (): Promise<DeviceFrameSpec | null> => {
@@ -488,12 +519,14 @@ async function loadInstalledDeviceFrameSpecAsyncWithHost(
         readPlistJsonAsync(host, profilePath),
       ]);
       const profileRoot = record(profile);
-      const chromeIdentifier = profileRoot?.chromeIdentifier;
+      const display = selectDisplay(integratedDisplays(capabilities), displayId);
+      if (!display) throw new Error("display unavailable");
+      const chromeIdentifier = display.chromeIdentifier ?? profileRoot?.chromeIdentifier;
       if (typeof chromeIdentifier !== "string") throw new Error("chrome unavailable");
       const chromeName = chromeIdentifier.replace(/^com\.apple\.dt\.devicekit\.chrome\./, "");
       if (!/^[A-Za-z0-9._-]+$/.test(chromeName)) throw new Error("invalid chrome");
       const chromePath = join(
-        "/Library/Developer/DeviceKit/Chrome",
+        chromeDirectory,
         `${chromeName}.devicechrome`,
         "Contents",
         "Resources",
@@ -513,16 +546,33 @@ async function loadInstalledDeviceFrameSpecAsyncWithHost(
         } catch {}
       }
       const chrome = JSON.parse(await readFile(chromePath, "utf8"));
-      const scale = primaryDisplayScale(capabilities);
+      const scale = finite(display.scale);
       const assets = new Map<string, DeviceFrameArtworkAsset | null>();
       const assetNames = artworkAssetNames(chrome);
-      if (scale && assetNames.length > 0) {
+      const maskIdentifier = usesCompositeArtwork(chromeIdentifier)
+        ? (display.framebufferMaskIdentifier ?? profileRoot?.framebufferMask)
+        : null;
+      const screenWidth = finite(display.width);
+      const screenHeight = finite(display.height);
+      let screenMask: DeviceFrameArtworkAsset | null = null;
+      if (scale && (assetNames.length > 0 || typeof maskIdentifier === "string")) {
         const tempDirectory = await mkdtemp(join(tmpdir(), "serve-sim-device-frame-"));
         try {
           for (const [index, name] of assetNames.entries()) {
             assets.set(
               name,
               await rasterizeArtworkAsset(host, name, scale, chromeResources, tempDirectory, index),
+            );
+          }
+          if (typeof maskIdentifier === "string" && screenWidth && screenHeight) {
+            screenMask = await rasterizeArtworkAsset(
+              host,
+              maskIdentifier,
+              scale,
+              framebufferMaskDirectory,
+              tempDirectory,
+              assetNames.length,
+              { width: screenWidth, height: screenHeight },
             );
           }
         } finally {
@@ -534,22 +584,27 @@ async function loadInstalledDeviceFrameSpecAsyncWithHost(
         capabilities,
         profile,
         chrome,
+        displayId,
+        screenMask,
         sensorBarSize,
         resolveArtworkAsset: (name) => assets.get(name) ?? null,
       });
     } catch {
       resolved = null;
     }
-    state.installedSpecCache.set(deviceTypeIdentifier, {
+    state.installedSpecCache.set(cacheKey, {
       value: resolved,
-      expiresAt: resolved?.artwork ? Number.POSITIVE_INFINITY : Date.now() + NEGATIVE_CACHE_TTL_MS,
+      expiresAt:
+        resolved?.artwork && (!resolved.artwork.composite || resolved.screenMask)
+          ? Number.POSITIVE_INFINITY
+          : Date.now() + NEGATIVE_CACHE_TTL_MS,
     });
     return resolved;
   })();
-  state.installedSpecLoads.set(deviceTypeIdentifier, load);
+  state.installedSpecLoads.set(cacheKey, load);
   const clearLoad = () => {
-    if (state.installedSpecLoads.get(deviceTypeIdentifier) === load) {
-      state.installedSpecLoads.delete(deviceTypeIdentifier);
+    if (state.installedSpecLoads.get(cacheKey) === load) {
+      state.installedSpecLoads.delete(cacheKey);
     }
   };
   void load.then(clearLoad, clearLoad);
@@ -557,14 +612,63 @@ async function loadInstalledDeviceFrameSpecAsyncWithHost(
 }
 
 export interface DeviceFrameProfileLoader {
-  load(deviceTypeIdentifier: string): Promise<DeviceFrameSpec | null>;
+  load(
+    deviceTypeIdentifier: string,
+    options?: { displayId?: number },
+  ): Promise<DeviceFrameSpec | null>;
+  loadAll(deviceTypeIdentifier: string): Promise<DeviceFrameSpec[]>;
 }
 
-export function createDeviceFrameProfileLoader(host: HostCommands): DeviceFrameProfileLoader {
+export function createDeviceFrameProfileLoader(
+  host: HostCommands,
+  options: { chromeDirectory?: string; framebufferMaskDirectory?: string } = {},
+): DeviceFrameProfileLoader {
   const state = createDeviceFrameProfileState();
+  const chromeDirectory = options.chromeDirectory ?? "/Library/Developer/DeviceKit/Chrome";
+  const framebufferMaskDirectory =
+    options.framebufferMaskDirectory ?? "/Library/Developer/DeviceKit/FramebufferMasks";
   return {
-    load: (deviceTypeIdentifier) =>
-      loadInstalledDeviceFrameSpecAsyncWithHost(host, state, deviceTypeIdentifier),
+    load: (deviceTypeIdentifier, options) =>
+      loadInstalledDeviceFrameSpecAsyncWithHost(
+        host,
+        state,
+        deviceTypeIdentifier,
+        chromeDirectory,
+        framebufferMaskDirectory,
+        options?.displayId,
+      ),
+    async loadAll(deviceTypeIdentifier) {
+      try {
+        const deviceType = (await listInstalledDeviceTypesAsync(host, state)).find(
+          (candidate) => candidate.identifier === deviceTypeIdentifier,
+        );
+        if (!deviceType) return [];
+        const capabilities = await readPlistJsonAsync(
+          host,
+          join(deviceType.bundlePath, "Contents", "Resources", "capabilities.plist"),
+        );
+        const displays = integratedDisplays(capabilities);
+        const primary = selectDisplay(displays);
+        const ordered = primary
+          ? [primary, ...displays.filter((display) => display !== primary)]
+          : [];
+        const specs = await Promise.all(
+          ordered.map((display) =>
+            loadInstalledDeviceFrameSpecAsyncWithHost(
+              host,
+              state,
+              deviceTypeIdentifier,
+              chromeDirectory,
+              framebufferMaskDirectory,
+              finite(display.screenID) ?? undefined,
+            ),
+          ),
+        );
+        return specs.filter((spec): spec is DeviceFrameSpec => spec !== null);
+      } catch {
+        return [];
+      }
+    },
   };
 }
 
@@ -572,6 +676,13 @@ const productionDeviceFrameProfileLoader = createDeviceFrameProfileLoader(create
 
 export function loadInstalledDeviceFrameSpecAsync(
   deviceTypeIdentifier: string,
+  options?: { displayId?: number },
 ): Promise<DeviceFrameSpec | null> {
-  return productionDeviceFrameProfileLoader.load(deviceTypeIdentifier);
+  return productionDeviceFrameProfileLoader.load(deviceTypeIdentifier, options);
+}
+
+export function loadInstalledDeviceFrameSpecsAsync(
+  deviceTypeIdentifier: string,
+): Promise<DeviceFrameSpec[]> {
+  return productionDeviceFrameProfileLoader.loadAll(deviceTypeIdentifier);
 }

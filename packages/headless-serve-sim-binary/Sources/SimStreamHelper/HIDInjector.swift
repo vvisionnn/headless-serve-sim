@@ -27,6 +27,23 @@ final class HIDInjector {
         UnsafePointer<CGPoint>, UnsafePointer<CGPoint>?, UInt32, Int32, CGFloat, CGFloat, UInt32
     ) -> UnsafeMutableRawPointer?
     private var mouseFunc: IndigoMouseFunc?
+    private var digitizerTarget: UInt32 = 0x32
+    private var displayRotation = 0
+    private var hasMultipleIntegratedDisplays = false
+
+    /// The caller must validate non-nil IDs against connected Integrated panels.
+    /// Nil preserves the legacy route for ordinary single-screen simulators.
+    func setActiveDisplayID(_ id: Int?, rotation: Int = 0, hasMultipleIntegratedDisplays: Bool = false) {
+        inputQueue.async { [self] in
+            let target = HIDTouchTarget.select(displayID: id)
+            guard target != digitizerTarget || rotation != displayRotation || hasMultipleIntegratedDisplays != self.hasMultipleIntegratedDisplays else { return }
+            finishScrollDrag()
+            digitizerTarget = target
+            displayRotation = rotation
+            self.hasMultipleIntegratedDisplays = hasMultipleIntegratedDisplays
+            print("[hid] Touch target: 0x\(String(target, radix: 16))")
+        }
+    }
 
     // IndigoHIDMessageForButton(int eventSource, int direction, int target) -> IndigoMessage*
     private typealias IndigoButtonFunc = @convention(c) (Int32, Int32, Int32) -> UnsafeMutableRawPointer?
@@ -124,14 +141,13 @@ final class HIDInjector {
     // Determined by disassembling IndigoHIDMessageForMouseNSEvent and testing
     // each value against a booted Face ID simulator.
     static let edgeNone: UInt32   = 0  // No edge — regular touch
-    static let edgeBottom: UInt32 = 3  // Bottom edge — swipe-to-home on Face ID devices
-    static let edgeTop: UInt32    = 2  // Top edge (notification center)
-    static let edgeLeft: UInt32   = 1  // Left edge
+    static let edgeTop: UInt32    = 1  // Top edge (notification center)
+    static let edgeLeft: UInt32   = 2  // Left edge
     static let edgeRight: UInt32  = 4  // Right edge
 
-    /// Build a single-finger touch message from normalized (0..1) coords. Pure,
-    /// so it can run off `inputQueue`. NSSize(1,1) makes ratio = point.
-    private func touchMessage(type: String, x: Double, y: Double, edge: UInt32) -> UnsafeMutableRawPointer? {
+    /// Build a single-finger touch message from normalized (0..1) coords.
+    /// Runs on `inputQueue`. NSSize(1,1) makes ratio = point.
+    private func touchMessage(type: String, x: Double, y: Double, edge: UInt32, displayID: Int? = nil) -> UnsafeMutableRawPointer? {
         guard let mouseFunc = mouseFunc else { return nil }
         let eventType: Int32
         switch type {
@@ -141,7 +157,7 @@ final class HIDInjector {
         default: return nil
         }
         var point = CGPoint(x: x, y: y)
-        return mouseFunc(&point, nil, 0x32, eventType, 1.0, 1.0, edge)
+        return mouseFunc(&point, nil, displayID.map { HIDTouchTarget.select(displayID: $0) } ?? digitizerTarget, eventType, 1.0, 1.0, edge)
     }
 
     /// Build and deliver one touch synchronously. Only call from `inputQueue`
@@ -150,22 +166,22 @@ final class HIDInjector {
         if let msg = touchMessage(type: type, x: x, y: y, edge: edge) { rawSend(msg) }
     }
 
-    func sendTouch(type: String, x: Double, y: Double, screenWidth: Int, screenHeight: Int, edge: UInt32 = 0) {
-        guard let msg = touchMessage(type: type, x: x, y: y, edge: edge) else {
-            print("[hid] IndigoHIDMessageForMouseNSEvent returned nil for \(type)")
-            return
-        }
-        print("[hid] Sending \(type) at (\(String(format:"%.3f",x)),\(String(format:"%.3f",y)))\(edge > 0 ? " edge=\(edge)" : "")")
+    func sendTouch(type: String, x: Double, y: Double, screenWidth: Int, screenHeight: Int, edge: UInt32 = 0, displayID: Int? = nil) {
         // A direct touch interleaved with an in-flight scroll drag would corrupt
         // both gestures, so every send goes through the one input queue — and
         // the scroll finger has to come up first, ordering alone isn't enough.
         inputQueue.async { [self] in
             finishScrollDrag()
+            guard let msg = touchMessage(type: type, x: x, y: y, edge: edge, displayID: displayID) else {
+                print("[hid] IndigoHIDMessageForMouseNSEvent returned nil for \(type)")
+                return
+            }
+            print("[hid] Sending \(type) at (\(String(format:"%.3f",x)),\(String(format:"%.3f",y)))\(edge > 0 ? " edge=\(edge)" : "")")
             rawSend(msg)
         }
     }
 
-    func sendMultiTouch(type: String, x1: Double, y1: Double, x2: Double, y2: Double, screenWidth: Int, screenHeight: Int) {
+    func sendMultiTouch(type: String, x1: Double, y1: Double, x2: Double, y2: Double, screenWidth: Int, screenHeight: Int, displayID: Int? = nil) {
         guard let mouseFunc = mouseFunc else { return }
 
         let eventType: Int32
@@ -176,20 +192,19 @@ final class HIDInjector {
         default: return
         }
 
-        // Pass both CGPoints to create a 3-block multi-touch message.
-        // NSSize(1.0, 1.0) makes ratio = point / 1.0 = point, so all fields
-        // (ratios + any derived values) are computed correctly by the C function.
-        var point1 = CGPoint(x: x1, y: y1)
-        var point2 = CGPoint(x: x2, y: y2)
-
-        guard let rawMsg = mouseFunc(&point1, &point2, 0x32, eventType, 1.0, 1.0, 0) else {
-            print("[hid] IndigoHIDMessageForMouseNSEvent returned nil for multi-touch \(type)")
-            return
-        }
-
-        print("[hid] Multi-touch \(type) f1=(\(String(format:"%.3f",x1)),\(String(format:"%.3f",y1))) f2=(\(String(format:"%.3f",x2)),\(String(format:"%.3f",y2)))")
         inputQueue.async { [self] in
             finishScrollDrag()
+            // Pass both CGPoints to create a 3-block multi-touch message.
+            // NSSize(1.0, 1.0) makes ratio = point / 1.0 = point, so all fields
+            // (ratios + any derived values) are computed correctly by the C function.
+            var point1 = CGPoint(x: x1, y: y1)
+            var point2 = CGPoint(x: x2, y: y2)
+            let target = displayID.map { HIDTouchTarget.select(displayID: $0) } ?? digitizerTarget
+            guard let rawMsg = mouseFunc(&point1, &point2, target, eventType, 1.0, 1.0, 0) else {
+                print("[hid] IndigoHIDMessageForMouseNSEvent returned nil for multi-touch \(type)")
+                return
+            }
+            print("[hid] Multi-touch \(type) f1=(\(String(format:"%.3f",x1)),\(String(format:"%.3f",y1))) f2=(\(String(format:"%.3f",x2)),\(String(format:"%.3f",y2)))")
             rawSend(rawMsg)
         }
     }
@@ -290,7 +305,8 @@ final class HIDInjector {
 
         inputQueue.async { [self] in
             // Preferred path: a keyboard-page HID report on the digitizer target.
-            if sendHIDUsage(page: HIDUsage.keyboardPage, usage: usage, direction: direction) { return }
+            if !HIDDisplayInput.prefersLegacyKeyboard(hasMultipleIntegratedDisplays: hasMultipleIntegratedDisplays),
+               sendHIDUsage(page: HIDUsage.keyboardPage, usage: usage, direction: direction) { return }
 
             // Fallback for toolchains without the arbitrary-HID builder.
             guard let keyboardFunc = keyboardFunc else {
@@ -337,7 +353,7 @@ final class HIDInjector {
     // (target 0x35) is silently dropped.
     //
     // So scroll the way a finger does: turn the wheel delta into a touch drag on
-    // the digitizer (0x32), the same path taps and swipes already use. A burst
+    // the active digitizer, the same path taps and swipes already use. A burst
     // of wheel events becomes one continuous drag — begin, moves, end once the
     // wheel goes idle — re-anchoring when the finger nears an edge so a long
     // scroll isn't capped by the screen bounds.
@@ -484,6 +500,10 @@ final class HIDInjector {
         if let usage = HIDUsage.consumerUsage(forButton: button) {
             let hold: TimeInterval = button == "siri" ? 0.3 : 0
             inputQueue.async { [self] in
+                if HIDDisplayInput.prefersLegacyHome(button: button, hasMultipleIntegratedDisplays: hasMultipleIntegratedDisplays) {
+                    sendLegacyButton(button, deviceUDID: deviceUDID)
+                    return
+                }
                 if pressHIDUsage(page: HIDUsage.consumerPage, usage: usage, hold: hold) { return }
                 sendLegacyButton(button, deviceUDID: deviceUDID)
             }
@@ -592,34 +612,33 @@ final class HIDInjector {
     }
 
     /// Synthesize a swipe-up-from-bottom gesture (Face ID "go home" gesture).
-    /// Uses IndigoHIDEdge.bottom to flag touches as system edge gestures,
-    /// which iOS interprets as the home indicator swipe.
+    /// Flags the raw edge corresponding to the logical bottom as a system
+    /// gesture, which iOS interprets as the home indicator swipe.
     /// Runs on `inputQueue`, so it sends raw touches synchronously — routing
     /// through `sendTouch` would re-enqueue each step behind this block, firing
     /// the whole gesture at once after the sleeps and letting unrelated input
     /// interleave with it.
     private func sendSwipeHome() {
-        let xPos = 0.5
-        let yStart = 0.95
-        let yEnd = 0.35
+        finishScrollDrag()
+        let gesture = HIDDisplayInput.swipeHome(rotation: displayRotation, hasMultipleIntegratedDisplays: hasMultipleIntegratedDisplays)
         let steps = 10
         let stepDelay: TimeInterval = 0.016  // ~16ms per step
-        let edge = Self.edgeBottom
 
-        // Touch down at bottom edge
-        rawSendTouch(type: "begin", x: xPos, y: yStart, edge: edge)
+        // Touch down at the logical bottom edge
+        rawSendTouch(type: "begin", x: gesture.start.x, y: gesture.start.y, edge: gesture.edge)
         Thread.sleep(forTimeInterval: stepDelay)
 
-        // Interpolated moves upward
+        // Interpolated moves toward the screen center
         for i in 1...steps {
             let t = Double(i) / Double(steps)
-            let y = yStart + (yEnd - yStart) * t
-            rawSendTouch(type: "move", x: xPos, y: y, edge: edge)
+            let x = gesture.start.x + (gesture.end.x - gesture.start.x) * t
+            let y = gesture.start.y + (gesture.end.y - gesture.start.y) * t
+            rawSendTouch(type: "move", x: x, y: y, edge: gesture.edge)
             Thread.sleep(forTimeInterval: stepDelay)
         }
 
         // Touch up
-        rawSendTouch(type: "end", x: xPos, y: yEnd, edge: edge)
+        rawSendTouch(type: "end", x: gesture.end.x, y: gesture.end.y, edge: gesture.edge)
     }
 
     private func launchSpringBoard(deviceUDID: String) {

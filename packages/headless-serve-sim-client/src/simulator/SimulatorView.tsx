@@ -8,7 +8,7 @@ import {
   type MutableRefObject,
   type TouchEvent,
 } from "react";
-import type { StreamConfig } from "../types.js";
+import type { SimulatorComposition, StreamConfig } from "../types.js";
 import {
   HID_EDGE_BOTTOM,
   homeIndicatorEdge,
@@ -20,7 +20,7 @@ import {
 import { digitalCrownDeltaFromWheel } from "./digitalCrown.js";
 import { wheelDeltaToPixels } from "./scroll-wheel.js";
 import { normalizedPoint } from "./touch-geometry.js";
-import { useAvccStream, type AvccFrameInfo } from "./use-avcc-stream.js";
+import { useAvccStream, type AvccFrameInfo, type AvccEncodedEvent } from "./use-avcc-stream.js";
 import { isAvccSupported } from "../avcc-codec.js";
 import { RecordingTouchTracker, type RecordingTouchPoint } from "./recording-touches.js";
 import {
@@ -79,8 +79,10 @@ export interface SimulatorViewProps {
   enableDigitalCrown?: boolean;
   /** Relay mode: subscribe to frame updates (bypasses React state for performance).
    * Callback receives a blob URL (object URL) pointing to the JPEG frame, plus
-   * the frame's byte size when known (feeds the Connection Stats bitrate). */
-  subscribeFrame?: (cb: (blobUrl: string, bytes?: number) => void) => () => void;
+   * the frame's byte size and frame-bound composition when known. */
+  subscribeFrame?: (
+    cb: (blobUrl: string, bytes?: number, composition?: SimulatorComposition) => void,
+  ) => () => void;
   /** Relay mode: latest blob URL JPEG frame from the relay (used for initial render) */
   streamFrame?: string | null;
   /** Relay mode: screen config from relay */
@@ -139,6 +141,8 @@ export interface SimulatorRecordingSnapshot {
   width: number;
   height: number;
   orientation?: StreamConfig["orientation"];
+  displayId?: StreamConfig["displayId"];
+  composition?: import("../types.js").SimulatorComposition;
   surfaceWidth: number;
   surfaceHeight: number;
   touches: readonly SimulatorRecordingTouch[];
@@ -146,8 +150,11 @@ export interface SimulatorRecordingSnapshot {
 
 export interface SimulatorRecordingSource {
   snapshot(nowMs?: number): SimulatorRecordingSnapshot | null;
-  /** Subscribe to frames after they have been presented by the AVCC canvas. */
+  /** Subscribe to frames after they have been painted or their JPEG has loaded. */
   subscribe?(listener: () => void): () => void;
+  /** Packet data is borrowed for the callback; retained packets must be copied. */
+  subscribeEncoded?(listener: (event: AvccEncodedEvent) => void): () => void;
+  requestKeyframe?(): void;
 }
 
 /**
@@ -242,7 +249,14 @@ export function SimulatorView({
   hideControlsRef.current = hideControls;
   const [showSlowOverlay, setShowSlowOverlay] = useState(false);
   const slowOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const compositionRef = useRef<import("../types.js").SimulatorComposition | undefined>(undefined);
   const recordingFrameListenersRef = useRef(new Set<() => void>());
+  const encodedListenersRef = useRef(new Set<(event: AvccEncodedEvent) => void>());
+  const encodedDescriptionRef = useRef<Uint8Array | null>(null);
+  const onAvccEncoded = useCallback((event: AvccEncodedEvent) => {
+    if (event.type === "description") encodedDescriptionRef.current = event.data.slice();
+    for (const listener of encodedListenersRef.current) listener(event);
+  }, []);
   const notifyRecordingFrame = useCallback(() => {
     for (const listener of recordingFrameListenersRef.current) listener();
   }, []);
@@ -272,6 +286,8 @@ export function SimulatorView({
 
   useEffect(() => {
     screenSizeRef.current = null;
+    compositionRef.current = undefined;
+    encodedDescriptionRef.current = null;
     setScreenSize(null);
     recordingTouchTracker.dispose();
   }, [url, recordingTouchTracker]);
@@ -279,15 +295,22 @@ export function SimulatorView({
   const updateScreenConfig = useCallback((config: StreamConfig | null | undefined) => {
     if (!config || config.width <= 0 || config.height <= 0) return;
     const prev = screenSizeRef.current;
-    const next =
-      config.orientation === undefined && prev?.orientation
-        ? { ...config, orientation: prev.orientation }
-        : config;
+    const next = {
+      ...config,
+      ...(config.orientation === undefined && prev?.orientation
+        ? { orientation: prev.orientation }
+        : {}),
+      ...(config.displayId === undefined && prev?.displayId !== undefined
+        ? { displayId: prev.displayId }
+        : {}),
+    };
     if (
       prev &&
       prev.width === next.width &&
       prev.height === next.height &&
-      prev.orientation === next.orientation
+      prev.orientation === next.orientation &&
+      prev.displayId === next.displayId &&
+      prev.deviceComposition === next.deviceComposition
     ) {
       return;
     }
@@ -314,6 +337,10 @@ export function SimulatorView({
   const connectedRef = useRef(false);
   connectedRef.current = connected;
   const prevBlobUrlRef = useRef<string | null>(null);
+  const pendingJpegRef = useRef<{ blobUrl: string; composition?: SimulatorComposition } | null>(
+    null,
+  );
+  const loadedJpegUrlRef = useRef<string | null>(null);
   useEffect(() => {
     // AVCC paints the canvas via useAvccStream; skip the MJPEG relay <img>.
     if (!relayMode || !subscribeFrame || useAvcc) return;
@@ -329,7 +356,10 @@ export function SimulatorView({
         );
       }
     }, STARTUP_MS);
-    const unsubscribe = subscribeFrame((blobUrl, bytes) => {
+    compositionRef.current = undefined;
+    pendingJpegRef.current = null;
+    loadedJpegUrlRef.current = null;
+    const unsubscribe = subscribeFrame((blobUrl, bytes, composition) => {
       frameCountRef.current++;
       lastFrameAtRef.current = Date.now();
       const acc = statsAccRef.current;
@@ -344,6 +374,7 @@ export function SimulatorView({
           URL.revokeObjectURL(prevBlobUrlRef.current);
         }
         prevBlobUrlRef.current = blobUrl;
+        pendingJpegRef.current = { blobUrl, composition };
         img.src = blobUrl;
       }
       if (!connectedRef.current) {
@@ -355,12 +386,31 @@ export function SimulatorView({
     return () => {
       clearTimeout(watchdog);
       unsubscribe?.();
+      compositionRef.current = undefined;
+      pendingJpegRef.current = null;
+      loadedJpegUrlRef.current = null;
       if (prevBlobUrlRef.current) {
         URL.revokeObjectURL(prevBlobUrlRef.current);
         prevBlobUrlRef.current = null;
       }
     };
-  }, [relayMode, subscribeFrame, useAvcc]);
+  }, [url, relayMode, subscribeFrame, useAvcc]);
+
+  const onRelayImageLoad = useCallback(
+    (image: HTMLImageElement) => {
+      const pending = pendingJpegRef.current;
+      if (pending && image.currentSrc !== pending.blobUrl) return;
+      if (image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
+      if (pending) {
+        compositionRef.current = pending.composition;
+        loadedJpegUrlRef.current = pending.blobUrl;
+        pendingJpegRef.current = null;
+      }
+      updateScreenConfig({ width: image.naturalWidth, height: image.naturalHeight });
+      notifyRecordingFrame();
+    },
+    [notifyRecordingFrame, updateScreenConfig],
+  );
 
   // AVCC (H.264) decode → canvas. Inert unless `useAvcc`. Works in both
   // direct and relay mode (it only needs `url`).
@@ -380,6 +430,7 @@ export function SimulatorView({
   }, []);
   const onAvccFrame = useCallback(
     (info: AvccFrameInfo) => {
+      compositionRef.current = info.composition;
       frameCountRef.current++;
       lastFrameAtRef.current = Date.now();
       if (decoderErroredRef.current && info.decodeMs != null) {
@@ -439,6 +490,7 @@ export function SimulatorView({
     onDecoderError: handleDecoderError,
     onRequestKeyframe: requestKeyframe,
     onProgress: onAvccProgress,
+    onEncoded: onAvccEncoded,
   });
 
   // When the panel is open, accumulate per-frame telemetry (fed by the AVCC
@@ -787,11 +839,14 @@ export function SimulatorView({
   useEffect(() => {
     if (!recordingSourceRef) return;
     const recordingFrameListeners = recordingFrameListenersRef.current;
+    const encodedListeners = encodedListenersRef.current;
     const source: SimulatorRecordingSource = {
       snapshot(nowMs) {
         const element = getViewElement();
         const surface = surfaceRef.current;
         if (!element || !surface || !connectedRef.current) return null;
+        if (relayMode && !useAvcc && (pendingJpegRef.current || !loadedJpegUrlRef.current))
+          return null;
         const isImage = element instanceof HTMLImageElement;
         const width = isImage ? element.naturalWidth : element.width;
         const height = isImage ? element.naturalHeight : element.height;
@@ -802,12 +857,27 @@ export function SimulatorView({
           width,
           height,
           orientation: screenSizeRef.current?.orientation,
+          displayId: screenSizeRef.current?.displayId,
+          composition: compositionRef.current,
           surfaceWidth: rect.width,
           surfaceHeight: rect.height,
           touches: recordingTouchTracker.snapshot(nowMs),
         };
       },
       ...(useAvcc
+        ? {
+            subscribeEncoded(listener: (event: AvccEncodedEvent) => void) {
+              encodedListeners.add(listener);
+              if (encodedDescriptionRef.current)
+                listener({ type: "description", data: encodedDescriptionRef.current });
+              return () => {
+                encodedListeners.delete(listener);
+              };
+            },
+            requestKeyframe,
+          }
+        : {}),
+      ...(useAvcc || relayMode
         ? {
             subscribe(listener: () => void) {
               recordingFrameListeners.add(listener);
@@ -820,7 +890,14 @@ export function SimulatorView({
     return () => {
       if (recordingSourceRef.current === source) recordingSourceRef.current = null;
     };
-  }, [getViewElement, recordingSourceRef, recordingTouchTracker, useAvcc]);
+  }, [
+    getViewElement,
+    recordingSourceRef,
+    recordingTouchTracker,
+    relayMode,
+    useAvcc,
+    requestKeyframe,
+  ]);
 
   // Read the surface rect fresh per pointer event. A panel expand/collapse
   // moves the frame horizontally without firing a resize/scroll, so any cached
@@ -1205,12 +1282,7 @@ export function SimulatorView({
               crossOrigin="anonymous"
               alt="Simulator screen"
               draggable={false}
-              onLoad={(e) => {
-                const el = e.currentTarget;
-                if (el.naturalWidth > 0 && el.naturalHeight > 0) {
-                  updateScreenConfig({ width: el.naturalWidth, height: el.naturalHeight });
-                }
-              }}
+              onLoad={(e) => onRelayImageLoad(e.currentTarget)}
               style={streamImageStyle}
             />
           )}

@@ -33,7 +33,7 @@ export function previewConfigKey(config: PreviewConfig | null): string {
         config.wsUrl,
         config.deviceName ?? "",
         config.deviceTypeIdentifier ?? "",
-        JSON.stringify(config.deviceFrameSpec ?? null),
+        JSON.stringify(config.deviceFrameSpecs ?? config.deviceFrameSpec ?? null),
         config.execToken ?? "",
       ].join(":")
     : "";

@@ -1005,6 +1005,92 @@ describe("screen recording composition", () => {
 });
 
 describe("CanvasScreenRecorder lifecycle", () => {
+  test("records native Duo presentation at 60 fps without lowering resolution", () => {
+    const platform = new FakeRecorderPlatform();
+    const listeners = new Set<() => void>();
+    const recorder = new CanvasScreenRecorder(
+      {
+        source: {
+          snapshot: () => ({
+            source: {} as CanvasImageSource,
+            width: 2906,
+            height: 2228,
+            surfaceWidth: 700,
+            surfaceHeight: 537,
+            touches: [],
+            composition: {
+              angle: 130,
+              rotation: 0,
+              scale: 1,
+              displayId: 3,
+              rawWidth: 2007,
+              rawHeight: 2853,
+              rawRotation: 90,
+              bounds: [0, 0, 1, 1],
+              pieces: [],
+              mask: "",
+            },
+          }),
+          subscribe(listener) {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+        },
+      },
+      platform,
+    );
+    recorder.start();
+    for (let frame = 1; frame <= 60; frame++) {
+      platform.nowMs = 1000 + frame * (1000 / 60) + (frame % 2 === 0 ? -0.2 : 0.2);
+      for (const listener of listeners) listener();
+    }
+    expect(platform.track.requestedFrames).toBe(61);
+    expect(platform.canvas.width).toBe(2906);
+    expect(platform.canvas.height).toBe(2228);
+    recorder.cancel();
+  });
+  test("uses a native-density bitrate for Duo recording without changing ordinary defaults", () => {
+    class CapturePlatform extends FakeRecorderPlatform {
+      options: MediaRecorderOptions = {};
+      override createMediaRecorder(stream: RecorderMediaStream, options: MediaRecorderOptions) {
+        this.options = options;
+        return super.createMediaRecorder(stream, options);
+      }
+    }
+    const platform = new CapturePlatform();
+    const snapshot = {
+      source: {} as CanvasImageSource,
+      width: 2906,
+      height: 2228,
+      surfaceWidth: 700,
+      surfaceHeight: 537,
+      touches: [],
+      composition: {
+        angle: 130,
+        rotation: 0,
+        scale: 1,
+        displayId: 3,
+        rawWidth: 2007,
+        rawHeight: 2853,
+        rawRotation: 90,
+        bounds: [0, 0, 1, 1],
+        pieces: [],
+        mask: "",
+      },
+    };
+    const recorder = new CanvasScreenRecorder({ source: { snapshot: () => snapshot } }, platform);
+    recorder.start();
+    expect(platform.options.videoBitsPerSecond).toBe(60_000_000);
+    recorder.cancel();
+    const ordinary = new CanvasScreenRecorder(
+      { source: { snapshot: () => ({ ...snapshot, composition: undefined }) } },
+      platform,
+    );
+    ordinary.start();
+    expect(platform.options.videoBitsPerSecond).toBe(8_000_000);
+    ordinary.cancel();
+  });
+
   test("records AVCC presentation events without a continuous animation-frame loop", () => {
     const platform = new FakeRecorderPlatform();
     const listeners = new Set<() => void>();

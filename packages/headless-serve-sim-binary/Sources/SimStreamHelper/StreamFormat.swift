@@ -27,6 +27,8 @@ enum StreamFormat: String {
 ///   encoding the same screen again. Older clients safely skip unknown tags.
 /// - `0x06` disposable delta — temporal enhancement P-frame that no later
 ///   frame references; safe to drop under congestion or decode backlog.
+/// - `0x08` timing — three big-endian UInt64s: host-clock timestamp and nominal
+///   duration in microseconds, then encoded sequence. Queued with its picture.
 ///
 /// A parser reads the 4-byte length, then `length` bytes that begin with the
 /// tag. Mirrors baguette's `AVCCEnvelope` so the same browser decoder works.
@@ -37,6 +39,16 @@ enum AVCCEnvelope {
     static let seedTag: UInt8 = 0x04
     static let heartbeatTag: UInt8 = 0x05
     static let disposableDeltaTag: UInt8 = 0x06
+    static let timingTag: UInt8 = 0x08
+
+    static func timing(timestamp: UInt64, duration: UInt64, sequence: UInt64) -> Data {
+        var payload = Data(capacity: 24)
+        for value in [timestamp, duration, sequence] {
+            var bigEndian = value.bigEndian
+            withUnsafeBytes(of: &bigEndian) { payload.append(contentsOf: $0) }
+        }
+        return wrap(tag: timingTag, payload: payload)
+    }
 
     static func description(avcc: Data) -> Data { wrap(tag: descriptionTag, payload: avcc) }
     static func keyframe(avcc: Data) -> Data { wrap(tag: keyframeTag, payload: avcc) }

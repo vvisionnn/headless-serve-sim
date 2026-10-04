@@ -24,6 +24,10 @@ import type { CommandResult, HostCommands } from "./runtime/host-commands";
 import { createNodeHostCommands } from "./runtime/node-host-commands";
 import { parseSimLogLevel, parseSimLogProcessId, startSimulatorLogStream } from "./sim-log-stream";
 import { UI_OPTIONS, createUiSettings, normalizeUiValue, type UiOption } from "./ui-settings";
+import { createDeviceMotion } from "./device-motion";
+import { handleDeviceMotionRequest } from "./device-motion-request";
+import { handleSimulatorControlRequest } from "./simulator-control-request";
+import { createDeviceClipboard } from "./device-clipboard";
 
 type SimReq = IncomingMessage;
 type SimRes = ServerResponse;
@@ -451,6 +455,8 @@ export interface HelperScreenConfig {
   width: number;
   height: number;
   orientation?: string;
+  displayId?: number;
+  deviceComposition?: boolean;
 }
 
 /**
@@ -460,13 +466,18 @@ export interface HelperScreenConfig {
  */
 export function parseScreenConfig(raw: unknown): HelperScreenConfig | null {
   if (!raw || typeof raw !== "object") return null;
-  const { width, height, orientation } = raw as Record<string, unknown>;
+  const { width, height, orientation, displayId, deviceComposition } = raw as Record<
+    string,
+    unknown
+  >;
   if (typeof width !== "number" || typeof height !== "number") return null;
   if (!(width > 0) || !(height > 0)) return null;
   return {
     width,
     height,
     ...(typeof orientation === "string" ? { orientation } : {}),
+    ...(typeof displayId === "number" ? { displayId } : {}),
+    ...(deviceComposition === true ? { deviceComposition: true } : {}),
   };
 }
 
@@ -519,6 +530,7 @@ export function previewConfigForState(
     deviceName?: string;
     deviceTypeIdentifier?: string;
     deviceFrameSpec?: DeviceFrameSpec;
+    deviceFrameSpecs?: DeviceFrameSpec[];
   } | null,
   initialState?: PreviewInitialState | null,
   proxy?: { base: string; host: string; secure: boolean } | null,
@@ -548,6 +560,7 @@ export function previewConfigForState(
   deviceName?: string;
   deviceTypeIdentifier?: string;
   deviceFrameSpec?: DeviceFrameSpec;
+  deviceFrameSpecs?: DeviceFrameSpec[];
 } {
   const gridApiBase = (base === "" ? "" : base) + "/grid/api";
   const routed = proxy
@@ -562,6 +575,9 @@ export function previewConfigForState(
       ? { deviceTypeIdentifier: deviceMetadata.deviceTypeIdentifier }
       : {}),
     ...(deviceMetadata?.deviceFrameSpec ? { deviceFrameSpec: deviceMetadata.deviceFrameSpec } : {}),
+    ...(deviceMetadata?.deviceFrameSpecs
+      ? { deviceFrameSpecs: deviceMetadata.deviceFrameSpecs }
+      : {}),
     basePath: base,
     logsEndpoint: `${endpoint(base, "/logs", state.device)}&token=${encodeURIComponent(execToken)}`,
     appStateEndpoint: endpoint(base, "/appstate", state.device),
@@ -1115,6 +1131,8 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
   const serveSimBin = options?.serveSimBin ?? serveSimBinPath(hostCommands);
   const stateDir = options?.stateDir ?? STATE_DIR;
   const uiSettings = createUiSettings(hostCommands);
+  const deviceMotion = createDeviceMotion(hostCommands);
+  const deviceClipboard = createDeviceClipboard(hostCommands);
   const now = options?.now ?? Date.now;
   const bootedSnapshot: BootedSnapshot = { at: 0, booted: null, pending: null };
   const readStates = () => readServeSimStates(hostCommands, stateDir, bootedSnapshot, now);
@@ -1123,7 +1141,15 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
   // ax-tool spawn) instead of round-tripping a full `node <cli>` exec per
   // sidebar interaction.
   const handleUiRequest: UiRequestHandler = async (payload) => {
-    const p = (payload ?? {}) as { device?: string; option?: string; value?: string };
+    const p = (payload ?? {}) as {
+      action?: string;
+      device?: string;
+      option?: string;
+      value?: string;
+    };
+    if (p.action === "device-motion") return handleDeviceMotionRequest(deviceMotion, p);
+    if (p.action === "simulator-control")
+      return handleSimulatorControlRequest(hostCommands, p, deviceClipboard);
     if (typeof p.device !== "string" || !/^[0-9A-Za-z-]+$/.test(p.device)) {
       throw new Error("missing or invalid device udid");
     }
@@ -2334,6 +2360,10 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
   });
 
   return Object.assign(middleware, {
+    dispose: () => {
+      deviceMotion.dispose();
+      deviceClipboard.dispose();
+    },
     handleUpgrade: (req: IncomingMessage, socket: Duplex, head: Buffer): boolean => {
       const rawUrl = req.url ?? "";
       const qIndex = rawUrl.indexOf("?");

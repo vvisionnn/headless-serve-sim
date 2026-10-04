@@ -752,6 +752,8 @@ export class CanvasScreenRecorder {
   private stopPromise: Promise<RecordingArtifact> | null = null;
   private failure: Error | null = null;
   private _state: ScreenRecorderState = "idle";
+  private fps = 30;
+  private sourceDrivenNative = false;
 
   constructor(
     options: CanvasScreenRecorderOptions,
@@ -769,6 +771,8 @@ export class CanvasScreenRecorder {
     if (this._state !== "idle") throw new Error("screen recorder has already been started");
     const snapshot = this.options.source.snapshot(this.platform.now());
     if (!snapshot) throw new Error("recording source is not ready");
+    this.fps = this.options.fps ?? (snapshot.composition ? 60 : 30);
+    this.sourceDrivenNative = Boolean(snapshot.composition) && this.options.fps == null;
     const format = this.options.format ?? "auto";
     const mimeTypes = supportedRecordingMimeTypes(format, (candidate) =>
       this.platform.isTypeSupported(candidate),
@@ -799,10 +803,10 @@ export class CanvasScreenRecorder {
         this.manualFrameTrack = manualTrack;
       } else {
         for (const track of manualStream.getTracks()) track.stop();
-        this.stream = this.canvas.captureStream(this.options.fps ?? 30);
+        this.stream = this.canvas.captureStream(this.fps);
       }
     } else {
-      this.stream = this.canvas.captureStream(this.options.fps ?? 30);
+      this.stream = this.canvas.captureStream(this.fps);
     }
     let lastFailure: Error | null = null;
     for (const mimeType of mimeTypes) {
@@ -810,7 +814,8 @@ export class CanvasScreenRecorder {
       try {
         candidate = this.platform.createMediaRecorder(this.stream, {
           mimeType,
-          videoBitsPerSecond: this.options.videoBitsPerSecond ?? 8_000_000,
+          videoBitsPerSecond:
+            this.options.videoBitsPerSecond ?? (snapshot.composition ? 60_000_000 : 8_000_000),
         });
         this.mediaRecorder = candidate;
         candidate.ondataavailable = (event) => {
@@ -821,7 +826,7 @@ export class CanvasScreenRecorder {
           this.fail(event.error ?? new Error("screen recording failed"));
         this.startedAt = this.platform.now();
         this.startedWallClock = this.platform.wallClock();
-        this.nextPaintAt = this.startedAt + 1_000 / (this.options.fps ?? 30);
+        this.nextPaintAt = this.startedAt + 1_000 / this.fps;
         this._state = "recording";
         candidate.start(1_000);
         break;
@@ -921,7 +926,7 @@ export class CanvasScreenRecorder {
       if (this._state !== "recording" && this._state !== "stopping") return;
       const now = this.platform.now();
       if (now >= this.nextPaintAt) {
-        this.nextPaintAt = now + 1_000 / (this.options.fps ?? 30);
+        this.nextPaintAt = now + 1_000 / this.fps;
         try {
           const snapshot = this.options.source.snapshot(now);
           if (snapshot) this.paint(snapshot);
@@ -937,8 +942,8 @@ export class CanvasScreenRecorder {
   private paintIfDue(): void {
     if (this._state !== "recording" && this._state !== "stopping") return;
     const now = this.platform.now();
-    if (now < this.nextPaintAt) return;
-    this.nextPaintAt = now + 1_000 / (this.options.fps ?? 30);
+    if (!this.sourceDrivenNative && now < this.nextPaintAt) return;
+    this.nextPaintAt = now + 1_000 / this.fps;
     try {
       const snapshot = this.options.source.snapshot(now);
       if (snapshot && this.paint(snapshot)) this.manualFrameTrack?.requestFrame?.();

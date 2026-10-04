@@ -19,6 +19,7 @@ export function fitDeviceFrame(p: {
   aspect: number;
   maxWidth: number;
   maxScale: number;
+  zoom?: number;
 }): { width: number; height: number } {
   // Normalized to > 0 so the divisions below never hit a divide-by-zero.
   const aspect = p.aspect > 0 ? p.aspect : 1;
@@ -35,6 +36,10 @@ export function fitDeviceFrame(p: {
     w = upscaleCap;
     h = w / aspect;
   }
+  const zoom = Math.max(0, p.zoom ?? 1);
+  const scale = Math.min(zoom, availW / Math.max(1, w), availH / Math.max(1, h));
+  w *= scale;
+  h *= scale;
   return {
     width: Math.max(0, roundToDevicePixel(w)),
     height: Math.max(0, roundToDevicePixel(h)),

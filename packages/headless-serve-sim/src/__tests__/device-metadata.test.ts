@@ -51,6 +51,81 @@ function source(load: DeviceMetadataSource["loadDeviceFrameSpec"]): DeviceMetada
 }
 
 describe("device metadata resolver", () => {
+  test("exposes every display frame while retaining the primary-frame field", async () => {
+    const innerFrame: DeviceFrameSpec = {
+      ...FRAME_WITH_ARTWORK,
+      displayId: 3,
+      deviceName: "primary-1",
+      nativeScreen: { width: 2007, height: 2853 },
+    };
+    const resolver = createDeviceMetadataResolver({
+      ...source(async () => {
+        throw new Error("single-display path must not run");
+      }),
+      loadDeviceFrameSpecs: async () => [FRAME_WITH_ARTWORK, innerFrame],
+    });
+
+    expect(await resolver.resolve("DEVICE-1")).toMatchObject({
+      deviceFrameSpec: FRAME_WITH_ARTWORK,
+      deviceFrameSpecs: [FRAME_WITH_ARTWORK, innerFrame],
+    });
+  });
+
+  test("retries while any integrated display is still missing its artwork", async () => {
+    let now = 1_000;
+    let loads = 0;
+    const resolver = createDeviceMetadataResolver(
+      {
+        ...source(async () => FRAME_WITH_ARTWORK),
+        loadDeviceFrameSpecs: async () => {
+          loads++;
+          return [FRAME_WITH_ARTWORK, loads === 1 ? FRAME_WITHOUT_ARTWORK : FRAME_WITH_ARTWORK];
+        },
+      },
+      { now: () => now },
+    );
+
+    await resolver.resolve("DEVICE-1");
+    now += 5_000;
+    await resolver.resolve("DEVICE-1");
+    expect(loads).toBe(2);
+    now += 60_000;
+    await resolver.resolve("DEVICE-1");
+    expect(loads).toBe(2);
+  });
+
+  test("retries composite frames while their exact screen mask is unavailable", async () => {
+    let now = 1_000;
+    let loads = 0;
+    const compositeFrame: DeviceFrameSpec = {
+      ...FRAME_WITH_ARTWORK,
+      artwork: {
+        ...FRAME_WITH_ARTWORK.artwork!,
+        composite: { pngDataUrl: "composite", width: 1314, height: 2730 },
+      },
+    };
+    const resolver = createDeviceMetadataResolver(
+      source(async () => {
+        loads++;
+        return loads === 1
+          ? compositeFrame
+          : {
+              ...compositeFrame,
+              screenMask: { pngDataUrl: "mask", width: 1206, height: 2622 },
+            };
+      }),
+      { now: () => now },
+    );
+
+    await resolver.resolve("DEVICE-1");
+    now += 5_000;
+    expect((await resolver.resolve("DEVICE-1"))?.deviceFrameSpec?.screenMask).toBeDefined();
+    expect(loads).toBe(2);
+    now += 60_000;
+    await resolver.resolve("DEVICE-1");
+    expect(loads).toBe(2);
+  });
+
   test("retries a geometry-only frame and keeps prepared artwork cached", async () => {
     let now = 1_000;
     let loads = 0;
@@ -103,6 +178,18 @@ describe("device metadata resolver", () => {
 });
 
 describe("installed device metadata source", () => {
+  test("forwards the installed collection loader for multi-display metadata", async () => {
+    const installed = createInstalledDeviceMetadataSource(
+      createScriptedHostCommands(),
+      async () => FRAME_WITH_ARTWORK,
+      async () => [FRAME_WITH_ARTWORK, FRAME_WITHOUT_ARTWORK],
+    );
+
+    await expect(
+      installed.loadDeviceFrameSpecs?.(FRAME_WITH_ARTWORK.deviceTypeIdentifier),
+    ).resolves.toEqual([FRAME_WITH_ARTWORK, FRAME_WITHOUT_ARTWORK]);
+  });
+
   test("finds selected simulator metadata through injected host commands", async () => {
     const host = createScriptedHostCommands([
       {

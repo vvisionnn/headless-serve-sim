@@ -20,6 +20,9 @@ import type { StreamMode } from "./stream-mode-toggle";
 import { SimulatorSettingsTool } from "./simulator-settings-tool";
 import { StatusBarTool } from "./status-bar-tool";
 import { UserDefaultsTool } from "./user-defaults-tool";
+import type { DuoPose } from "./device-motion-tool";
+import { SimulatorControlsTool } from "./simulator-controls-tool";
+import { DeviceViewTool } from "./device-view-tool";
 
 // The inspector card. Collapsed by default to a thin rail whose top header
 // still reads as the card's title row. The content panel is laid out at the
@@ -54,6 +57,18 @@ export interface InspectorBarProps {
   onOpenLogs: () => void;
   onOpenGrid: () => void;
   onOpenDevtools: () => void;
+  foldable?: {
+    angle: number;
+    pose: DuoPose;
+    onAngleChange: (angle: number) => void;
+    onPoseChange: (pose: DuoPose) => void;
+    error?: string | null;
+  };
+  view?: Parameters<typeof DeviceViewTool>[0];
+  onOrientationChange?: (
+    orientation: "portrait" | "portrait_upside_down" | "landscape_left" | "landscape_right",
+  ) => void;
+  displayId?: number;
 }
 
 export function InspectorBar({
@@ -80,6 +95,10 @@ export function InspectorBar({
   onOpenLogs,
   onOpenGrid,
   onOpenDevtools,
+  foldable,
+  view,
+  onOrientationChange,
+  displayId,
 }: InspectorBarProps) {
   return (
     <RailCard
@@ -110,6 +129,14 @@ export function InspectorBar({
       <AppDetectionTool udid={udid} currentApp={currentApp} />
 
       <SectionGroup label="Device">
+        {view && <DeviceViewTool {...view} />}
+        {foldable && (
+          <SimulatorControlsTool
+            udid={udid}
+            execToken={execToken}
+            onOrientationChange={onOrientationChange}
+          />
+        )}
         <SimulatorSettingsTool udid={udid} execToken={execToken} refreshKey={uiSettingsRevision} />
         <StatusBarTool udid={udid} />
         <LocationEmulationTool udid={udid} exec={execOnHost} />
@@ -124,7 +151,7 @@ export function InspectorBar({
       </SectionGroup>
 
       <SectionGroup label="Capture">
-        <ScreenshotTool udid={udid} />
+        <ScreenshotTool udid={udid} displayId={displayId} foldable={!!foldable} />
         <ScreenRecordingTool
           sourceRef={recordingSourceRef}
           deviceFrameSpec={deviceFrameSpec}
@@ -133,6 +160,7 @@ export function InspectorBar({
           streamMode={streamMode}
           streamModeAvailable={streamModeAvailable}
           onStreamModeChange={onStreamModeChange}
+          touchMarkersAvailable={!foldable}
         />
       </SectionGroup>
 

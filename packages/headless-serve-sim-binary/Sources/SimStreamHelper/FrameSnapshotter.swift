@@ -81,6 +81,7 @@ final class FrameSnapshotter {
             var seedAtUnlock: UInt32 = 0
             let unlockStatus = IOSurfaceUnlock(surface, .readOnly, &seedAtUnlock)
             if copied, unlockStatus == 0, seedAtLock == seedAtUnlock {
+                CVBufferPropagateAttachments(source, destination)
                 recordSuccess(nanoseconds: DispatchTime.now().uptimeNanoseconds - started)
                 return destination
             }

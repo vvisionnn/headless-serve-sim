@@ -50,6 +50,24 @@ describe("resolveActiveScreenConfig — priority", () => {
   });
 });
 
+test("a new active display config supersedes pixels from the previous panel", () => {
+  const inner = {
+    width: 2007,
+    height: 2853,
+    orientation: "landscape_right",
+    displayId: 3,
+  } as StreamConfig;
+  const outer = {
+    width: 1398,
+    height: 2034,
+    orientation: "portrait",
+    displayId: 1,
+  } as StreamConfig;
+  expect(resolveActiveScreenConfig({ live: inner, ws: outer, fallback: genericFallback })).toEqual(
+    outer,
+  );
+});
+
 describe("resolveActiveScreenConfig — no first-paint resize (regression)", () => {
   test("injected geometry matches the eventual live geometry, not the generic fallback", () => {
     // First paint: only the injected __SIM_PREVIEW__.screenConfig is known.

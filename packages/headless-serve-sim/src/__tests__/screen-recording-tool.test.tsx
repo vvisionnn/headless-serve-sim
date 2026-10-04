@@ -20,6 +20,26 @@ const frameSpec: DeviceFrameSpec = {
   chromeIdentifier: "com.apple.dt.devicekit.chrome.phone11",
 };
 
+test("native MP4 recording is available without a browser re-encoder", () => {
+  const html = renderToStaticMarkup(
+    <ScreenRecordingTool
+      sourceRef={{ current: { snapshot: () => null, subscribeEncoded: () => () => {} } }}
+      deviceKey="DUO"
+      streaming
+      streamMode="quality"
+      streamModeAvailable
+      onStreamModeChange={() => {}}
+      touchMarkersAvailable={false}
+      initiallyOpen
+    />,
+  );
+  expect(html).not.toContain("Screen recording is not supported in this browser.");
+  expect(html).toContain("Start recording");
+  const frameStart = html.indexOf('data-setting-row="Device frame"');
+  const frameControl = html.slice(frameStart, html.indexOf("</button>", frameStart));
+  expect(frameControl).toContain('disabled=""');
+});
+
 describe("ScreenRecordingTool", () => {
   test("clears a selected frame when the device changes or loses its profile", () => {
     expect(frameSelectionAfterDeviceChange(true, "A", "B", true)).toBe(false);
@@ -94,6 +114,26 @@ describe("ScreenRecordingTool", () => {
     expect(html).toContain('aria-label="Stream quality"');
     expect(html).toContain("Start recording");
     expect(html).toContain("Screen recording is not supported in this browser.");
+  });
+
+  test("disables touch markers for a rendered model without touch metadata", () => {
+    const html = renderToStaticMarkup(
+      <ScreenRecordingTool
+        sourceRef={{ current: null }}
+        deviceKey="DEVICE-1"
+        streaming
+        streamMode="perf"
+        streamModeAvailable={false}
+        onStreamModeChange={() => {}}
+        touchMarkersAvailable={false}
+        initiallyOpen
+      />,
+    );
+    const start = html.indexOf('data-setting-row="Show touches"');
+    const control = html.slice(start, html.indexOf("</button>", start));
+    expect(control).toContain('disabled=""');
+    expect(control).toContain('aria-checked="false"');
+    expect(html).toContain("Touch markers are unavailable in the 3D view.");
   });
 
   test("hides the native stream switch when recording from MJPEG", () => {

@@ -105,6 +105,7 @@ final class FrameScaler {
             return source
         }
 
+        CVBufferPropagateAttachments(source, destination)
         lock.lock()
         scaledCount += 1
         nanoseconds &+= DispatchTime.now().uptimeNanoseconds &- started

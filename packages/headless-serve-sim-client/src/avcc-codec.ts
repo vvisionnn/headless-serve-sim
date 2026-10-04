@@ -24,7 +24,14 @@ export const AVCC_TAG_DELTA = 0x03;
 export const AVCC_TAG_SEED = 0x04;
 export const AVCC_TAG_DISPOSABLE_DELTA = 0x06;
 
-export type AvccChunkType = "description" | "keyframe" | "delta" | "seed" | "disposable-delta";
+export type AvccChunkType =
+  | "description"
+  | "keyframe"
+  | "delta"
+  | "seed"
+  | "disposable-delta"
+  | "metadata"
+  | "timing";
 
 export interface AvccChunk {
   type: AvccChunkType;
@@ -38,6 +45,8 @@ const TAG_TO_TYPE: Record<number, AvccChunkType | undefined> = {
   [AVCC_TAG_DELTA]: "delta",
   [AVCC_TAG_SEED]: "seed",
   [AVCC_TAG_DISPOSABLE_DELTA]: "disposable-delta",
+  0x07: "metadata",
+  0x08: "timing",
 };
 
 export function decodeBackpressureAction(

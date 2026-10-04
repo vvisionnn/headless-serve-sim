@@ -41,6 +41,7 @@ export function SquareIconButton({
   title,
   disabled = false,
   expanded,
+  pressed,
   children,
 }: {
   onClick: () => void;
@@ -49,6 +50,7 @@ export function SquareIconButton({
   disabled?: boolean;
   /** For a button that discloses something — the rail toggles need this. */
   expanded?: boolean;
+  pressed?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -58,6 +60,7 @@ export function SquareIconButton({
       disabled={disabled}
       aria-label={label}
       aria-expanded={expanded}
+      aria-pressed={pressed}
       title={title ?? label}
       className="flex size-[34px] shrink-0 cursor-pointer items-center justify-center rounded-sm border border-control-border bg-surface-3 text-fg-3 hover:bg-hover hover:text-fg disabled:cursor-default disabled:opacity-45 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] [transition:background_var(--duration-fast)_var(--ease-smooth-out),color_var(--duration-fast)_var(--ease-smooth-out),transform_var(--duration-micro)_var(--ease-out)] active:scale-[0.97]"
     >

@@ -28,6 +28,32 @@ const specs = [
 ];
 
 describe("matchDeviceFrameSpec", () => {
+  test("disambiguates integrated displays of the same model using streamed geometry", () => {
+    const cover = { ...spec("type.iphone-duo", "iPhone Duo", "iphone", 1398, 2034), displayId: 1 };
+    const inner = { ...spec("type.iphone-duo", "iPhone Duo", "iphone", 2007, 2853), displayId: 3 };
+
+    expect(
+      matchDeviceFrameSpec(
+        { deviceTypeIdentifier: "type.iphone-duo", family: "iphone" },
+        { width: 2853, height: 2007 },
+        [cover, inner],
+      ),
+    ).toEqual({ spec: inner, matchedBy: "identifier" });
+  });
+
+  test("disambiguates displays selected by canonical model name", () => {
+    const cover = spec("type.iphone-duo", "iPhone Duo", "iphone", 1398, 2034);
+    const inner = spec("type.iphone-duo", "iPhone Duo", "iphone", 2007, 2853);
+
+    expect(
+      matchDeviceFrameSpec(
+        { modelName: "iPhone Duo", family: "iphone" },
+        { width: 2007, height: 2853 },
+        [cover, inner],
+      ),
+    ).toEqual({ spec: inner, matchedBy: "name" });
+  });
+
   test("uses the immutable type identifier even when the simulator was renamed", () => {
     const match = matchDeviceFrameSpec(
       {
