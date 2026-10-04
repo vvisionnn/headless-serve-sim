@@ -39,6 +39,11 @@ import simd
         }
         print("Perspective camera fit contains depth, portrait and rotated corners; zoom2 clamps passed")
 
+        let sourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/SimStreamHelper/DuoRenderer.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        precondition(source.contains("\"region\": region") && !source.contains("\"rect\": rect"),
+                     "projection producer must emit wire-schema region directly")
         guard CommandLine.arguments.count == 2 else { return }
         let renderer = try await DuoRenderer(modelURL: URL(fileURLWithPath: CommandLine.arguments[1]))
         renderer.update(angle: 180, rotation: 0, width: 3420, height: 3420)
@@ -81,7 +86,7 @@ import simd
             precondition(!path.contains(CGPoint(x: 0, y: 0), using: .evenOdd))
             let pieces = renderer.projectionPieces.filter { $0["displayId"] as? Int == (angle == 0 ? 1 : 3) }
             for piece in pieces {
-                let quad = piece["quad"] as! [[Double]], rect = piece["rect"] as! [Double]
+                let quad = piece["quad"] as! [[Double]], rect = piece["region"] as! [Double]
                 for u in [0.25, 0.75] { for v in [0.25, 0.75] {
                     // Interior samples stay away from the crease and rounded corners.
                     let point = (0..<2).map { axis in
@@ -145,7 +150,9 @@ import simd
         }
         precondition(bytes(held) == before)
         var additional: [CVPixelBuffer] = []
-        for _ in 0..<2 { additional.append(try await renderer.render(panels: [:])) }
+        // Three encodes + pending + JPEG + a replacement must all fit without
+        // ever recycling a buffer still retained by an encoder.
+        for _ in 0..<5 { additional.append(try await renderer.render(panels: [:])) }
         do {
             _ = try await renderer.render(panels: [:])
             preconditionFailure("Retained output exceeded the bounded pool")
@@ -153,7 +160,7 @@ import simd
         additional.removeAll()
         _ = try await renderer.render(panels: [:])
         withExtendedLifetime(held) {}
-        print("Held output immutability, three-buffer limit and released-buffer reuse passed")
+        print("Held output immutability, six-buffer ownership budget and released-buffer reuse passed")
 
         renderer.update(angle: 180, rotation: 0, scale: 1.1, width: 640, height: 480)
         let resized = try await renderer.render(panels: [:])

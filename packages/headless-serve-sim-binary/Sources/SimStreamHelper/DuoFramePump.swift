@@ -40,35 +40,53 @@ final class DuoFramePump {
 
     func update(angle: Double? = nil, rotation: Double? = nil, scale: Double? = nil, includeFrame: Bool? = nil, displayId: Int? = nil, blankedDisplay: Int? = nil, blanked: Bool? = nil) {
         lock.lock()
+        var changed = angle == nil && rotation == nil && scale == nil && includeFrame == nil
+            && displayId == nil && blankedDisplay == nil && blanked == nil
         if let angle, angle.isFinite, (0...180).contains(angle) {
+            changed = changed || hinge.target != angle || !seededHinge
             hinge.target = angle
             if !seededHinge { hinge.value = angle; seededHinge = true }
         }
         if let rotation, rotation.isFinite {
             let current = roll.value.truncatingRemainder(dividingBy: 360)
-            var delta = rotation - current
-            while delta > 180 { delta -= 360 }
-            while delta < -180 { delta += 360 }
-            roll.target = roll.value + delta
+            var delta = (rotation.truncatingRemainder(dividingBy: 360) - current).truncatingRemainder(dividingBy: 360)
+            if delta > 180 { delta -= 360 }
+            if delta < -180 { delta += 360 }
+            let target = roll.value + delta
+            // Equivalent angles can differ by a whole turn; don't re-target an
+            // in-flight spring for a duplicate observer/client echo.
+            if abs((target - roll.target).truncatingRemainder(dividingBy: 360)) > 0.000001 {
+                roll.target = target
+                changed = true
+            }
         }
         if let displayId, displayId == 1 || displayId == 3 {
-            focus.target = displayId == 1 ? 90 : 0
+            let target = displayId == 1 ? 90.0 : 0
+            changed = changed || focus.target != target || !seededFocus
+            focus.target = target
             if !seededFocus { focus.value = focus.target; seededFocus = true }
         }
-        if let scale, scale.isFinite, (0.5...2).contains(scale) { state.scale = scale }
-        if let includeFrame { state.includeFrame = includeFrame }
+        if let scale, scale.isFinite, (0.5...2).contains(scale) {
+            changed = changed || state.scale != scale
+            state.scale = scale
+        }
+        if let includeFrame {
+            changed = changed || state.includeFrame != includeFrame
+            state.includeFrame = includeFrame
+        }
         if let blankedDisplay, let blanked {
+            changed = changed || state.blankedDisplays.contains(blankedDisplay) != blanked
             if blanked { state.blankedDisplays.insert(blankedDisplay) }
             else { state.blankedDisplays.remove(blankedDisplay) }
         }
-        revision &+= 1
+        if changed { revision &+= 1 }
         lock.unlock()
-        schedule()
+        if changed { schedule() }
     }
 
     private func schedule() {
         lock.lock()
-        guard !running, !stopped, seededHinge, !panels.isEmpty else { lock.unlock(); return }
+        guard !running, !stopped, !panels.isEmpty else { lock.unlock(); return }
         running = true
         lock.unlock()
         Task { await drain() }

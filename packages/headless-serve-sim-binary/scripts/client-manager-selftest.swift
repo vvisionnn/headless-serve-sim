@@ -1,0 +1,55 @@
+import Foundation
+
+#if SWIFTER_STUB
+// Only the external socket writer is replaced; exercise production ClientManager.
+public final class WebSocketSession {
+    private let lock = NSLock()
+    private var frames: [[UInt8]] = []
+    public init() {}
+    public func writeBinary(_ frame: [UInt8]) { lock.lock(); frames.append(frame); lock.unlock() }
+    public func writtenFrames() -> [[UInt8]] { lock.lock(); defer { lock.unlock() }; return frames }
+}
+#else
+import Swifter
+
+enum HIDInjector {
+    static let orientationPortrait: UInt32 = 1
+    static let orientationPortraitUpsideDown: UInt32 = 2
+    static let orientationLandscapeLeft: UInt32 = 4
+    static let orientationLandscapeRight: UInt32 = 3
+}
+
+@main enum ClientManagerSelftest {
+    static func main() throws {
+        let manager = ClientManager()
+        precondition(manager.screenConfig()["includeFrame"] == nil, "ordinary config must not gain a bezel preference")
+        manager.setDeviceComposition(true)
+        precondition(manager.screenConfig()["includeFrame"] as? Bool == true, "composition config must publish its shared bezel default")
+        let first = WebSocketSession(), second = WebSocketSession()
+        manager.addWSClient(first)
+        manager.addWSClient(second)
+        Thread.sleep(forTimeInterval: 0.02)
+        manager.onDeviceView = { view in
+            if let includeFrame = view.includeFrame { manager.setDeviceView(includeFrame: includeFrame) }
+        }
+        let hide = Data([0x0f]) + Data(#"{"includeFrame":false}"#.utf8)
+        manager.handleMessage(from: first, data: hide)
+        manager.handleMessage(from: second, data: hide)
+        Thread.sleep(forTimeInterval: 0.02)
+        for session in [first, second] {
+            let frames = session.writtenFrames()
+            precondition(frames.count == 2, "both tabs must receive one genuine shared preference transition, not duplicate echoes")
+            let config = try JSONSerialization.jsonObject(with: Data(frames.last!.dropFirst())) as! [String: Any]
+            precondition(config["includeFrame"] as? Bool == false)
+        }
+        manager.handleMessage(from: second, data: Data([0x0f]) + Data(#"{"includeFrame":true}"#.utf8))
+        Thread.sleep(forTimeInterval: 0.02)
+        precondition(first.writtenFrames().count == 3 && second.writtenFrames().count == 3)
+        let legacy = try JSONDecoder().decode(ScrollEventPayload.self, from: Data(#"{"dx":10,"dy":20}"#.utf8))
+        let targeted = try JSONDecoder().decode(ScrollEventPayload.self, from: Data(#"{"dx":10,"dy":20,"displayId":3}"#.utf8))
+        precondition(legacy.displayId == nil && targeted.displayId == 3, "scroll targeting must preserve legacy payloads")
+        manager.stop()
+        print("Client manager shared bezel config, duplicate suppression and scroll payload self-test passed")
+    }
+}
+#endif

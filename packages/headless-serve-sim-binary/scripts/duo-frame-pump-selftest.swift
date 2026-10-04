@@ -16,13 +16,69 @@ actor Recorder {
 actor FocusRecorder {
     var yaws: [Double] = []
     var blanked: [Set<Int>] = []
-    func record(_ state: DuoFramePump.State) { yaws.append(state.yaw); blanked.append(state.blankedDisplays) }
+    var angles: [Double] = []
+    var rotations: [Double] = []
+    func record(_ state: DuoFramePump.State) { yaws.append(state.yaw); blanked.append(state.blankedDisplays); angles.append(state.angle); rotations.append(state.rotation) }
 }
 
 @main struct PumpTest {
+    static func finiteRotationsDoNotBlock() {
+        for rotation in [1e20, -1e20, Double.greatestFiniteMagnitude, -Double.greatestFiniteMagnitude] {
+            let finished = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async {
+                let pump = DuoFramePump { _, _ in }
+                pump.update(rotation: rotation)
+                pump.stop()
+                finished.signal()
+            }
+            guard finished.wait(timeout: .now() + .milliseconds(200)) == .success else {
+                fatalError("finite rotation \(rotation) blocked pump update/stop")
+            }
+        }
+    }
+
     static func main() async {
         var buffer: CVPixelBuffer?
         CVPixelBufferCreate(nil, 2, 2, kCVPixelFormatType_32BGRA, nil, &buffer)
+        finiteRotationsDoNotBlock()
+        for includeFrame in [true, false] {
+            let fallback = FocusRecorder()
+            let unseeded = DuoFramePump { _, state in await fallback.record(state) }
+            unseeded.update(includeFrame: includeFrame)
+            unseeded.offer(panel: 3, buffer: buffer!)
+            try? await Task.sleep(nanoseconds: 40_000_000)
+            guard await fallback.angles == [180] else {
+                fatalError("missing hinge sample must compose the safe default, includeFrame=\(includeFrame)")
+            }
+            unseeded.update(angle: 130)
+            try? await Task.sleep(nanoseconds: 40_000_000)
+            guard await fallback.angles.last == 130 else {
+                fatalError("first valid hinge sample must seed the real pose without animating from the fallback")
+            }
+            unseeded.stop()
+        }
+        let seam = FocusRecorder()
+        let seamPump = DuoFramePump { _, state in await seam.record(state) }
+        seamPump.update(rotation: 170)
+        seamPump.offer(panel: 3, buffer: buffer!)
+        for _ in 0..<300 {
+            if await seam.rotations.last == 170 { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        guard await seam.rotations.last == 170 else { fatalError("initial rotation did not settle") }
+        seamPump.update(rotation: 350)
+        for _ in 0..<300 {
+            if await seam.rotations.last == 350 { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        guard await seam.rotations.last == 350 else { fatalError("seam setup rotation did not settle") }
+        seamPump.update(rotation: -350)
+        for _ in 0..<300 {
+            if let rotation = await seam.rotations.last, rotation == 370 || rotation == 10 { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        guard await seam.rotations.last == 370 else { fatalError("signed degree seam must take the nearest 20-degree route, not -340") }
+        seamPump.stop()
         let recorder = Recorder()
         let pump = DuoFramePump { _, state in await recorder.record(state.scale, includeFrame: state.includeFrame) }
         pump.update(angle: 180)
@@ -67,6 +123,18 @@ actor FocusRecorder {
         let finalBlanked = await focus.blanked.last
         precondition(finalBlanked == [])
         focusPump.stop()
+        let deduplicated = FocusRecorder()
+        let dedupPump = DuoFramePump { _, state in await deduplicated.record(state) }
+        dedupPump.update(angle: 180, rotation: 0, scale: 1, includeFrame: true, displayId: 3)
+        dedupPump.offer(panel: 3, buffer: buffer!)
+        try? await Task.sleep(nanoseconds: 40_000_000)
+        for _ in 0..<2 { dedupPump.update(angle: 180, rotation: 0, scale: 1, includeFrame: true, displayId: 3) }
+        try? await Task.sleep(nanoseconds: 40_000_000)
+        guard await deduplicated.angles.count == 1 else { fatalError("identical view echoes must not render/encode again") }
+        dedupPump.update()
+        try? await Task.sleep(nanoseconds: 40_000_000)
+        guard await deduplicated.angles.count == 2 else { fatalError("explicit refresh must remain available for keyframes") }
+        dedupPump.stop()
         print("Duo frame pump self-test passed")
     }
 }

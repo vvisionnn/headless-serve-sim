@@ -16,7 +16,61 @@ private enum FrameDisplaySelectorSelftest {
         runtimeStreamStopsWithOwnedProcess()
         corroboratesPrimaryFocusWhileBothRuntimePanelsAreEnabled()
         parsesRuntimeDisplayBlanking()
+        observerExitActivatesPrimaryFallback()
+        observerLineIsDeserializedOnce()
         print("Frame display selector self-test passed")
+    }
+
+    static func observerLineIsDeserializedOnce() {
+        let sourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/SimStreamHelper/FrameDisplayMonitor.swift")
+        let source = try! String(contentsOf: sourceURL, encoding: .utf8)
+        let stream = source.components(separatedBy: "streamQueue.async")[1].components(separatedBy: "    func stop()")[0]
+        precondition(stream.components(separatedBy: "JSONSerialization.jsonObject").count - 1 == 1,
+                     "observer line must build only one JSON object graph")
+        precondition(!stream.contains("parseRuntime(Data(line)"), "runtime selection must reuse the parsed observer sample")
+    }
+
+    static func observerExitActivatesPrimaryFallback() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let script = directory.appendingPathComponent("observer")
+        let runtime = #"{"hingeAngle":130,"displays":[{"displayId":3,"active":true,"currentOrientation":"rot0"}]}"#
+        try! Data(("#!/bin/sh\nprintf '%s\\n' '" + runtime + "'\nread line\nread line\n").utf8).write(to: script)
+        try! FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [script.path]
+        let primary = #"{"result":{"displays":[{"displayId":1,"active":true,"backlightState":"inactiveOn","currentOrientation":"rot90"}]}}"#
+        let lock = NSLock()
+        var samples: [FrameObservedDisplay] = []
+        let monitor = FrameDisplayMonitor(makeProcess: { _ in
+            let fallback = Process()
+            fallback.executableURL = URL(fileURLWithPath: "/usr/bin/printf")
+            fallback.arguments = ["%s", primary]
+            return fallback
+        }, makeStreamProcess: { _, _ in process })
+        monitor.start(deviceUDID: "test", allowedIDs: [1, 3], observerPath: script.path) { display in
+            lock.lock(); samples.append(display); lock.unlock()
+        }
+        defer { monitor.stop() }
+        var seeded = false
+        for _ in 0..<200 {
+            lock.lock(); seeded = samples.contains(FrameObservedDisplay(displayID: 3, rotation: 0)); lock.unlock()
+            if seeded { break }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        precondition(seeded, "observer must publish its first unambiguous sample")
+        process.terminate()
+        let expected = FrameObservedDisplay(displayID: 1, rotation: 90, blanked: true)
+        var recovered = false
+        for _ in 0..<260 {
+            lock.lock(); recovered = samples.last == expected; lock.unlock()
+            if recovered { break }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        precondition(recovered, "observer death must resume primary polling with fresh ID, rotation and blanking")
     }
 
     static func corroboratesPrimaryFocusWhileBothRuntimePanelsAreEnabled() {

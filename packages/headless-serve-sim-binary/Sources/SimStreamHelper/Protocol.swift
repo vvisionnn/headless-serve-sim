@@ -81,6 +81,8 @@ struct ScrollEventPayload: Codable {
     /// rather than whatever happens to be in the middle.
     let x: Double?
     let y: Double?
+    /// Optional explicit Integrated panel binding for composed previews.
+    let displayId: Int?
 }
 
 // Simulator.app's Debug menu toggles map to `-[SimDevice setCADebugOption:enabled:]`

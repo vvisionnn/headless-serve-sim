@@ -12,6 +12,7 @@ final class ClientManager {
     private var screenOrientation = "portrait"
     private var displayID: Int?
     private var deviceComposition = false
+    private var includeFrame = true
 
     /// Latest JPEG frame data, replaced on each new frame
     private var latestFrame: Data?
@@ -90,6 +91,14 @@ final class ClientManager {
         broadcastConfig()
     }
 
+    func setDeviceView(includeFrame: Bool) {
+        configLock.lock()
+        let changed = self.includeFrame != includeFrame
+        self.includeFrame = includeFrame
+        configLock.unlock()
+        if changed { broadcastConfig() }
+    }
+
     func screenConfig() -> [String: Any] {
         configLock.lock()
         defer { configLock.unlock() }
@@ -99,7 +108,11 @@ final class ClientManager {
             "orientation": screenOrientation,
         ]
         if let displayID { config["displayId"] = displayID }
-        if deviceComposition { config["deviceComposition"] = true; config["orientation"] = "portrait" }
+        if deviceComposition {
+            config["deviceComposition"] = true
+            config["orientation"] = "portrait"
+            config["includeFrame"] = includeFrame
+        }
         return config
     }
 

@@ -278,9 +278,11 @@ httpServer.clientManager.onDigitalCrown = { payload in
     hidInjector.sendDigitalCrown(delta: payload.delta)
 }
 httpServer.clientManager.onScroll = { payload in
+    guard let geometry = frameCapture.scrollGeometry(displayID: payload.displayId) else { return }
     hidInjector.sendScroll(dx: payload.dx, dy: payload.dy,
                            anchorX: payload.x, anchorY: payload.y,
-                           screenWidth: screenWidth, screenHeight: screenHeight)
+                           screenWidth: geometry.width, screenHeight: geometry.height,
+                           displayID: geometry.displayID)
 }
 httpServer.clientManager.onSoftwareKeyboard = {
     hidInjector.toggleSoftwareKeyboard()
@@ -302,7 +304,7 @@ var duoPump: DuoFramePump?
 // Start frame capture — encoder is initialized lazily on first frame.
 // The framebuffer surface may not be available immediately after boot,
 // so retry a few times with backoff before giving up.
-let frameHandler: (CVPixelBuffer, CMTime, Bool) -> Void = { pixelBuffer, timestamp, contentChanged in
+let encodeFrame: (CVPixelBuffer, CMTime, Bool, Bool) -> Void = { pixelBuffer, timestamp, contentChanged, owned in
     let w = CVPixelBufferGetWidth(pixelBuffer)
     let h = CVPixelBufferGetHeight(pixelBuffer)
 
@@ -351,11 +353,10 @@ let frameHandler: (CVPixelBuffer, CMTime, Bool) -> Void = { pixelBuffer, timesta
         wantsH264: false
     )
 
-    // Close the recycled-IOSurface lifetime boundary synchronously, before any
-    // encoder queueing or first-use VideoToolbox setup. Both encoders share this
-    // one owned copy; neither can observe SimulatorKit painting the next frame.
+    // Close the recycled-IOSurface lifetime boundary before encoder queueing.
+    // Native renderer output is already independently owned by its bounded pool.
     guard claims.jpeg || wantsH264Now else { return }
-    guard let snapshot = frameSnapshotter.snapshot(pixelBuffer) else {
+    guard let snapshot = owned ? pixelBuffer : frameSnapshotter.snapshot(pixelBuffer) else {
         if claims.jpeg { frameAdmission.completeJpeg() }
         return
     }
@@ -380,11 +381,22 @@ let frameHandler: (CVPixelBuffer, CMTime, Bool) -> Void = { pixelBuffer, timesta
     }
 }
 
+let frameHandler: (CVPixelBuffer, CMTime, Bool) -> Void = { buffer, timestamp, changed in
+    encodeFrame(buffer, timestamp, changed, false)
+}
+let ownedFrameHandler: (CVPixelBuffer, CMTime, Bool) -> Void = { buffer, timestamp, changed in
+    encodeFrame(buffer, timestamp, changed, true)
+}
+
 let modelPath = URL(fileURLWithPath: FrameCapture.getDeveloperDir()).appendingPathComponent("../SharedFrameworks/DeviceKit.framework/Versions/A/PlugIns/CoreDevicePopDeviceKitExtension.devicekitplugin/Contents/Resources/V68.usdz").standardizedFileURL
 if isDuo, #available(macOS 15.0, *) {
     let panelSnapshotters = [1: FrameSnapshotter(), 3: FrameSnapshotter()]
     duoPump = DuoFramePump { panels, state in
         await nativeDuoCompose(panels: panels, state: state)
+    }
+    frameCapture.requiresPanelFrame = {
+        httpServer.clientManager.hasMJPEGClients() || httpServer.clientManager.hasAvccClients()
+            || keyframeRequest.isPending() || jpegSeedRequest.isPending() || lastJpegEncodeMs == 0
     }
     frameCapture.onPanelFrame = { id, buffer in
         guard let snapshot = panelSnapshotters[id]?.snapshot(buffer) else { return }
@@ -392,32 +404,35 @@ if isDuo, #available(macOS 15.0, *) {
     }
     frameCapture.onHingeChanged = { angle in duoPump?.update(angle: angle) }
     frameCapture.onDisplayBlanked = { id, blanked in duoPump?.update(blankedDisplay: id, blanked: blanked) }
-    httpServer.clientManager.onDeviceView = { view in duoPump?.update(rotation: view.rotation, scale: view.scale, includeFrame: view.includeFrame) }
+    httpServer.clientManager.onDeviceView = { view in
+        duoPump?.update(rotation: view.rotation, scale: view.scale, includeFrame: view.includeFrame)
+        if let includeFrame = view.includeFrame { httpServer.clientManager.setDeviceView(includeFrame: includeFrame) }
+    }
     httpServer.clientManager.setDeviceComposition(true)
 }
 
 @available(macOS 15.0, *) @MainActor enum NativeDuo {
     static var renderer: DuoRenderer?
-    static let rawRenderer = RawPanelRenderer()
+    // H.264 in flight + latest pending + independent JPEG + replacement under render.
+    static let outputBufferLimit = h264InFlightDepth + 3
+    static let rawRenderer = RawPanelRenderer(maximumOutputBuffers: outputBufferLimit)
 }
 @available(macOS 15.0, *) @MainActor func nativeDuoCompose(panels: [Int: CVPixelBuffer], state: DuoFramePump.State) async {
-    let id = frameCapture.activeDisplayID ?? 3
-    let rawRotation = frameCapture.displayRotation
+    guard frameCapture.requiresPanelFrame?() != false else { return }
+    let display = frameCapture.displayState
+    let id = display.displayID ?? 3
+    let rawRotation = display.rotation
     guard let panel = panels[id] else { return }
     do {
         let buffer: CVPixelBuffer
         let pieces: [[String: Any]], bounds: [Double], mask: String, scale: Double
         let buttons: [[String: Any]]
         if state.includeFrame {
-            if NativeDuo.renderer == nil { NativeDuo.renderer = try await DuoRenderer(modelURL: modelPath) }
+            if NativeDuo.renderer == nil { NativeDuo.renderer = try await DuoRenderer(modelURL: modelPath, maximumOutputBuffers: NativeDuo.outputBufferLimit) }
             guard let renderer = NativeDuo.renderer else { return }
             renderer.update(angle: state.angle, rotation: state.rotation, scale: DuoOutput.renderScale(for: state.scale), width: DuoOutput.size.width, height: DuoOutput.size.height, yaw: state.yaw)
             buffer = try await renderer.render(panels: panels, blankedDisplays: state.blankedDisplays)
-            pieces = renderer.projectionPieces.map { piece -> [String: Any] in
-                var result = piece
-                result["region"] = result.removeValue(forKey: "rect")
-                return result
-            }
+            pieces = renderer.projectionPieces
             bounds = renderer.frameBounds
             mask = renderer.alphaMask
             scale = state.scale
@@ -437,7 +452,7 @@ if isDuo, #available(macOS 15.0, *) {
             "rawRotation": rawRotation, "mask": mask, "bounds": bounds, "pieces": pieces, "buttons": buttons]
         let data = try JSONSerialization.data(withJSONObject: metadata)
         CVBufferSetAttachment(buffer, "headless-serve-sim.composition" as CFString, data as CFData, .shouldPropagate)
-        frameHandler(buffer, CMClockGetTime(CMClockGetHostTimeClock()), true)
+        ownedFrameHandler(buffer, CMClockGetTime(CMClockGetHostTimeClock()), true)
     } catch { fputs("[duo] Native render failed: \(error)\n", stderr) }
 }
 

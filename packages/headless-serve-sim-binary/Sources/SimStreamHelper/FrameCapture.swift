@@ -21,12 +21,23 @@ final class FrameCapture {
     private(set) var capturedHeight: Int = 0
     var onDisplayChanged: ((Int?, Int) -> Void)?
     var onPanelFrame: ((Int, CVPixelBuffer) -> Void)?
+    var requiresPanelFrame: (() -> Bool)?
+    private var panelsNeedRefresh = false
     var onHingeChanged: ((Double) -> Void)?
     var onDisplayBlanked: ((Int, Bool) -> Void)?
-    private(set) var activeDisplayID: Int?
+    // Binding is capture-queue-owned; publish only completed transitions for
+    // consumers on other queues. Do not expose live displayBinding.state.
+    private let displayStateLock = NSLock()
+    private var publishedDisplayState = FrameDisplayState(displayID: nil, rotation: 0)
+    var displayState: FrameDisplayState {
+        displayStateLock.lock()
+        defer { displayStateLock.unlock() }
+        return publishedDisplayState
+    }
+    var activeDisplayID: Int? { displayState.displayID }
+    var displayRotation: Int { displayState.rotation }
     private(set) var touchDisplayID: Int?
     private(set) var hasMultipleIntegratedDisplays = false
-    private(set) var displayRotation: Int = 0
     private var displayBinding = FrameDisplayBinding()
     private var observedDisplay: FrameObservedDisplay?
     private var displayMonitor: FrameDisplayMonitor?
@@ -232,9 +243,11 @@ final class FrameCapture {
             cachedPixelBuffer = nil
         }
         if change.stateChanged || touchDisplayChanged {
-            activeDisplayID = displayBinding.state.displayID
-            displayRotation = displayBinding.state.rotation
-            onDisplayChanged?(activeDisplayID, displayRotation)
+            let next = displayBinding.state
+            displayStateLock.lock()
+            publishedDisplayState = next
+            displayStateLock.unlock()
+            onDisplayChanged?(next.displayID, next.rotation)
         }
         return change.bindingChanged
     }
@@ -300,6 +313,7 @@ final class FrameCapture {
                 self.captureFrame()
             }
             let nowMs = DispatchTime.now().uptimeNanoseconds / 1_000_000
+            if self.panelsNeedRefresh, self.requiresPanelFrame?() == true { self.captureFrame() }
             if (nowMs - self.lastCaptureTimeMs) >= Self.idleIntervalMs {
                 self.onIdle?()
                 if self.requiresIdleFrame?() == true {
@@ -349,7 +363,16 @@ final class FrameCapture {
             refreshDisplayBinding()
         }
         if hasMultipleIntegratedDisplays, onPanelFrame != nil {
-            for descriptor in descriptors { capturePanel(descriptor, force: refreshDisplay) }
+            if frameCount > 0, requiresPanelFrame?() == false {
+                panelsNeedRefresh = true
+                return
+            }
+            let nowMs = DispatchTime.now().uptimeNanoseconds / 1_000_000
+            let idleRefreshDue = frameCount > 0 && nowMs &- lastCaptureTimeMs >= Self.idleIntervalMs
+            let previousFrameCount = frameCount
+            for descriptor in descriptors { capturePanel(descriptor, force: refreshDisplay || idleRefreshDue || panelsNeedRefresh) }
+            panelsNeedRefresh = false
+            if frameCount != previousFrameCount { lastCaptureTimeMs = nowMs }
             return
         }
         guard let desc = activeDescriptor else { return }
@@ -422,6 +445,28 @@ final class FrameCapture {
         }
     }
 
+    /// Wheel deltas are raw-panel pixels even when the video is a composition.
+    /// Resolve dimensions and the validated touch binding together on captureQueue.
+    func scrollGeometry(displayID: Int?) -> (width: Int, height: Int, displayID: Int?)? {
+        captureQueue.sync {
+            let descriptor: NSObject?
+            if let displayID {
+                guard hasMultipleIntegratedDisplays else { return nil }
+                descriptor = descriptors.first { panelIDs[ObjectIdentifier($0)] == displayID }
+            } else { descriptor = activeDescriptor }
+            guard let descriptor, callbackUUIDs[ObjectIdentifier(descriptor)] != nil,
+                  let object = descriptor.perform(NSSelectorFromString("framebufferSurface"))?.takeUnretainedValue() else { return nil }
+            let surface = unsafeBitCast(object, to: IOSurface.self)
+            let width = IOSurfaceGetWidth(surface), height = IOSurfaceGetHeight(surface)
+            guard width > 0, height > 0 else { return nil }
+            let candidate = FrameDisplayProperties.read(descriptor, width: width, height: height,
+                properties: screenProperties[ObjectIdentifier(descriptor)])
+            let target = FrameDisplaySelector.touchDisplayID(candidate, hasMultipleIntegratedDisplays: hasMultipleIntegratedDisplays)
+            guard displayID == nil || target == displayID else { return nil }
+            return (width, height, target)
+        }
+    }
+
     func getScreenSize() -> (width: Int, height: Int)? {
         guard capturedWidth > 0, capturedHeight > 0 else { return nil }
         return (capturedWidth, capturedHeight)
@@ -446,11 +491,13 @@ final class FrameCapture {
         descriptors.removeAll()
         panelIDs.removeAll()
         lastSeeds.removeAll()
+        panelsNeedRefresh = false
         displayBinding = FrameDisplayBinding()
-        activeDisplayID = nil
+        displayStateLock.lock()
+        publishedDisplayState = FrameDisplayState(displayID: nil, rotation: 0)
+        displayStateLock.unlock()
         touchDisplayID = nil
         hasMultipleIntegratedDisplays = false
-        displayRotation = 0
         activeDescriptor = nil
         cachedSurfaceID = nil
         cachedPixelBuffer = nil

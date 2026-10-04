@@ -162,8 +162,8 @@ final class HIDInjector {
 
     /// Build and deliver one touch synchronously. Only call from `inputQueue`
     /// (the multi-step gestures below already run there).
-    private func rawSendTouch(type: String, x: Double, y: Double, edge: UInt32 = 0) {
-        if let msg = touchMessage(type: type, x: x, y: y, edge: edge) { rawSend(msg) }
+    private func rawSendTouch(type: String, x: Double, y: Double, edge: UInt32 = 0, displayID: Int? = nil) {
+        if let msg = touchMessage(type: type, x: x, y: y, edge: edge, displayID: displayID) { rawSend(msg) }
     }
 
     func sendTouch(type: String, x: Double, y: Double, screenWidth: Int, screenHeight: Int, edge: UInt32 = 0, displayID: Int? = nil) {
@@ -368,6 +368,7 @@ final class HIDInjector {
     private static let scrollTouchSettleUs: UInt32 = 8000
 
     private var scrollDragActive = false
+    private var scrollDisplayID: Int?
     private var scrollFingerX = 0.5
     private var scrollFingerY = 0.5
     private var scrollAnchorX = 0.5
@@ -377,7 +378,7 @@ final class HIDInjector {
     /// Touch down to (re)start the drag, then let iOS see the finger land.
     /// Runs on `inputQueue`.
     private func beginScrollDrag(x: Double, y: Double) {
-        rawSendTouch(type: "begin", x: x, y: y)
+        rawSendTouch(type: "begin", x: x, y: y, displayID: scrollDisplayID)
         usleep(Self.scrollTouchSettleUs)
     }
 
@@ -389,7 +390,7 @@ final class HIDInjector {
     ///     for screen center. Anchoring makes iOS hit-test the view actually
     ///     under the pointer (a sheet rather than the map behind it).
     ///   - anchorY: Normalized cursor y, as above.
-    func sendScroll(dx: Double, dy: Double, anchorX: Double?, anchorY: Double?, screenWidth: Int, screenHeight: Int) {
+    func sendScroll(dx: Double, dy: Double, anchorX: Double?, anchorY: Double?, screenWidth: Int, screenHeight: Int, displayID: Int? = nil) {
         guard dx.isFinite, dy.isFinite, dx != 0 || dy != 0, screenWidth > 0, screenHeight > 0 else { return }
 
         // The finger travels opposite the content: scrolling content down is a
@@ -400,7 +401,9 @@ final class HIDInjector {
         let aY = ScrollDrag.clampToTrack(anchorY ?? 0.5)
 
         inputQueue.async { [self] in
+            if scrollDragActive, scrollDisplayID != displayID { finishScrollDrag() }
             if !scrollDragActive {
+                scrollDisplayID = displayID
                 scrollAnchorX = aX
                 scrollAnchorY = aY
                 scrollFingerX = aX
@@ -415,7 +418,7 @@ final class HIDInjector {
             if ScrollDrag.needsReanchor(x: nextX, y: nextY) {
                 // Lift and put the finger back on the anchor so the gesture keeps
                 // hit-testing the same view, then continue the same delta.
-                rawSendTouch(type: "end", x: scrollFingerX, y: scrollFingerY)
+                rawSendTouch(type: "end", x: scrollFingerX, y: scrollFingerY, displayID: scrollDisplayID)
                 scrollFingerX = scrollAnchorX
                 scrollFingerY = scrollAnchorY
                 beginScrollDrag(x: scrollFingerX, y: scrollFingerY)
@@ -425,13 +428,13 @@ final class HIDInjector {
 
             scrollFingerX = ScrollDrag.clampToTrack(nextX)
             scrollFingerY = ScrollDrag.clampToTrack(nextY)
-            rawSendTouch(type: "move", x: scrollFingerX, y: scrollFingerY)
+            rawSendTouch(type: "move", x: scrollFingerX, y: scrollFingerY, displayID: scrollDisplayID)
 
             // Lift shortly after the wheel stops, so a burst is one gesture.
             scrollEndWork?.cancel()
             let work = DispatchWorkItem { [self] in
                 guard scrollDragActive else { return }
-                rawSendTouch(type: "end", x: scrollFingerX, y: scrollFingerY)
+                rawSendTouch(type: "end", x: scrollFingerX, y: scrollFingerY, displayID: scrollDisplayID)
                 scrollDragActive = false
             }
             scrollEndWork = work
@@ -446,7 +449,7 @@ final class HIDInjector {
         scrollEndWork?.cancel()
         scrollEndWork = nil
         guard scrollDragActive else { return }
-        rawSendTouch(type: "end", x: scrollFingerX, y: scrollFingerY)
+        rawSendTouch(type: "end", x: scrollFingerX, y: scrollFingerY, displayID: scrollDisplayID)
         scrollDragActive = false
     }
 

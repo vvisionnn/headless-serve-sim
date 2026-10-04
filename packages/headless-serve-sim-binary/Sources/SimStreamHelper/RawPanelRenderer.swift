@@ -10,6 +10,11 @@ import Foundation
     private var pool: CVPixelBufferPool?
     private var poolWidth = 0
     private var poolHeight = 0
+    private let maximumOutputBuffers: Int
+
+    init(maximumOutputBuffers: Int = 6) {
+        self.maximumOutputBuffers = max(1, maximumOutputBuffers)
+    }
     private(set) var projectionPieces: [[String: Any]] = []
     private(set) var frameBounds: [Double] = [0, 0, 1, 1]
     private(set) var renderedScale = 0.85
@@ -24,7 +29,7 @@ import Foundation
         var output: CVPixelBuffer?
         guard let pool,
               CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(nil, pool,
-                [kCVPixelBufferPoolAllocationThresholdKey as String: 3] as CFDictionary,
+                [kCVPixelBufferPoolAllocationThresholdKey as String: maximumOutputBuffers] as CFDictionary,
                 &output) == kCVReturnSuccess, let output else { throw RenderError.outputBuffersBusy }
         let turn = ((rotation % 360) + 360) % 360
         let orientation: CGImagePropertyOrientation

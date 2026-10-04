@@ -61,6 +61,7 @@ import simd
     private var pool: CVPixelBufferPool?
     private var poolWidth = 0
     private var poolHeight = 0
+    private let maximumOutputBuffers: Int
     // Device Hub's cited 36 mm sensor, with upstream's longer 200 mm lens.
     private let fieldOfView: Float = 2 * atan(36 / (2 * 200.0)) * 180 / .pi
     private let outputColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
@@ -73,7 +74,8 @@ import simd
     /// SVG path in normalized output coordinates; use clipPathUnits="objectBoundingBox".
     private(set) var alphaMask = ""
 
-    init(modelURL: URL) async throws {
+    init(modelURL: URL, maximumOutputBuffers: Int = 6) async throws {
+        self.maximumOutputBuffers = max(1, maximumOutputBuffers)
         guard let device = MTLCreateSystemDefaultDevice(),
               let commandQueue = device.makeCommandQueue() else { throw RenderError.unavailable }
         self.device = device
@@ -157,7 +159,7 @@ import simd
         var output: CVPixelBuffer?
         guard let pool,
               CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(nil, pool,
-                [kCVPixelBufferPoolAllocationThresholdKey as String: 3] as CFDictionary,
+                [kCVPixelBufferPoolAllocationThresholdKey as String: maximumOutputBuffers] as CFDictionary,
                 &output) == kCVReturnSuccess, let output else { throw RenderError.outputBuffersBusy }
         for id in [1, 3] {
             if blankedDisplays.contains(id) {
@@ -207,8 +209,8 @@ import simd
         CVBufferSetAttachment(output, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_sRGB, .shouldPropagate)
         projectionPieces = [1, 3].flatMap { id in
             screens[id]!.projection.pieces(cameraDistance: cameraDistance, fieldOfView: fieldOfView,
-                                           aspect: aspect).map { quad, rect in
-                ["displayId": id, "quad": quad, "rect": rect, "slotRotation": id == 1 ? 0.0 : 270.0] as [String: Any]
+                                           aspect: aspect).map { quad, region in
+                ["displayId": id, "quad": quad, "region": region, "slotRotation": id == 1 ? 0.0 : 270.0] as [String: Any]
             }
         }
         buttonProjections = buttons.map { button in
@@ -658,7 +660,7 @@ import simd
             }
         }
 
-        func pieces(cameraDistance: Float, fieldOfView: Float, aspect: Float) -> [(quad: [[Double]], rect: [Double])] {
+        func pieces(cameraDistance: Float, fieldOfView: Float, aspect: Float) -> [(quad: [[Double]], region: [Double])] {
             let matrices = skin.matrices()
             return leaves.map { samples, region in
                 let a = samples[0].position(matrices: matrices), b = samples[1].position(matrices: matrices), c = samples[2].position(matrices: matrices)

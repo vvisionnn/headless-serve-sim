@@ -4,7 +4,7 @@ import Foundation
 
 @main struct RawPanelRendererSelftest {
     @MainActor static func main() throws {
-        let renderer = RawPanelRenderer()
+        let renderer = RawPanelRenderer(maximumOutputBuffers: 3)
         let panel = makePanel()
         let input = bytes(panel)
         for rotation in [0, 90, 180, 270] {
@@ -55,6 +55,29 @@ import Foundation
         let small = try renderer.render(panel, displayId: 1, rotation: 0, width: 640, height: 480)
         precondition(CVPixelBufferGetWidth(small) == 640 && CVPixelBufferGetHeight(small) == 480)
         withExtendedLifetime(held) {}
+        let productionPool = RawPanelRenderer()
+        var inFlightAndPending: [CVPixelBuffer] = []
+        for _ in 0..<3 { inFlightAndPending.append(try productionPool.render(panel, displayId: 3, rotation: 0)) }
+        for rotation in [90, 180, 270] {
+            do {
+                inFlightAndPending.append(try productionPool.render(panel, displayId: 3, rotation: rotation))
+            } catch {
+                preconditionFailure("in-flight encodes must leave room for pending/JPEG/replacement output: \(error)")
+            }
+        }
+        do {
+            _ = try productionPool.render(panel, displayId: 3, rotation: 0)
+            preconditionFailure("encoder ownership budget must stay bounded at six outputs")
+        } catch RawPanelRenderer.RenderError.outputBuffersBusy {}
+        inFlightAndPending.removeLast()
+        let replacement = try productionPool.render(panel, displayId: 3, rotation: 0)
+        precondition(CVPixelBufferGetWidth(replacement) == 1280)
+        withExtendedLifetime(inFlightAndPending) {}
+        let sourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/SimStreamHelper/main.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        precondition(source.contains("ownedFrameHandler(buffer"),
+                     "independently owned composition must not re-enter the recycled-framebuffer snapshot boundary")
         print("Raw panel renderer rotation, projection, sRGB, transparent fit and bounded ownership passed")
     }
 
