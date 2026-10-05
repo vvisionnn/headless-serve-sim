@@ -17,16 +17,16 @@
 - (void)notification:(uint32_t)type withProperty:(id)property forService:(id)service {}
 @end
 
-static id motionService(MotionServiceDelegate *delegate, BOOL consumer) {
+static id motionService(MotionServiceDelegate *delegate, BOOL consumer, BOOL keyboard) {
     dlopen("/System/Library/PrivateFrameworks/HID.framework/HID", RTLD_NOW);
     id service = [NSClassFromString(@"HIDVirtualEventService") new];
     if (!service) return nil;
-    delegate.properties = @{@"PrimaryUsagePage": consumer ? @0x0b : @0xff61, @"PrimaryUsage": consumer ? @1 : @0x5b,
-        @"DeviceUsagePairs": consumer
-            ? @[@{@"DeviceUsagePage": @0x0b, @"DeviceUsage": @1}]
-            : @[@{@"DeviceUsagePage": @0xff61, @"DeviceUsage": @0x5b}],
-        @"Transport": @"CoreDevice", @"Product": consumer ? @"headless-serve-sim buttons" : @"headless-serve-sim motion",
-        @"Built-In": @(consumer), @"VendorID": @0, @"ProductID": @0,
+    NSNumber *page = keyboard ? @1 : consumer ? @0x0b : @0xff61;
+    NSNumber *usage = keyboard ? @6 : consumer ? @1 : @0x5b;
+    delegate.properties = @{@"PrimaryUsagePage": page, @"PrimaryUsage": usage,
+        @"DeviceUsagePairs": @[@{@"DeviceUsagePage": page, @"DeviceUsage": usage}],
+        @"Transport": @"CoreDevice", @"Product": keyboard ? @"headless-serve-sim keyboard" : consumer ? @"headless-serve-sim buttons" : @"headless-serve-sim motion",
+        @"Built-In": @(consumer || keyboard), @"VendorID": @0, @"ProductID": @0,
         @"VersionNumber": @0, @"ReportInterval": @8000};
     ((void (*)(id, SEL, id))objc_msgSend)(service, sel_registerName("setDelegate:"), delegate);
     ((void (*)(id, SEL, id))objc_msgSend)(service, sel_registerName("setDispatchQueue:"),
@@ -127,6 +127,29 @@ static BOOL sendConsumerRequest(id service, uint32_t usage, NSString *phase, NSM
     return YES;
 }
 
+static BOOL validKeyboardRequest(NSDictionary *request) {
+    id usage = request[@"usage"], phase = request[@"phase"];
+    return [usage isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)usage) != CFBooleanGetTypeID() &&
+        isfinite([usage doubleValue]) && [usage doubleValue] >= 0 && [usage doubleValue] <= UINT8_MAX && trunc([usage doubleValue]) == [usage doubleValue] &&
+        ([phase isEqual:@"down"] || [phase isEqual:@"up"]);
+}
+
+static BOOL sendKeyboard(id service, uint32_t usage, BOOL down) {
+    IOHIDEventRef event = IOHIDEventCreateKeyboardEvent(NULL, mach_absolute_time(), 7, usage, down, 0);
+    if (!event) return NO;
+    BOOL dispatched = ((BOOL (*)(id, SEL, id))objc_msgSend)(service, sel_registerName("dispatchEvent:"), (__bridge id)event);
+    CFRelease(event);
+    return dispatched;
+}
+
+static BOOL sendKeyboardRequest(id service, uint32_t usage, NSString *phase, NSMutableSet<NSNumber *> *held) {
+    BOOL down = [phase isEqual:@"down"];
+    if (!sendKeyboard(service, usage, down)) return NO;
+    if (down) [held addObject:@(usage)];
+    else [held removeObject:@(usage)];
+    return YES;
+}
+
 static void reply(NSDictionary *message) {
     NSData *data = [NSJSONSerialization dataWithJSONObject:message options:0 error:nil];
     fwrite(data.bytes, 1, data.length, stdout);
@@ -137,7 +160,7 @@ static void reply(NSDictionary *message) {
 int main(void) {
     @autoreleasepool {
         MotionServiceDelegate *delegate = [MotionServiceDelegate new];
-        id service = motionService(delegate, NO);
+        id service = motionService(delegate, NO, NO);
         if (!service) {
             fprintf(stderr, "device-motion: failed to create virtual HID service\n");
             return 1;
@@ -145,6 +168,9 @@ int main(void) {
         MotionServiceDelegate *consumerDelegate = [MotionServiceDelegate new];
         id consumerService = nil;
         NSMutableSet<NSNumber *> *heldConsumers = [NSMutableSet new];
+        MotionServiceDelegate *keyboardDelegate = [MotionServiceDelegate new];
+        id keyboardService = nil;
+        NSMutableSet<NSNumber *> *heldKeys = [NSMutableSet new];
         IOHIDEventSystemClientRef sensors = IOHIDEventSystemClientCreateWithType(NULL, 1, NULL);
         NSNumber *commandedAngle = nil;
         char *line = NULL;
@@ -178,10 +204,18 @@ int main(void) {
                 } else if ([request[@"command"] isEqual:@"consumer"]) {
                     if (!validConsumerRequest(request)) error = @"invalid consumer HID event";
                     else {
-                        if (!consumerService) consumerService = motionService(consumerDelegate, YES);
+                        if (!consumerService) consumerService = motionService(consumerDelegate, YES, NO);
                         if (!consumerService) error = @"failed to create consumer HID service";
                         else error = sendConsumerRequest(consumerService, [request[@"usage"] unsignedIntValue], request[@"phase"], heldConsumers)
                             ? nil : @"failed to dispatch consumer HID event";
+                    }
+                } else if ([request[@"command"] isEqual:@"key"]) {
+                    if (!validKeyboardRequest(request)) error = @"invalid keyboard HID event";
+                    else {
+                        if (!keyboardService) keyboardService = motionService(keyboardDelegate, NO, YES);
+                        if (!keyboardService) error = @"failed to create keyboard HID service";
+                        else error = sendKeyboardRequest(keyboardService, [request[@"usage"] unsignedIntValue], request[@"phase"], heldKeys)
+                            ? nil : @"failed to dispatch keyboard HID event";
                     }
                 } else if ([request[@"command"] isEqual:@"status"]) {
                     error = nil;
@@ -201,6 +235,10 @@ int main(void) {
         if (consumerService) {
             for (NSNumber *usage in heldConsumers) sendConsumer(consumerService, usage.unsignedIntValue, NO);
             ((void (*)(id, SEL))objc_msgSend)(consumerService, sel_registerName("cancel"));
+        }
+        if (keyboardService) {
+            for (NSNumber *usage in heldKeys) sendKeyboard(keyboardService, usage.unsignedIntValue, NO);
+            ((void (*)(id, SEL))objc_msgSend)(keyboardService, sel_registerName("cancel"));
         }
         ((void (*)(id, SEL))objc_msgSend)(service, sel_registerName("cancel"));
         if (sensors) CFRelease(sensors);

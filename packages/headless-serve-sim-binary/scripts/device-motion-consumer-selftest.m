@@ -25,6 +25,22 @@ int main(void) {
             [request addEntriesFromDictionary:change];
             NSCAssert(!validConsumerRequest(request), @"invalid consumer request accepted");
         }
+        NSDictionary *key = @{ @"usage": @4, @"phase": @"down" };
+        NSCAssert(validKeyboardRequest(key), @"valid keyboard event rejected");
+        for (NSDictionary *change in @[@{@"usage": @256}, @{@"usage": @(-1)}, @{@"usage": @YES}, @{@"phase": @"press"}]) {
+            NSMutableDictionary *request = [key mutableCopy];
+            [request addEntriesFromDictionary:change];
+            NSCAssert(!validKeyboardRequest(request), @"invalid keyboard event accepted");
+        }
+        events = [NSMutableArray new];
+        id keyboard = [ConsumerTestService new];
+        NSMutableSet<NSNumber *> *keys = [NSMutableSet new];
+        NSCAssert(sendKeyboardRequest(keyboard, 0xe1, @"down", keys), @"modifier down failed");
+        NSCAssert(sendKeyboardRequest(keyboard, 4, @"down", keys), @"key down failed");
+        NSCAssert(sendKeyboardRequest(keyboard, 4, @"up", keys), @"key up failed");
+        NSCAssert([keys isEqual:[NSSet setWithObject:@0xe1]], @"modifier state lost");
+        NSCAssert(sendKeyboardRequest(keyboard, 0xe1, @"up", keys), @"modifier up failed");
+        NSCAssert(keys.count == 0 && [events[0][@"page"] isEqual:@7] && events.count == 4, @"keyboard events must use page7 and release keys");
         events = [NSMutableArray new];
         NSMutableSet<NSNumber *> *held = [NSMutableSet new];
         id service = [ConsumerTestService new];

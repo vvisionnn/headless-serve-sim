@@ -1,6 +1,7 @@
 import {
   DEVICE_ORIENTATIONS,
   isConsumerHIDEvent,
+  isKeyboardHIDEvent,
   type ConsumerHIDPhase,
   type DeviceOrientation,
 } from "./device-motion";
@@ -8,6 +9,7 @@ import { validateSimulatorControlDevice } from "./simulator-controls";
 
 interface DeviceMotionCommands {
   setOrientation?(device: string, orientation: DeviceOrientation): Promise<void>;
+  sendKey?(device: string, usage: number, phase: "down" | "up"): Promise<void>;
   setAngle(device: string, angle: number): Promise<void>;
   sendConsumer?(
     device: string,
@@ -33,6 +35,17 @@ export async function handleDeviceMotionRequest(
   };
   validateSimulatorControlDevice(p.device);
   if (p.command === "state") return { motion: await motion.status(p.device) };
+  if (p.command === "key") {
+    if (!isKeyboardHIDEvent(p.usage, p.phase)) throw new Error("Invalid keyboard HID event");
+    if (!motion.sendKey) throw new Error("Native keyboard input is unavailable");
+    await motion.sendKey(p.device, p.usage!, p.phase as "down" | "up");
+    return { ok: true };
+  }
+  if (p.command === "software-keyboard") {
+    if (!motion.sendConsumer) throw new Error("Native keyboard toggle is unavailable");
+    await motion.sendConsumer(p.device, 12, 0xb8, "press");
+    return { ok: true };
+  }
   if (p.command === "orientation") {
     if (!DEVICE_ORIENTATIONS.includes(p.orientation as DeviceOrientation))
       throw new Error("Invalid device orientation");

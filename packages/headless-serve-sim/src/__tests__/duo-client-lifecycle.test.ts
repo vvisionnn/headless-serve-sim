@@ -43,6 +43,13 @@ test("page startup does not command portrait before reading the actual Duo orien
   expect(client.includes("if (!duoOrientation) return;")).toBe(true);
 });
 
+test("browser typing and Cmd+K use the persistent native keyboard route", async () => {
+  const client = await source();
+  expect(client.includes('command: "key"')).toBe(true);
+  expect(client.includes('command: "software-keyboard"')).toBe(true);
+  expect(client.includes("sendWs(0x06, { type, usage })")).toBe(false);
+});
+
 test("ordinary bezel changes keep one stream ancestor mounted", async () => {
   const client = await source();
   expect(client).toContain("showFrame={showBezels}");

@@ -42,6 +42,42 @@ test("routes physical rotation through the native motion session", async () => {
   expect(calls).toEqual([["DEVICE", "landscapeRight"]]);
 });
 
+test("routes native typing and software keyboard toggle without a state query", async () => {
+  const calls: unknown[] = [];
+  const motion = {
+    setAngle: async () => {},
+    status: async () => {
+      throw new Error("unexpected readback");
+    },
+    sendKey: async (...args: unknown[]) => {
+      calls.push(args);
+    },
+    sendConsumer: async (...args: unknown[]) => {
+      calls.push(args);
+    },
+  };
+  await expect(
+    handleDeviceMotionRequest(motion, {
+      device: "DEVICE",
+      command: "key",
+      usage: 4,
+      phase: "down",
+    }),
+  ).resolves.toEqual({ ok: true });
+  await expect(
+    handleDeviceMotionRequest(motion, { device: "DEVICE", command: "software-keyboard" }),
+  ).resolves.toEqual({ ok: true });
+  expect(calls).toEqual([
+    ["DEVICE", 4, "down"],
+    ["DEVICE", 12, 0xb8, "press"],
+  ]);
+  for (const usage of [-1, 256, true, 0.5])
+    await expect(
+      handleDeviceMotionRequest(motion, { device: "DEVICE", command: "key", usage, phase: "down" }),
+    ).rejects.toThrow("Invalid keyboard HID event");
+  expect(calls).toHaveLength(2);
+});
+
 test("routes consumer button phases through the native motion session", async () => {
   const calls: Array<[string, number, number, string]> = [];
   const motion = {

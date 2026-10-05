@@ -76,6 +76,29 @@ function motionHost(observedAgeMs = 250) {
   };
 }
 
+test("serializes keyboard down and up on the existing persistent guest helper", async () => {
+  const transport = motionHost();
+  const motion = createDeviceMotion(transport.host, { locateTool: () => "/fixtures/motion" });
+  try {
+    const down = motion.sendKey("DEVICE", 4, "down");
+    const up = motion.sendKey("DEVICE", 4, "up");
+    await Bun.sleep(0);
+    expect(transport.commands).toEqual([{ id: 1, command: "key", usage: 4, phase: "down" }]);
+    transport.acknowledge(0);
+    await down;
+    await Bun.sleep(0);
+    expect(transport.commands).toEqual([
+      { id: 1, command: "key", usage: 4, phase: "down" },
+      { id: 2, command: "key", usage: 4, phase: "up" },
+    ]);
+    transport.acknowledge(1);
+    await up;
+    expect(transport.calls).toHaveLength(1);
+  } finally {
+    motion.dispose();
+  }
+});
+
 test("restarts the helper after the simulator closes its process", async () => {
   const transport = motionHost();
   const motion = createDeviceMotion(transport.host, { locateTool: () => "/fixtures/motion" });

@@ -16,6 +16,7 @@ test("CLI writes an angle then returns actual state and disposes its helper", as
       },
       async setOrientation() {},
       async sendConsumer() {},
+      async sendKey() {},
       async status() {
         return observed as any;
       },

@@ -39,6 +39,16 @@ export function isConsumerHIDEvent(usagePage: unknown, usage: unknown, phase: un
   );
 }
 
+export function isKeyboardHIDEvent(usage: unknown, phase: unknown): boolean {
+  return (
+    typeof usage === "number" &&
+    Number.isInteger(usage) &&
+    usage >= 0 &&
+    usage <= 0xff &&
+    (phase === "down" || phase === "up")
+  );
+}
+
 export interface DeviceMotionState {
   commanded: {
     hingeAngle: number | null;
@@ -207,6 +217,9 @@ function motionSession(task: CommandTask, onExit: () => void) {
     setOrientation(orientation: DeviceOrientation): Promise<void> {
       return writeCommand({ command: "orientation", orientation });
     },
+    sendKey(usage: number, phase: "down" | "up"): Promise<void> {
+      return writeCommand({ command: "key", usage, phase });
+    },
     sendConsumer(usagePage: number, usage: number, phase: ConsumerHIDPhase): Promise<void> {
       return writeCommand({ command: "consumer", usagePage, usage, phase });
     },
@@ -318,6 +331,11 @@ export function createDeviceMotion(host: HostCommands, options: DeviceMotionOpti
   };
 
   return {
+    async sendKey(udid: string, usage: number, phase: "down" | "up"): Promise<void> {
+      if (!isKeyboardHIDEvent(usage, phase)) throw new Error("Invalid keyboard HID event");
+      if (disposed) throw new Error("device-motion disposed");
+      await (await session(udid)).sendKey(usage, phase);
+    },
     async sendConsumer(
       udid: string,
       usagePage: number,

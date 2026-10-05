@@ -787,11 +787,11 @@ function AppWithConfig({
     [sendWs],
   );
   const toggleSoftwareKeyboard = useCallback(() => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(new Uint8Array([0x0e]));
+    void hostDeviceMotionRequest({ device: config.device, command: "software-keyboard" }).catch(
+      (error: unknown) => setStreamError(error instanceof Error ? error.message : String(error)),
+    );
     logEvent({ kind: "software-keyboard" });
-  }, [logEvent]);
+  }, [config.device, logEvent]);
   const onModeChange = useCallback((mode: StreamMode) => {
     pendingStreamModeRef.current = { mode, mismatches: 0 };
     setStreamMode(mode);
@@ -923,9 +923,16 @@ function AppWithConfig({
 
   const sendKey = useCallback(
     (type: "down" | "up", usage: number) => {
-      sendWs(0x06, { type, usage });
+      void hostDeviceMotionRequest({
+        device: config.device,
+        command: "key",
+        usage,
+        phase: type,
+      }).catch((error: unknown) =>
+        setStreamError(error instanceof Error ? error.message : String(error)),
+      );
     },
-    [sendWs],
+    [config.device],
   );
 
   // Subscribe to app-state SSE.
@@ -1049,9 +1056,9 @@ function AppWithConfig({
     if (simFocused || keyboardCapture) return;
     const held = pressedKeysRef.current;
     if (held.size === 0) return;
-    for (const usage of held) sendWs(0x06, { type: "up", usage });
+    for (const usage of held) sendKey("up", usage);
     held.clear();
-  }, [simFocused, keyboardCapture, sendWs]);
+  }, [simFocused, keyboardCapture, sendKey]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent, type: "down" | "up") => {
@@ -1094,7 +1101,7 @@ function AppWithConfig({
       }
       const heldUsage = hidUsageForCode(e.code);
       if (type === "up" && heldUsage != null && pressedKeysRef.current.delete(heldUsage)) {
-        sendWs(0x06, { type, usage: heldUsage });
+        sendKey(type, heldUsage);
         return;
       }
       if (!simFocusedRef.current || isPreviewControlTarget(e.target)) return;
@@ -1121,7 +1128,7 @@ function AppWithConfig({
       e.preventDefault();
       if (type === "down") pressedKeysRef.current.add(usage);
       else pressedKeysRef.current.delete(usage);
-      sendWs(0x06, { type, usage });
+      sendKey(type, usage);
       // Only key-down: logging both halves doubles the window for no signal.
       if (type === "down" && !e.repeat) logEvent({ kind: "key", details: { type, usage } });
     };
@@ -1134,7 +1141,7 @@ function AppWithConfig({
       window.removeEventListener("keyup", up);
     };
   }, [
-    sendWs,
+    sendKey,
     config.device,
     rotateBy,
     toggleAppearance,
