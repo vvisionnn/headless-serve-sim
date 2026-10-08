@@ -2,6 +2,11 @@ import type { CommandTask, HostCommands } from "./runtime/host-commands";
 
 export interface DeviceClipboard {
   transfer(device: string, direction: "to" | "from"): Promise<void>;
+  shortcut(
+    device: string,
+    action: "copy" | "cut" | "paste",
+    press: () => Promise<void>,
+  ): Promise<void>;
   setSharing(device: string, enabled: boolean): void;
   sharing(device: string): boolean;
   dispose(): void;
@@ -45,7 +50,54 @@ export function createDeviceClipboard(host: HostCommands): DeviceClipboard {
         if (tasks.get(device) === task) tasks.delete(device);
       });
   };
+  const revision = async (device: string): Promise<number> => {
+    const result = await host.run({
+      executable: "xcrun",
+      args: [
+        "devicectl",
+        "device",
+        "pasteboard",
+        "info",
+        "--device",
+        device,
+        "--quiet",
+        "--json-output",
+        "-",
+        "--timeout",
+        "5",
+      ],
+      stdio: "capture",
+      timeoutMs: 6500,
+      maxOutputBytes: 64 * 1024,
+    });
+    if (result.exitCode !== 0 || result.timedOut) throw new Error("Clipboard state query failed");
+    const count = (JSON.parse(result.stdout.toString()) as { result?: { changeCount?: number } })
+      .result?.changeCount;
+    if (!Number.isSafeInteger(count)) throw new Error("Invalid clipboard revision");
+    return count!;
+  };
   return {
+    async shortcut(device, action, press) {
+      if (disposed) throw new Error("Device clipboard is disposed");
+      validateSimulatorControlDevice(device);
+      if (action !== "copy" && action !== "cut" && action !== "paste")
+        throw new Error("Invalid clipboard shortcut");
+      if (action === "paste") {
+        await this.transfer(device, "to");
+        await press();
+        return;
+      }
+      const before = await revision(device);
+      await press();
+      for (let attempt = 0; attempt < 8; attempt++) {
+        if ((await revision(device)) !== before) {
+          await this.transfer(device, "from");
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      // Copy with no selection leaves the host clipboard unchanged, like a native app.
+    },
     async transfer(device: string, direction: "to" | "from"): Promise<void> {
       if (disposed) throw new Error("Device clipboard is disposed");
       validateSimulatorControlDevice(device);

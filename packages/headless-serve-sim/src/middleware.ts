@@ -1150,7 +1150,8 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
       option?: string;
       value?: string;
     };
-    if (p.action === "device-motion") return handleDeviceMotionRequest(deviceMotion, p);
+    if (p.action === "device-motion")
+      return handleDeviceMotionRequest(deviceMotion, p, deviceClipboard);
     if (p.action === "simulator-control")
       return handleSimulatorControlRequest(hostCommands, p, deviceClipboard);
     if (typeof p.device !== "string" || !/^[0-9A-Za-z-]+$/.test(p.device)) {

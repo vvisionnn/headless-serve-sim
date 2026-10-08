@@ -36,6 +36,79 @@ test("transfers clipboard only on explicit user actions without returning conten
   clipboard.dispose();
 });
 
+test("Paste transfers the Mac clipboard before the guest shortcut", async () => {
+  const host = createScriptedHostCommands([{}]);
+  const clipboard = createDeviceClipboard(host);
+  let pressed = false;
+  await clipboard.shortcut("DUO", "paste", async () => {
+    expect(host.calls).toHaveLength(1);
+    expect(host.calls[0]?.request.args).toContain("to");
+    pressed = true;
+  });
+  expect(pressed).toBe(true);
+  expect(clipboard.sharing("DUO")).toBe(false);
+  clipboard.dispose();
+});
+
+test("Copy waits for a new guest clipboard revision before transferring to the Mac", async () => {
+  const host = createScriptedHostCommands([
+    { result: { stdout: '{"result":{"changeCount":10}}' } },
+    { result: { stdout: '{"result":{"changeCount":10}}' } },
+    { result: { stdout: '{"result":{"changeCount":11}}' } },
+    {},
+  ]);
+  const clipboard = createDeviceClipboard(host);
+  await clipboard.shortcut("DUO", "copy", async () => {
+    expect(host.calls).toHaveLength(1);
+  });
+  expect(host.calls.map(({ request }) => request.args?.[3])).toEqual([
+    "info",
+    "info",
+    "info",
+    "transfer",
+  ]);
+  expect(host.calls.at(-1)?.request.args).toContain("from");
+  clipboard.dispose();
+});
+
+test("Copy with no guest selection does not overwrite the Mac clipboard", async () => {
+  const host = createScriptedHostCommands(
+    Array.from({ length: 9 }, () => ({ result: { stdout: '{"result":{"changeCount":10}}' } })),
+  );
+  const clipboard = createDeviceClipboard(host);
+  await clipboard.shortcut("DUO", "copy", async () => {});
+  expect(host.calls).toHaveLength(9);
+  expect(host.calls.every(({ request }) => request.args?.[3] === "info")).toBe(true);
+  clipboard.dispose();
+});
+
+test("failed clipboard transfer never pastes stale guest contents", async () => {
+  const host = createScriptedHostCommands([{ result: { exitCode: 1 } }]);
+  const clipboard = createDeviceClipboard(host);
+  let pressed = false;
+  await expect(
+    clipboard.shortcut("DUO", "paste", async () => {
+      pressed = true;
+    }),
+  ).rejects.toThrow("Clipboard transfer failed");
+  expect(pressed).toBe(false);
+  clipboard.dispose();
+});
+
+test("failed guest copy never overwrites the Mac clipboard", async () => {
+  const host = createScriptedHostCommands([
+    { result: { stdout: '{"result":{"changeCount":10}}' } },
+  ]);
+  const clipboard = createDeviceClipboard(host);
+  await expect(
+    clipboard.shortcut("DUO", "cut", async () => {
+      throw new Error("key dispatch failed");
+    }),
+  ).rejects.toThrow("key dispatch failed");
+  expect(host.calls).toHaveLength(1);
+  clipboard.dispose();
+});
+
 test("rejects invalid and disposed clipboard operations before host commands", async () => {
   const host = createScriptedHostCommands();
   const clipboard = createDeviceClipboard(host);

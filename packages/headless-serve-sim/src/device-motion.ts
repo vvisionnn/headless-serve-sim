@@ -49,6 +49,15 @@ export function isKeyboardHIDEvent(usage: unknown, phase: unknown): boolean {
   );
 }
 
+export function isTouchHIDEvent(x: unknown, y: unknown, phase: unknown): boolean {
+  return (
+    [x, y].every(
+      (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1,
+    ) &&
+    (phase === "begin" || phase === "move" || phase === "end")
+  );
+}
+
 export interface DeviceMotionState {
   commanded: {
     hingeAngle: number | null;
@@ -80,6 +89,7 @@ interface NativeReply {
   commandedAngle: number | null;
   observedAngle: number | null;
   observedAgeMs: number | null;
+  touchHandled?: boolean;
 }
 
 function deferred<T>() {
@@ -106,7 +116,7 @@ function motionSession(task: CommandTask, onExit: () => void) {
     result: ReturnType<typeof deferred<NativeReply>>;
     timer: ReturnType<typeof setTimeout>;
   } | null = null;
-  let writing: Promise<void> | null = null;
+  let writing: Promise<unknown> | null = null;
   let reading: Promise<NativeReply> | null = null;
   let readingDone: Promise<void> | null = null;
   let queued: { angle: number; result: ReturnType<typeof deferred<void>> } | null = null;
@@ -193,12 +203,12 @@ function motionSession(task: CommandTask, onExit: () => void) {
     return work;
   };
 
-  const writeCommand = async (command: Record<string, unknown>): Promise<void> => {
+  const writeCommand = async (command: Record<string, unknown>): Promise<NativeReply> => {
     while (writing || readingDone) await (writing ?? readingDone)!.catch(() => {});
-    const work = request(command).then(() => {});
+    const work = request(command);
     writing = work;
     try {
-      await work;
+      return await work;
     } finally {
       writing = null;
       const next = queued;
@@ -215,13 +225,17 @@ function motionSession(task: CommandTask, onExit: () => void) {
       return queued.result.promise;
     },
     setOrientation(orientation: DeviceOrientation): Promise<void> {
-      return writeCommand({ command: "orientation", orientation });
+      return writeCommand({ command: "orientation", orientation }).then(() => {});
+    },
+    async sendTouch(x: number, y: number, phase: "begin" | "move" | "end"): Promise<boolean> {
+      const reply = await writeCommand({ command: "touch", x, y, phase });
+      return reply.touchHandled !== false;
     },
     sendKey(usage: number, phase: "down" | "up"): Promise<void> {
-      return writeCommand({ command: "key", usage, phase });
+      return writeCommand({ command: "key", usage, phase }).then(() => {});
     },
     sendConsumer(usagePage: number, usage: number, phase: ConsumerHIDPhase): Promise<void> {
-      return writeCommand({ command: "consumer", usagePage, usage, phase });
+      return writeCommand({ command: "consumer", usagePage, usage, phase }).then(() => {});
     },
     async status(): Promise<NativeReply> {
       if (reading) return reading;
@@ -331,6 +345,16 @@ export function createDeviceMotion(host: HostCommands, options: DeviceMotionOpti
   };
 
   return {
+    async sendTouch(
+      udid: string,
+      x: number,
+      y: number,
+      phase: "begin" | "move" | "end",
+    ): Promise<boolean> {
+      if (!isTouchHIDEvent(x, y, phase)) throw new Error("Invalid touchscreen HID event");
+      if (disposed) throw new Error("device-motion disposed");
+      return (await session(udid)).sendTouch(x, y, phase);
+    },
     async sendKey(udid: string, usage: number, phase: "down" | "up"): Promise<void> {
       if (!isKeyboardHIDEvent(usage, phase)) throw new Error("Invalid keyboard HID event");
       if (disposed) throw new Error("device-motion disposed");

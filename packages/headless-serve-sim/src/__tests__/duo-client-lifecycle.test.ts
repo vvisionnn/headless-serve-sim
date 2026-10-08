@@ -50,6 +50,60 @@ test("browser typing and Cmd+K use the persistent native keyboard route", async 
   expect(client.includes("sendWs(0x06, { type, usage })")).toBe(false);
 });
 
+test("a new preview releases native modifier state left by an unloaded page", async () => {
+  const client = await source();
+  expect(client).toContain('for (let usage = 0xe0; usage <= 0xe7; usage++) sendKey("up", usage)');
+});
+
+test("window and tab focus loss release guest keys even with keyboard capture enabled", async () => {
+  const client = await source();
+  expect(client.includes('window.addEventListener("blur", release)')).toBe(true);
+  expect(client.includes('window.addEventListener("pagehide", release)')).toBe(true);
+  expect(client.includes('document.addEventListener("visibilitychange", visibility)')).toBe(true);
+});
+
+test("Command arrow keys reach guest text editing instead of rotating the device", async () => {
+  const client = await source();
+  const keyboard = client.slice(
+    client.indexOf("const onKey ="),
+    client.indexOf("const switchToDevice"),
+  );
+  expect(keyboard.includes("rotateBy")).toBe(false);
+  expect(keyboard.includes("sendKey(type, usage)")).toBe(true);
+});
+
+test("guest keyboard synchronizes browser shortcut flags before forwarding keys", async () => {
+  const client = await source();
+  const keyboard = client.slice(
+    client.indexOf("const onKey ="),
+    client.indexOf("const switchToDevice"),
+  );
+  expect(keyboard.includes("syncKeyboardModifiers(e, pressedKeysRef.current, sendKey)")).toBe(true);
+  expect(keyboard.indexOf("syncKeyboardModifiers")).toBeLessThan(
+    keyboard.indexOf("sendKey(type, usage)"),
+  );
+});
+
+test("clipboard shortcuts transfer between Mac and guest without Inspector sharing", async () => {
+  const client = await source();
+  expect(client.includes("clipboardShortcut(e)")).toBe(true);
+  expect(client.includes('command: "clipboard"')).toBe(true);
+  expect(client.includes("clipboardAction: action")).toBe(true);
+});
+
+test("tablet screen clicks preserve legacy input when guest virtual touchscreen is inactive", async () => {
+  const client = await source();
+  const touch = client.slice(
+    client.indexOf("const onStreamTouch"),
+    client.indexOf("const onStreamMultiTouch"),
+  );
+  expect(touch).toContain('deviceType === "ipad"');
+  expect(touch).toContain("queueKeyboard");
+  expect(touch).toContain("await hostDeviceTouchRequest(");
+  expect(touch).toContain("phase: data.type");
+  expect(touch).toContain("if (!handled) sendWs(0x03, data)");
+});
+
 test("ordinary bezel changes keep one stream ancestor mounted", async () => {
   const client = await source();
   expect(client).toContain("showFrame={showBezels}");

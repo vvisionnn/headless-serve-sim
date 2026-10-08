@@ -110,6 +110,53 @@ export function hidUsageForCode(code: string): number | null {
   return HID_USAGE_BY_CODE[code] ?? null;
 }
 
+export function syncKeyboardModifiers(
+  event: Pick<KeyboardEvent, "code" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey"> &
+    Partial<Pick<KeyboardEvent, "type" | "repeat">>,
+  pressed: Set<number>,
+  send: (type: "down" | "up", usage: number) => void,
+): void {
+  // macOS can omit letter keyups while Command is held, including between shortcuts.
+  const nextShortcut =
+    event.metaKey &&
+    event.type === "keydown" &&
+    !event.repeat &&
+    !["Control", "Shift", "Alt", "Meta"].some((modifier) => event.code.startsWith(modifier));
+  if (nextShortcut || (!event.metaKey && (pressed.has(0xe3) || pressed.has(0xe7)))) {
+    for (const usage of pressed) {
+      if (usage < 0xe0 || usage > 0xe7) {
+        pressed.delete(usage);
+        send("up", usage);
+      }
+    }
+  }
+  for (const [code, left, right, active] of [
+    ["Control", 0xe0, 0xe4, event.ctrlKey],
+    ["Shift", 0xe1, 0xe5, event.shiftKey],
+    ["Alt", 0xe2, 0xe6, event.altKey],
+    ["Meta", 0xe3, 0xe7, event.metaKey],
+  ] as const) {
+    // Physical modifier events are forwarded normally; reconcile only other keys.
+    if (event.code === `${code}Left` || event.code === `${code}Right`) continue;
+    if (active) {
+      if (!pressed.has(left) && !pressed.has(right)) {
+        pressed.add(left);
+        send("down", left);
+      }
+    } else {
+      for (const usage of [left, right]) {
+        if (pressed.delete(usage)) send("up", usage);
+      }
+    }
+  }
+}
+
+export function releasePressedKeys(pressed: Set<number>, release: (usage: number) => void): void {
+  const held = [...pressed];
+  pressed.clear();
+  for (const usage of held) release(usage);
+}
+
 /**
  * Key events that reload a React Native / Expo bundle.
  *

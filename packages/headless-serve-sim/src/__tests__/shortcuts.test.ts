@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   isSoftwareKeyboardShortcut,
+  clipboardShortcut,
   isTextEntryTarget,
   isPreviewControlTarget,
   type ShortcutModifiers,
@@ -37,6 +38,21 @@ describe("isSoftwareKeyboardShortcut", () => {
     expect(isSoftwareKeyboardShortcut(keyEvent({ altKey: true }))).toBe(false);
     expect(isSoftwareKeyboardShortcut(keyEvent({ ctrlKey: true }))).toBe(false);
   });
+});
+
+test("recognizes only exact native clipboard editing shortcuts", () => {
+  for (const [code, action] of [
+    ["KeyC", "copy"],
+    ["KeyX", "cut"],
+    ["KeyV", "paste"],
+  ] as const) {
+    expect(clipboardShortcut(keyEvent({ code }))).toBe(action);
+    expect(clipboardShortcut(keyEvent({ code, metaKey: false }))).toBeNull();
+    expect(clipboardShortcut(keyEvent({ code, shiftKey: true }))).toBeNull();
+    expect(clipboardShortcut(keyEvent({ code, altKey: true }))).toBeNull();
+    expect(clipboardShortcut(keyEvent({ code, ctrlKey: true }))).toBeNull();
+  }
+  expect(clipboardShortcut(keyEvent({ code: "KeyA" }))).toBeNull();
 });
 
 test("keyboard capture leaves native preview controls operable", () => {

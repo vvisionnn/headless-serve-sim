@@ -5,6 +5,7 @@
 #include <dlfcn.h>
 #include <objc/message.h>
 #include <unistd.h>
+#include <notify.h>
 
 @interface MotionServiceDelegate : NSObject
 @property(nonatomic, strong) NSDictionary *properties;
@@ -17,16 +18,16 @@
 - (void)notification:(uint32_t)type withProperty:(id)property forService:(id)service {}
 @end
 
-static id motionService(MotionServiceDelegate *delegate, BOOL consumer, BOOL keyboard) {
+static id motionService(MotionServiceDelegate *delegate, BOOL consumer, BOOL keyboard, BOOL touch) {
     dlopen("/System/Library/PrivateFrameworks/HID.framework/HID", RTLD_NOW);
     id service = [NSClassFromString(@"HIDVirtualEventService") new];
     if (!service) return nil;
-    NSNumber *page = keyboard ? @1 : consumer ? @0x0b : @0xff61;
-    NSNumber *usage = keyboard ? @6 : consumer ? @1 : @0x5b;
+    NSNumber *page = touch ? @13 : keyboard ? @1 : consumer ? @0x0b : @0xff61;
+    NSNumber *usage = touch ? @4 : keyboard ? @6 : consumer ? @1 : @0x5b;
     delegate.properties = @{@"PrimaryUsagePage": page, @"PrimaryUsage": usage,
         @"DeviceUsagePairs": @[@{@"DeviceUsagePage": page, @"DeviceUsage": usage}],
-        @"Transport": @"CoreDevice", @"Product": keyboard ? @"headless-serve-sim keyboard" : consumer ? @"headless-serve-sim buttons" : @"headless-serve-sim motion",
-        @"Built-In": @(consumer || keyboard), @"VendorID": @0, @"ProductID": @0,
+        @"Transport": @"CoreDevice", @"Product": touch ? @"headless-serve-sim touchscreen" : keyboard ? @"headless-serve-sim keyboard" : consumer ? @"headless-serve-sim buttons" : @"headless-serve-sim motion",
+        @"Built-In": @(consumer || keyboard || touch), @"VendorID": @0, @"ProductID": @0,
         @"VersionNumber": @0, @"ReportInterval": @8000};
     ((void (*)(id, SEL, id))objc_msgSend)(service, sel_registerName("setDelegate:"), delegate);
     ((void (*)(id, SEL, id))objc_msgSend)(service, sel_registerName("setDispatchQueue:"),
@@ -150,6 +151,49 @@ static BOOL sendKeyboardRequest(id service, uint32_t usage, NSString *phase, NSM
     return YES;
 }
 
+extern IOHIDEventRef IOHIDEventCreateDigitizerEvent(CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, double, double, double, double, double, Boolean, Boolean, uint32_t);
+extern IOHIDEventRef IOHIDEventCreateDigitizerFingerEvent(CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, double, double, double, double, double, Boolean, Boolean, uint32_t);
+extern void IOHIDEventAppendEvent(IOHIDEventRef, IOHIDEventRef, uint32_t);
+extern void IOHIDEventSetIntegerValue(IOHIDEventRef, uint32_t, CFIndex);
+
+static BOOL validTouchRequest(NSDictionary *request) {
+    for (NSString *key in @[@"x", @"y"]) {
+        id value = request[key];
+        if (![value isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() ||
+            !isfinite([value doubleValue]) || [value doubleValue] < 0 || [value doubleValue] > 1) return NO;
+    }
+    return [@[@"begin", @"move", @"end"] containsObject:request[@"phase"] ?: NSNull.null];
+}
+
+static BOOL touchInputIsActive(void) {
+    int token;
+    if (notify_register_check("com.apple.coredevice.dtuhidd.active", &token) != NOTIFY_STATUS_OK) return NO;
+    uint64_t state = 0;
+    uint32_t status = notify_get_state(token, &state);
+    notify_cancel(token);
+    return status == NOTIFY_STATUS_OK && state == 1;
+}
+
+static BOOL sendTouch(id service, double x, double y, NSString *phase) {
+    if (!touchInputIsActive()) return NO;
+    BOOL down = ![phase isEqual:@"end"];
+    uint32_t mask = [phase isEqual:@"move"] ? 4 : down ? 7 : 6;
+    uint64_t now = mach_absolute_time();
+    IOHIDEventRef parent = IOHIDEventCreateDigitizerEvent(NULL, now, 3, 0, 1, mask, 0, x, y, 0, 0, 0, down, down, 0);
+    IOHIDEventRef finger = IOHIDEventCreateDigitizerFingerEvent(NULL, now, 1, 1, mask, x, y, 0, 0, 0, down, down, 0);
+    if (!parent || !finger) {
+        if (parent) CFRelease(parent);
+        if (finger) CFRelease(finger);
+        return NO;
+    }
+    IOHIDEventSetIntegerValue(parent, (11 << 16) | 25, 1); // Digitizer collection containing finger events.
+    IOHIDEventAppendEvent(parent, finger, 0);
+    BOOL dispatched = ((BOOL (*)(id, SEL, id))objc_msgSend)(service, sel_registerName("dispatchEvent:"), (__bridge id)parent);
+    CFRelease(finger);
+    CFRelease(parent);
+    return dispatched;
+}
+
 static void reply(NSDictionary *message) {
     NSData *data = [NSJSONSerialization dataWithJSONObject:message options:0 error:nil];
     fwrite(data.bytes, 1, data.length, stdout);
@@ -160,7 +204,7 @@ static void reply(NSDictionary *message) {
 int main(void) {
     @autoreleasepool {
         MotionServiceDelegate *delegate = [MotionServiceDelegate new];
-        id service = motionService(delegate, NO, NO);
+        id service = motionService(delegate, NO, NO, NO);
         if (!service) {
             fprintf(stderr, "device-motion: failed to create virtual HID service\n");
             return 1;
@@ -171,6 +215,9 @@ int main(void) {
         MotionServiceDelegate *keyboardDelegate = [MotionServiceDelegate new];
         id keyboardService = nil;
         NSMutableSet<NSNumber *> *heldKeys = [NSMutableSet new];
+        MotionServiceDelegate *touchDelegate = [MotionServiceDelegate new];
+        id touchService = nil;
+        NSDictionary *heldTouch = nil;
         IOHIDEventSystemClientRef sensors = IOHIDEventSystemClientCreateWithType(NULL, 1, NULL);
         NSNumber *commandedAngle = nil;
         char *line = NULL;
@@ -181,6 +228,7 @@ int main(void) {
                 id request = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
                 id identifier = [request isKindOfClass:NSDictionary.class] ? request[@"id"] : nil;
                 NSString *error = @"unknown command";
+                NSNumber *touchHandled = nil;
                 if (![request isKindOfClass:NSDictionary.class]) {
                     error = @"command must be a JSON object";
                 } else if ([request[@"command"] isEqual:@"angle"]) {
@@ -204,7 +252,7 @@ int main(void) {
                 } else if ([request[@"command"] isEqual:@"consumer"]) {
                     if (!validConsumerRequest(request)) error = @"invalid consumer HID event";
                     else {
-                        if (!consumerService) consumerService = motionService(consumerDelegate, YES, NO);
+                        if (!consumerService) consumerService = motionService(consumerDelegate, YES, NO, NO);
                         if (!consumerService) error = @"failed to create consumer HID service";
                         else error = sendConsumerRequest(consumerService, [request[@"usage"] unsignedIntValue], request[@"phase"], heldConsumers)
                             ? nil : @"failed to dispatch consumer HID event";
@@ -212,10 +260,25 @@ int main(void) {
                 } else if ([request[@"command"] isEqual:@"key"]) {
                     if (!validKeyboardRequest(request)) error = @"invalid keyboard HID event";
                     else {
-                        if (!keyboardService) keyboardService = motionService(keyboardDelegate, NO, YES);
+                        if (!keyboardService) keyboardService = motionService(keyboardDelegate, NO, YES, NO);
                         if (!keyboardService) error = @"failed to create keyboard HID service";
                         else error = sendKeyboardRequest(keyboardService, [request[@"usage"] unsignedIntValue], request[@"phase"], heldKeys)
                             ? nil : @"failed to dispatch keyboard HID event";
+                    }
+                } else if ([request[@"command"] isEqual:@"touch"]) {
+                    if (!validTouchRequest(request)) error = @"invalid touchscreen event";
+                    else if (!touchInputIsActive()) {
+                        touchHandled = @NO;
+                        heldTouch = nil;
+                        error = nil;
+                    } else {
+                        if (!touchService) touchService = motionService(touchDelegate, NO, NO, YES);
+                        if (!touchService) error = @"failed to create touchscreen HID service";
+                        else if (sendTouch(touchService, [request[@"x"] doubleValue], [request[@"y"] doubleValue], request[@"phase"])) {
+                            heldTouch = [request[@"phase"] isEqual:@"end"] ? nil : request;
+                            touchHandled = @YES;
+                            error = nil;
+                        } else error = @"failed to dispatch touchscreen HID event";
                     }
                 } else if ([request[@"command"] isEqual:@"status"]) {
                     error = nil;
@@ -223,9 +286,11 @@ int main(void) {
                 if (!error) {
                     NSNumber *ageMs = nil;
                     NSNumber *observedAngle = sensors ? readAngle(sensors, &ageMs) : nil;
-                    reply(@{@"id": identifier ?: NSNull.null, @"ok": @YES,
+                    NSMutableDictionary *response = [@{@"id": identifier ?: NSNull.null, @"ok": @YES,
                         @"commandedAngle": commandedAngle ?: NSNull.null, @"observedAngle": observedAngle ?: NSNull.null,
-                        @"observedAgeMs": ageMs ?: NSNull.null});
+                        @"observedAgeMs": ageMs ?: NSNull.null} mutableCopy];
+                    if (touchHandled) response[@"touchHandled"] = touchHandled;
+                    reply(response);
                     continue;
                 }
                 reply(@{@"id": identifier ?: NSNull.null, @"ok": @NO, @"error": error});
@@ -239,6 +304,10 @@ int main(void) {
         if (keyboardService) {
             for (NSNumber *usage in heldKeys) sendKeyboard(keyboardService, usage.unsignedIntValue, NO);
             ((void (*)(id, SEL))objc_msgSend)(keyboardService, sel_registerName("cancel"));
+        }
+        if (touchService) {
+            if (heldTouch) sendTouch(touchService, [heldTouch[@"x"] doubleValue], [heldTouch[@"y"] doubleValue], @"end");
+            ((void (*)(id, SEL))objc_msgSend)(touchService, sel_registerName("cancel"));
         }
         ((void (*)(id, SEL))objc_msgSend)(service, sel_registerName("cancel"));
         if (sensors) CFRelease(sensors);

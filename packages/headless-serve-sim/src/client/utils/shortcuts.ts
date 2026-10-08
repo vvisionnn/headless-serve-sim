@@ -34,6 +34,20 @@ export interface ShortcutModifiers {
   ctrlKey: boolean;
 }
 
+export function clipboardShortcut(event: ShortcutModifiers): "copy" | "cut" | "paste" | null {
+  if (!event.metaKey || event.shiftKey || event.altKey || event.ctrlKey) return null;
+  switch (event.code) {
+    case "KeyC":
+      return "copy";
+    case "KeyX":
+      return "cut";
+    case "KeyV":
+      return "paste";
+    default:
+      return null;
+  }
+}
+
 /**
  * ⌘K — toggle the on-screen software keyboard, matching Simulator.app's
  * I/O → Keyboard → Toggle Software Keyboard. Exactly Command, so ⇧⌘K and ⌥⌘K

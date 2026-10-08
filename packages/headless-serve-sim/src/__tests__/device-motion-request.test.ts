@@ -42,6 +42,59 @@ test("routes physical rotation through the native motion session", async () => {
   expect(calls).toEqual([["DEVICE", "landscapeRight"]]);
 });
 
+test("routes tablet touch coordinates through the native session", async () => {
+  const calls: unknown[] = [];
+  const motion = {
+    setAngle: async () => {},
+    status: async () => state,
+    sendTouch: async (...args: unknown[]) => {
+      calls.push(args);
+    },
+  };
+  for (const phase of ["begin", "move", "end"]) {
+    await expect(
+      handleDeviceMotionRequest(motion, {
+        device: "DEVICE",
+        command: "touch",
+        x: 0.493,
+        y: 0.256,
+        phase,
+      }),
+    ).resolves.toEqual({ ok: true });
+  }
+  expect(calls).toEqual(["begin", "move", "end"].map((phase) => ["DEVICE", 0.493, 0.256, phase]));
+  for (const change of [{ x: true }, { x: -0.1 }, { y: 1.1 }, { y: NaN }, { phase: "press" }]) {
+    await expect(
+      handleDeviceMotionRequest(motion, {
+        device: "DEVICE",
+        command: "touch",
+        x: 0.5,
+        y: 0.5,
+        phase: "begin",
+        ...change,
+      }),
+    ).rejects.toThrow("Invalid touchscreen HID event");
+  }
+  expect(calls).toHaveLength(3);
+});
+
+test("touch reply preserves inactive guest routing for browser fallback", async () => {
+  const motion = {
+    setAngle: async () => {},
+    status: async () => state,
+    sendTouch: async () => false,
+  };
+  await expect(
+    handleDeviceMotionRequest(motion, {
+      device: "DEVICE",
+      command: "touch",
+      x: 0.493,
+      y: 0.256,
+      phase: "begin",
+    }),
+  ).resolves.toEqual({ ok: true, touchHandled: false });
+});
+
 test("routes native typing and software keyboard toggle without a state query", async () => {
   const calls: unknown[] = [];
   const motion = {
@@ -76,6 +129,47 @@ test("routes native typing and software keyboard toggle without a state query", 
       handleDeviceMotionRequest(motion, { device: "DEVICE", command: "key", usage, phase: "down" }),
     ).rejects.toThrow("Invalid keyboard HID event");
   expect(calls).toHaveLength(2);
+});
+
+test("clipboard shortcuts run ordered key presses through the native clipboard transfer", async () => {
+  const calls: unknown[] = [];
+  const motion = {
+    setAngle: async () => {},
+    status: async () => {
+      throw new Error("unexpected readback");
+    },
+    sendKey: async (device: string, usage: number, phase: string) => {
+      calls.push([device, usage, phase]);
+    },
+  };
+  const clipboard = {
+    shortcut: async (device: string, action: string, press: () => Promise<void>) => {
+      calls.push([device, action]);
+      await press();
+    },
+  };
+  await expect(
+    handleDeviceMotionRequest(
+      motion,
+      { device: "DEVICE", command: "clipboard", clipboardAction: "paste" },
+      clipboard,
+    ),
+  ).resolves.toEqual({ ok: true });
+  expect(calls).toEqual([
+    ["DEVICE", "paste"],
+    ["DEVICE", 0xe3, "down"],
+    ["DEVICE", 0x19, "down"],
+    ["DEVICE", 0x19, "up"],
+    ["DEVICE", 0xe3, "up"],
+  ]);
+  await expect(
+    handleDeviceMotionRequest(
+      motion,
+      { device: "DEVICE", command: "clipboard", clipboardAction: "share" },
+      clipboard,
+    ),
+  ).rejects.toThrow("Invalid clipboard shortcut");
+  expect(calls).toHaveLength(5);
 });
 
 test("routes consumer button phases through the native motion session", async () => {

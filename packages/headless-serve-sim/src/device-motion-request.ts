@@ -2,14 +2,22 @@ import {
   DEVICE_ORIENTATIONS,
   isConsumerHIDEvent,
   isKeyboardHIDEvent,
+  isTouchHIDEvent,
   type ConsumerHIDPhase,
   type DeviceOrientation,
 } from "./device-motion";
 import { validateSimulatorControlDevice } from "./simulator-controls";
+import type { DeviceClipboard } from "./device-clipboard";
 
 interface DeviceMotionCommands {
   setOrientation?(device: string, orientation: DeviceOrientation): Promise<void>;
   sendKey?(device: string, usage: number, phase: "down" | "up"): Promise<void>;
+  sendTouch?(
+    device: string,
+    x: number,
+    y: number,
+    phase: "begin" | "move" | "end",
+  ): Promise<boolean | void>;
   setAngle(device: string, angle: number): Promise<void>;
   sendConsumer?(
     device: string,
@@ -23,6 +31,7 @@ interface DeviceMotionCommands {
 export async function handleDeviceMotionRequest(
   motion: DeviceMotionCommands,
   payload: unknown,
+  clipboard?: Pick<DeviceClipboard, "shortcut">,
 ): Promise<Record<string, unknown>> {
   const p = (payload ?? {}) as {
     device: string;
@@ -32,9 +41,44 @@ export async function handleDeviceMotionRequest(
     usagePage?: number;
     usage?: number;
     phase?: string;
+    clipboardAction?: string;
+    x?: number;
+    y?: number;
   };
   validateSimulatorControlDevice(p.device);
   if (p.command === "state") return { motion: await motion.status(p.device) };
+  if (p.command === "clipboard") {
+    if (
+      p.clipboardAction !== "copy" &&
+      p.clipboardAction !== "cut" &&
+      p.clipboardAction !== "paste"
+    )
+      throw new Error("Invalid clipboard shortcut");
+    if (!clipboard || !motion.sendKey)
+      throw new Error("Native clipboard shortcuts are unavailable");
+    const usage = { copy: 0x06, cut: 0x1b, paste: 0x19 }[p.clipboardAction];
+    await clipboard.shortcut(p.device, p.clipboardAction, async () => {
+      await motion.sendKey!(p.device, 0xe3, "down");
+      try {
+        await motion.sendKey!(p.device, usage, "down");
+        await motion.sendKey!(p.device, usage, "up");
+      } finally {
+        await motion.sendKey!(p.device, 0xe3, "up");
+      }
+    });
+    return { ok: true };
+  }
+  if (p.command === "touch") {
+    if (!isTouchHIDEvent(p.x, p.y, p.phase)) throw new Error("Invalid touchscreen HID event");
+    if (!motion.sendTouch) throw new Error("Native touchscreen input is unavailable");
+    const handled = await motion.sendTouch(
+      p.device,
+      p.x!,
+      p.y!,
+      p.phase as "begin" | "move" | "end",
+    );
+    return handled === false ? { ok: true, touchHandled: false } : { ok: true };
+  }
   if (p.command === "key") {
     if (!isKeyboardHIDEvent(p.usage, p.phase)) throw new Error("Invalid keyboard HID event");
     if (!motion.sendKey) throw new Error("Native keyboard input is unavailable");

@@ -15,6 +15,8 @@ function motionHost(observedAgeMs = 250) {
     usagePage?: number;
     usage?: number;
     phase?: string;
+    x?: number;
+    y?: number;
   }[] = [];
   let autoStatus = true;
   let finish: () => void = () => {};
@@ -67,14 +69,55 @@ function motionHost(observedAgeMs = 250) {
     reject(index: number, error: string) {
       output.write(`${JSON.stringify({ id: commands[index]!.id, ok: false, error })}\n`);
     },
-    acknowledge(index: number) {
+    acknowledge(index: number, extra: Record<string, unknown> = {}) {
       const command = commands[index]!;
       output.write(
-        `${JSON.stringify({ id: command.id, ok: true, commandedAngle: command.angle ?? null, observedAngle: null })}\n`,
+        `${JSON.stringify({ id: command.id, ok: true, commandedAngle: command.angle ?? null, observedAngle: null, ...extra })}\n`,
       );
     },
   };
 }
+
+test("serializes touchscreen begin and end on the persistent guest helper", async () => {
+  const transport = motionHost();
+  const motion = createDeviceMotion(transport.host, { locateTool: () => "/fixtures/motion" });
+  try {
+    const down = motion.sendTouch("DEVICE", 0.493, 0.256, "begin");
+    const up = motion.sendTouch("DEVICE", 0.493, 0.256, "end");
+    await Bun.sleep(0);
+    expect(transport.commands).toEqual([
+      { id: 1, command: "touch", x: 0.493, y: 0.256, phase: "begin" },
+    ]);
+    transport.acknowledge(0);
+    await down;
+    await Bun.sleep(0);
+    expect(transport.commands.at(-1)).toEqual({
+      id: 2,
+      command: "touch",
+      x: 0.493,
+      y: 0.256,
+      phase: "end",
+    });
+    transport.acknowledge(1);
+    await up;
+    expect(transport.calls).toHaveLength(1);
+  } finally {
+    motion.dispose();
+  }
+});
+
+test("inactive guest touchscreen reports legacy routing instead of successful delivery", async () => {
+  const transport = motionHost();
+  const motion = createDeviceMotion(transport.host, { locateTool: () => "/fixtures/motion" });
+  try {
+    const touch = motion.sendTouch("DEVICE", 0.493, 0.256, "begin");
+    await Bun.sleep(0);
+    transport.acknowledge(0, { touchHandled: false });
+    expect(await touch).toBe(false);
+  } finally {
+    motion.dispose();
+  }
+});
 
 test("serializes keyboard down and up on the existing persistent guest helper", async () => {
   const transport = motionHost();

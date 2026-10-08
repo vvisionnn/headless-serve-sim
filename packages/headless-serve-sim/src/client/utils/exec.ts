@@ -40,6 +40,7 @@ type SocketReply = {
   status?: Record<string, string>;
   ok?: boolean;
   motion?: DeviceMotionState;
+  touchHandled?: boolean;
   state?: SimulatorControlState;
 };
 
@@ -226,16 +227,32 @@ export async function hostUiRequest(
   return reply.status ?? null;
 }
 
+export async function hostDeviceTouchRequest(payload: {
+  device: string;
+  x: number;
+  y: number;
+  phase: "begin" | "move" | "end";
+}): Promise<boolean> {
+  const reply = await socketRequest({
+    ui: { action: "device-motion", command: "touch", ...payload },
+  });
+  if (reply.error) throw new Error(reply.error);
+  return reply.touchHandled !== false;
+}
+
 export async function hostDeviceMotionRequest(
   payload: {
     device: string;
     command: string;
+    clipboardAction?: "copy" | "cut" | "paste";
     angle?: number;
     pose?: string;
     orientation?: string;
     usagePage?: number;
     usage?: number;
-    phase?: ConsumerHIDPhase;
+    phase?: ConsumerHIDPhase | "begin" | "move" | "end";
+    x?: number;
+    y?: number;
   },
   opts?: { signal?: AbortSignal },
 ): Promise<DeviceMotionState | null> {

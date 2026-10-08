@@ -58,16 +58,22 @@ import { useWebKitDevtools } from "./hooks/use-webkit-devtools";
 import { avccFallbackReducer, initialAvccFallback, AVCC_FRAME_TIMEOUT_MS } from "./avcc-fallback";
 import { parseSimctlList, type SimDevice } from "./utils/devices";
 import { fileExtension } from "./utils/drop";
-import { execOnHost, hostDeviceMotionRequest } from "./utils/exec";
+import { execOnHost, hostDeviceMotionRequest, hostDeviceTouchRequest } from "./utils/exec";
 import { DeviceMotionTool, type DuoPose } from "./components/device-motion-tool";
 import { createFoldControl } from "./utils/fold-control";
 import { sendDeviceView, type DeviceView } from "./utils/device-view-control";
 import { observedDuoOrientation, shouldApplyObservedHinge } from "./utils/fold-sync";
 import { duoHardwareCommands } from "./utils/duo-hardware";
 import { type HardwareButtonPress } from "./utils/hardware-buttons";
-import { hidUsageForCode, reactNativeReloadKeys } from "./utils/hid";
+import {
+  hidUsageForCode,
+  reactNativeReloadKeys,
+  releasePressedKeys,
+  syncKeyboardModifiers,
+} from "./utils/hid";
 import {
   isSoftwareKeyboardShortcut,
+  clipboardShortcut,
   isTextEntryTarget,
   isPreviewControlTarget,
 } from "./utils/shortcuts";
@@ -105,20 +111,6 @@ import {
   type PendingStreamMode,
   type StreamMode,
 } from "./utils/stream-mode-control";
-
-// Counter-clockwise cycle, matching Simulator.app's Cmd+Left ("Rotate Left").
-const ROTATE_LEFT_CYCLE: Record<SimulatorOrientation, SimulatorOrientation> = {
-  portrait: "landscape_left",
-  landscape_left: "portrait_upside_down",
-  portrait_upside_down: "landscape_right",
-  landscape_right: "portrait",
-};
-const ROTATE_RIGHT_CYCLE: Record<SimulatorOrientation, SimulatorOrientation> = {
-  portrait: "landscape_right",
-  landscape_right: "portrait_upside_down",
-  portrait_upside_down: "landscape_left",
-  landscape_left: "portrait",
-};
 
 // ─── App ───
 
@@ -713,9 +705,27 @@ function AppWithConfig({
   // event in the window and make the panel useless during a scroll.
   const dragRef = useRef<{ x: number; y: number; moves: number } | null>(null);
 
+  const keyboardQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const queueKeyboard = useCallback((operation: () => Promise<unknown>) => {
+    keyboardQueueRef.current = keyboardQueueRef.current
+      .then(operation)
+      .catch((error: unknown) =>
+        setStreamError(error instanceof Error ? error.message : String(error)),
+      );
+  }, []);
   const onStreamTouch = useCallback(
     (data: any) => {
-      sendWs(0x03, data);
+      if (deviceType === "ipad") {
+        queueKeyboard(async () => {
+          const handled = await hostDeviceTouchRequest({
+            device: config.device,
+            x: data.x,
+            y: data.y,
+            phase: data.type,
+          });
+          if (!handled) sendWs(0x03, data);
+        });
+      } else sendWs(0x03, data);
       if (data?.type === "begin") {
         dragRef.current = { x: data.x, y: data.y, moves: 0 };
       } else if (data?.type === "move") {
@@ -741,7 +751,7 @@ function AppWithConfig({
         });
       }
     },
-    [sendWs, logEvent],
+    [deviceType, config.device, queueKeyboard, sendWs, logEvent],
   );
   const onStreamMultiTouch = useCallback(
     (data: any) => {
@@ -864,18 +874,6 @@ function AppWithConfig({
   const currentOrientation = foldable
     ? (duoOrientation ?? "portrait")
     : ((activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ?? "portrait");
-  const canRotate = deviceType !== "watch" && deviceType !== "vision";
-  const rotateBy = useCallback(
-    (direction: "left" | "right") => {
-      if (!canRotate) return;
-      const next = (direction === "left" ? ROTATE_LEFT_CYCLE : ROTATE_RIGHT_CYCLE)[
-        currentOrientation
-      ];
-      rotateDevice(next);
-    },
-    [canRotate, currentOrientation, rotateDevice],
-  );
-
   // Flip the simulator between light and dark appearance. Reads the current
   // mode and sets the opposite, so every invocation is a real toggle — shared
   // by the toolbar button and the ⇧⌘A shortcut.
@@ -923,16 +921,28 @@ function AppWithConfig({
 
   const sendKey = useCallback(
     (type: "down" | "up", usage: number) => {
-      void hostDeviceMotionRequest({
-        device: config.device,
-        command: "key",
-        usage,
-        phase: type,
-      }).catch((error: unknown) =>
-        setStreamError(error instanceof Error ? error.message : String(error)),
+      queueKeyboard(() =>
+        hostDeviceMotionRequest({
+          device: config.device,
+          command: "key",
+          usage,
+          phase: type,
+        }),
       );
     },
-    [config.device],
+    [config.device, queueKeyboard],
+  );
+  const sendClipboardShortcut = useCallback(
+    (action: "copy" | "cut" | "paste") => {
+      queueKeyboard(() =>
+        hostDeviceMotionRequest({
+          device: config.device,
+          command: "clipboard",
+          clipboardAction: action,
+        }),
+      );
+    },
+    [config.device, queueKeyboard],
   );
 
   // Subscribe to app-state SSE.
@@ -1054,11 +1064,27 @@ function AppWithConfig({
 
   useEffect(() => {
     if (simFocused || keyboardCapture) return;
-    const held = pressedKeysRef.current;
-    if (held.size === 0) return;
-    for (const usage of held) sendKey("up", usage);
-    held.clear();
+    releasePressedKeys(pressedKeysRef.current, (usage) => sendKey("up", usage));
   }, [simFocused, keyboardCapture, sendKey]);
+
+  useEffect(() => {
+    // Unload can close the control socket before queued keyups reach the guest.
+    for (let usage = 0xe0; usage <= 0xe7; usage++) sendKey("up", usage);
+    const release = () =>
+      releasePressedKeys(pressedKeysRef.current, (usage) => sendKey("up", usage));
+    const visibility = () => {
+      if (document.hidden) release();
+    };
+    window.addEventListener("blur", release);
+    window.addEventListener("pagehide", release);
+    document.addEventListener("visibilitychange", visibility);
+    return () => {
+      release();
+      window.removeEventListener("blur", release);
+      window.removeEventListener("pagehide", release);
+      document.removeEventListener("visibilitychange", visibility);
+    };
+  }, [sendKey]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent, type: "down" | "up") => {
@@ -1099,6 +1125,17 @@ function AppWithConfig({
         if (type === "down" && !e.repeat) toggleSoftwareKeyboard();
         return;
       }
+      const action = clipboardShortcut(e);
+      if (action && simFocusedRef.current && !isPreviewControlTarget(e.target)) {
+        e.preventDefault();
+        if (type === "down" && !e.repeat) {
+          releasePressedKeys(pressedKeysRef.current, (usage) => sendKey("up", usage));
+          sendClipboardShortcut(action);
+        }
+        return;
+      }
+      if (simFocusedRef.current && !isPreviewControlTarget(e.target))
+        syncKeyboardModifiers(e, pressedKeysRef.current, sendKey);
       const heldUsage = hidUsageForCode(e.code);
       if (type === "up" && heldUsage != null && pressedKeysRef.current.delete(heldUsage)) {
         sendKey(type, heldUsage);
@@ -1108,19 +1145,6 @@ function AppWithConfig({
       if (e.code === "KeyH" && e.metaKey && e.shiftKey) {
         e.preventDefault();
         if (type === "down" && !e.repeat) goHome();
-        return;
-      }
-      if (
-        (e.code === "ArrowLeft" || e.code === "ArrowRight") &&
-        e.metaKey &&
-        !e.shiftKey &&
-        !e.altKey &&
-        !e.ctrlKey
-      ) {
-        e.preventDefault();
-        if (type === "down" && !e.repeat) {
-          rotateBy(e.code === "ArrowLeft" ? "left" : "right");
-        }
         return;
       }
       const usage = hidUsageForCode(e.code);
@@ -1142,8 +1166,8 @@ function AppWithConfig({
     };
   }, [
     sendKey,
+    sendClipboardShortcut,
     config.device,
-    rotateBy,
     toggleAppearance,
     captureAndDownloadScreenshot,
     goHome,
