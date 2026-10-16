@@ -5,7 +5,7 @@ import {
   Mp4OutputFormat,
   Output,
 } from "mediabunny";
-import { avcCodecString } from "headless-serve-sim-client/avcc-codec";
+import { avcCodecString, avcCodedSize } from "headless-serve-sim-client/avcc-codec";
 import type {
   AvccEncodedEvent,
   SimulatorRecordingSource,
@@ -33,6 +33,7 @@ export class NativeStreamRecorder {
   });
   private packets: EncodedVideoPacketSource | null = new EncodedVideoPacketSource("avc");
   private description: Uint8Array | null = null;
+  private size = { width: 0, height: 0 };
   private pending: { picture: Picture; receivedAt: number } | null = null;
   private firstTimestamp = 0;
   private firstPacket = true;
@@ -105,10 +106,12 @@ export class NativeStreamRecorder {
     }
     if (!this.pending) {
       if (!event.keyframe) return;
-      if (!this.description) {
+      const size = this.description && avcCodedSize(this.description);
+      if (!size) {
         this.fail(new Error("encoded stream configuration is unavailable"));
         return;
       }
+      this.size = size;
       this.firstTimestamp = event.timestampMicroseconds;
     } else {
       const previous = this.pending.picture;
@@ -139,8 +142,8 @@ export class NativeStreamRecorder {
       ? {
           decoderConfig: {
             codec: avcCodecString(this.description!),
-            codedWidth: 3420,
-            codedHeight: 3420,
+            codedWidth: this.size.width,
+            codedHeight: this.size.height,
             description: this.description! as Uint8Array<ArrayBuffer>,
           },
         }
@@ -192,8 +195,8 @@ export class NativeStreamRecorder {
             (pending.picture.timestampMicroseconds - this.firstTimestamp + durationMicroseconds) /
             1_000_000,
           bytes: blob.size,
-          width: 3420,
-          height: 3420,
+          width: this.size.width,
+          height: this.size.height,
         };
       } catch (error) {
         this.fail(error);

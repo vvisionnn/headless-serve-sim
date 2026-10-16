@@ -8,7 +8,7 @@ import {
   isAvccSupported,
 } from "../avcc-codec.js";
 import { streamLivenessAction } from "../stream-liveness.js";
-import { LatestFramePresenter } from "../latest-frame-presenter.js";
+import { FramePresenter } from "../frame-presenter.js";
 
 /** Per-frame telemetry handed to `onFrame` for the Connection Stats panel. */
 export interface AvccFrameInfo {
@@ -189,15 +189,13 @@ export function useAvccStream({
       height: number;
       info: Omit<AvccFrameInfo, "dropped">;
     };
-    const presenter = new LatestFramePresenter<VideoFrame, PendingPresentation>(
+    const presenter = new FramePresenter<VideoFrame, PendingPresentation>(
       (callback) => requestAnimationFrame(callback),
       (handle) => cancelAnimationFrame(handle),
       (frame, pending) => {
         paint(frame, pending.width, pending.height, { ...pending.info, dropped });
       },
       () => dropped++,
-      () => performance.now(),
-      1000 / 120,
     );
 
     let decoder: VideoDecoder | null = null;

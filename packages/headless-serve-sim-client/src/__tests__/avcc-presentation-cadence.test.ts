@@ -3,7 +3,7 @@ import * as React from "react";
 import { useAvccStream, type AvccEncodedEvent } from "../simulator/use-avcc-stream";
 import { AvccDemuxer } from "../avcc-codec";
 
-test("coalesces large composition bursts without dropping encoded packets", async () => {
+test("paces bursts to one frame per display tick without dropping encoded packets", async () => {
   let effect!: React.EffectCallback;
   const effects = spyOn(React, "useEffect").mockImplementation((next) => {
     effect = next;
@@ -101,25 +101,35 @@ test("coalesces large composition bursts without dropping encoded packets", asyn
         },
       } as unknown as VideoFrame);
     };
+    const tick = () => {
+      const [id, callback] = scheduled.entries().next().value ?? [];
+      if (id === undefined) return;
+      scheduled.delete(id);
+      callback!(now);
+    };
     output(1);
     output(2);
     output(3);
     expect(painted).toEqual([1]);
-    expect(closed).toEqual([1, 2]);
-    expect(scheduled.size).toBe(1);
-    now = 1000 / 60;
-    scheduled.values().next().value?.(now);
-    scheduled.clear();
-    expect(painted).toEqual([1, 3]);
+    expect(closed).toEqual([1]);
+    tick();
+    tick();
+    expect(painted).toEqual([1, 2]);
+    tick();
+    expect(painted).toEqual([1, 2, 3]);
     expect(closed).toEqual([1, 2, 3]);
     expect(
       events.filter((event) => event.type === "picture").map((event) => event.sequence),
     ).toEqual([1, 2, 3]);
-    for (const id of [4, 5, 6]) {
-      now = ((id - 2) * 1000) / 60;
-      output(id);
-    }
-    expect(painted).toEqual([1, 3, 4, 5, 6]);
+    output(4);
+    output(5);
+    output(6);
+    output(7);
+    tick();
+    tick();
+    tick();
+    expect(painted).toEqual([1, 2, 3, 4, 6, 7]);
+    expect(closed).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(scheduled.size).toBe(0);
   } finally {
     if (typeof cleanup === "function") cleanup();
@@ -132,7 +142,7 @@ test("coalesces large composition bursts without dropping encoded packets", asyn
   }
 });
 
-test("presents decoded frames without throttling a 120 Hz display opportunity", async () => {
+test("presents every frame at a 120 Hz display cadence", async () => {
   let effect!: React.EffectCallback;
   const effects = spyOn(React, "useEffect").mockImplementation((next) => {
     effect = next;
@@ -174,8 +184,17 @@ test("presents decoded frames without throttling a 120 Hz display opportunity", 
     );
     replace("EncodedVideoChunk", class {});
     replace("performance", { now: () => now });
-    replace("requestAnimationFrame", () => 1);
-    replace("cancelAnimationFrame", () => {});
+    let pending: FrameRequestCallback | null = null;
+    replace("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      pending = callback;
+      return 1;
+    });
+    replace("cancelAnimationFrame", () => (pending = null));
+    const tick = () => {
+      const callback = pending;
+      pending = null;
+      callback?.(now);
+    };
     replace(
       "fetch",
       async () =>
@@ -206,8 +225,10 @@ test("presents decoded frames without throttling a 120 Hz display opportunity", 
     cleanup = effect();
     await received;
     handle("description", new Uint8Array([1, 0x64, 0, 0x28]));
+    // A 120 Hz display ticks between every frame of a 120 fps source.
     for (const time of [0, 1000 / 120, 1000 / 60]) {
       now = time;
+      tick();
       handle(time === 0 ? "keyframe" : "delta", new Uint8Array([1]));
       decoder.output({ displayWidth: 1280, displayHeight: 900, close() {} } as VideoFrame);
     }
@@ -215,6 +236,7 @@ test("presents decoded frames without throttling a 120 Hz display opportunity", 
     handle("metadata", new TextEncoder().encode(JSON.stringify({ includeFrame: true })));
     for (const time of [25.01, 33.35, 41.69]) {
       now = time;
+      tick();
       handle("delta", new Uint8Array([1]));
       decoder.output({ displayWidth: 3420, displayHeight: 3420, close() {} } as VideoFrame);
     }

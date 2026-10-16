@@ -6,9 +6,11 @@ import type {
 } from "headless-serve-sim-client/simulator";
 import { NativeStreamRecorder } from "../client/native-stream-recorder";
 
+// A real VideoToolbox avcC whose SPS describes a 1536x1536 picture.
 const description = new Uint8Array([
-  1, 100, 0, 60, 255, 225, 0, 17, 0x27, 0x64, 0, 0x3c, 0xac, 0x56, 0x80, 0x35, 0x80, 0x6b, 0x7b,
-  0xb9, 0xa8, 8, 0x68, 8, 0x10, 1, 0, 5, 0x28, 0xee, 0x3c, 0xb0, 0,
+  0x01, 0x64, 0x00, 0x32, 0xff, 0xe1, 0x00, 0x15, 0x27, 0x64, 0x00, 0x32, 0xac, 0x13, 0x14, 0x30,
+  0x06, 0x00, 0x30, 0x69, 0xa8, 0x10, 0x10, 0x10, 0x3c, 0x20, 0x10, 0x8c, 0x80, 0x01, 0x00, 0x04,
+  0x28, 0xee, 0x3c, 0xb0, 0xfd, 0xf8, 0xf8, 0x00,
 ]);
 const picture = (
   keyframe: boolean,
@@ -90,14 +92,14 @@ test("native recording remuxes unchanged source packets on a stable full-density
   f.emit(picture(false, 10_080_000, 5));
   f.setNow(1200);
   const result = await f.recorder.stop();
-  expect([result.width, result.height]).toEqual([3420, 3420]);
+  expect([result.width, result.height]).toEqual([1536, 1536]);
   const input = new Input({
     source: new BufferSource(await result.blob.arrayBuffer()),
     formats: [MP4],
   });
   try {
     const track = (await input.getPrimaryVideoTrack())!;
-    expect([track.codedWidth, track.codedHeight]).toEqual([3420, 3420]);
+    expect([track.codedWidth, track.codedHeight]).toEqual([1536, 1536]);
     const packets = [];
     for await (const packet of new EncodedPacketSink(track).packets()) packets.push(packet);
     expect(packets).toHaveLength(2);

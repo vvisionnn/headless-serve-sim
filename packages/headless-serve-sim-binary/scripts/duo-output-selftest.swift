@@ -1,13 +1,21 @@
 import Foundation
 @main struct Check {
  static func main() {
-  let size = DuoOutput.size
-  precondition(size.width == 3420 && size.height == 3420, "Duo review output must preserve native screen density at every body rotation")
-  let source = FrameScaler(maxDimension: DuoOutput.maxEncodedDimension).targetSize(width: size.width, height: size.height)
-  precondition(source.width == size.width && source.height == size.height, "Native Duo output must reach the encoder without downscaling")
-  for scale in [0.5, 1.0, 2.0] {
-   precondition(DuoOutput.renderScale(for: scale) == 0.85, "Resizing the web device must not reduce captured screen density")
+  precondition(DuoOutput.side(requested: nil) == DuoOutput.defaultSide, "No viewer report uses the default side")
+  precondition(DuoOutput.side(requested: 100) == DuoOutput.minimumSide, "Tiny viewers are clamped up")
+  precondition(DuoOutput.side(requested: 99_999) == DuoOutput.maximumSide, "Huge viewers are capped")
+  precondition(DuoOutput.side(requested: 1500) == 1536, "Requests round up to the 128 px step")
+  precondition(DuoOutput.side(requested: 1536) == 1536, "Exact steps are kept")
+  // H.264 level 5.1/5.2 caps a frame at 36864 macroblocks; above it the
+  // low-latency encoder silently emits nothing and browsers may refuse it.
+  let macroblocks = (DuoOutput.maximumSide / 16) * (DuoOutput.maximumSide / 16)
+  precondition(macroblocks <= 36_864, "Maximum side must fit H.264 level 5.2")
+  for side in [DuoOutput.minimumSide, DuoOutput.defaultSide, DuoOutput.maximumSide] {
+   precondition(side % 16 == 0, "Every side is macroblock-aligned")
+   let target = FrameScaler(maxDimension: DuoOutput.maximumSide).targetSize(width: side, height: side)
+   precondition(target.width == side && target.height == side, "Duo output reaches the encoder unscaled")
   }
-  print("Duo native-density output self-test passed")
+  precondition(DuoOutput.renderScale(for: 2.0) == 0.85, "Zoom changes the output side, not the occupancy")
+  print("Duo output self-test passed")
  }
 }

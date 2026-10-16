@@ -864,6 +864,7 @@ function AppWithConfig({
       setShowBezels(includeFrame);
       if (!nativeComposition) return;
       deviceViewRef.current = {
+        ...deviceViewRef.current,
         rotation: rotationDegreesForOrientation(duoOrientation ?? "portrait"),
         includeFrame,
       };
@@ -871,6 +872,11 @@ function AppWithConfig({
     },
     [nativeComposition, duoOrientation],
   );
+  const changeOutputSide = useCallback((outputSize: number) => {
+    if (deviceViewRef.current?.outputSize === outputSize) return;
+    deviceViewRef.current = { ...deviceViewRef.current, outputSize };
+    sendDeviceView(wsRef.current, deviceViewRef.current);
+  }, []);
   const currentOrientation = foldable
     ? (duoOrientation ?? "portrait")
     : ((activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ?? "portrait");
@@ -1565,6 +1571,7 @@ function AppWithConfig({
                 scale={deviceScale}
                 streaming={streaming}
                 onBoundsChange={updateDuoBounds}
+                onOutputSide={changeOutputSide}
               />
               {(!streaming || streamError) && (
                 <div

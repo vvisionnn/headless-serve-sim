@@ -42,12 +42,18 @@ test("accounts for skipped chunks and recovery work exactly once, excluding tear
       return frame;
     }
   }
-  let now = 0;
+  const now = 0;
   let stream!: ReadableStreamDefaultController<Uint8Array>;
   let progressed: () => void = () => {};
   const frames: AvccFrameInfo[] = [];
   const presentations = new Map<number, () => void>();
   let cleanup: ReturnType<React.EffectCallback> = undefined;
+  // A display tick passes: whatever was drawn is on screen; one waiting frame may draw.
+  const tick = () => {
+    const callback = presentations.get(1);
+    presentations.delete(1);
+    callback?.();
+  };
   const send = async (...tags: number[]) => {
     const received = new Promise<void>((resolve) => {
       progressed = resolve;
@@ -99,7 +105,7 @@ test("accounts for skipped chunks and recovery work exactly once, excluding tear
     await send(3, 3, 6, 2); // rejected frame, two skipped deltas, recovery IDR
     const stale = decoders[0]!.output();
     expect(stale.closed).toBe(1); // already counted when its decoder was reset
-    now = 20;
+    tick();
     decoders[1]!.output();
     expect(frames.at(-1)?.dropped).toBe(8);
 
@@ -107,9 +113,9 @@ test("accounts for skipped chunks and recovery work exactly once, excluding tear
     const ready = decoders[1]!.output(); // decoded, waiting for presentation
     await send(3, 1, 3, 2); // one in flight, new config, skipped delta, new IDR
     expect(ready.closed).toBe(1);
+    tick(); // nothing is left to present
     expect(presentations.size).toBe(0);
     decoders[1]!.output(); // stale callback cannot count the in-flight frame twice
-    now = 40;
     decoders[2]!.output();
     expect(frames.at(-1)?.dropped).toBe(11);
 

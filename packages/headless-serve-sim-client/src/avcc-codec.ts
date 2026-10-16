@@ -158,6 +158,87 @@ export function avcCodecString(description: Uint8Array): string {
   return "avc1." + hex2(description[1]!) + hex2(description[2]!) + hex2(description[3]!);
 }
 
+/** Display size from the first SPS of an avcC record, or null when unreadable. */
+export function avcCodedSize(description: Uint8Array): { width: number; height: number } | null {
+  if (description.length < 8 || (description[5]! & 0x1f) < 1) return null;
+  const length = (description[6]! << 8) | description[7]!;
+  if (description.length < 8 + length || length < 4) return null;
+  // Drop emulation-prevention bytes (00 00 03) to recover the RBSP.
+  const rbsp: number[] = [];
+  for (let i = 9; i < 8 + length; i++) {
+    const byte = description[i]!;
+    if (byte === 3 && rbsp.length >= 2 && rbsp.at(-1) === 0 && rbsp.at(-2) === 0) continue;
+    rbsp.push(byte);
+  }
+  let bit = 0;
+  const u = (count: number) => {
+    let value = 0;
+    for (let i = 0; i < count; i++, bit++) {
+      if (bit >> 3 >= rbsp.length) throw new RangeError("truncated SPS");
+      value = value * 2 + ((rbsp[bit >> 3]! >> (7 - (bit & 7))) & 1);
+    }
+    return value;
+  };
+  const ue = () => {
+    let zeros = 0;
+    while (u(1) === 0) zeros++;
+    return 2 ** zeros - 1 + u(zeros);
+  };
+  const se = () => {
+    const value = ue();
+    return value & 1 ? (value + 1) / 2 : -value / 2;
+  };
+  try {
+    const profile = u(8);
+    u(16);
+    ue();
+    let chroma = 1;
+    if ([100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135].includes(profile)) {
+      chroma = ue();
+      if (chroma === 3) u(1);
+      ue();
+      ue();
+      u(1);
+      if (u(1)) {
+        for (let list = 0; list < (chroma === 3 ? 12 : 8); list++) {
+          if (!u(1)) continue;
+          let last = 8,
+            next = 8;
+          for (let j = 0; j < (list < 6 ? 16 : 64); j++) {
+            if (next !== 0) next = (last + se() + 256) % 256;
+            last = next === 0 ? last : next;
+          }
+        }
+      }
+    }
+    ue();
+    const pocType = ue();
+    if (pocType === 0) ue();
+    else if (pocType === 1) {
+      u(1);
+      se();
+      se();
+      for (let n = ue(); n > 0; n--) se();
+    }
+    ue();
+    u(1);
+    const widthInMbs = ue() + 1;
+    const heightInMapUnits = ue() + 1;
+    const frameMbsOnly = u(1);
+    if (!frameMbsOnly) u(1);
+    u(1);
+    const crop = u(1) ? [ue(), ue(), ue(), ue()] : [0, 0, 0, 0];
+    const cropX = chroma === 0 || chroma === 3 ? 1 : 2;
+    const cropY = (chroma === 1 ? 2 : 1) * (2 - frameMbsOnly);
+    return {
+      width: widthInMbs * 16 - (crop[0]! + crop[1]!) * cropX,
+      height: (2 - frameMbsOnly) * heightInMapUnits * 16 - (crop[2]! + crop[3]!) * cropY,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** True when the runtime can decode the AVCC stream (WebCodecs available). */
 export function isAvccSupported(): boolean {
   return (

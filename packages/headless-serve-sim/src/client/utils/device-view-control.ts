@@ -1,6 +1,8 @@
 export interface DeviceView {
-  rotation: number;
+  rotation?: number;
   includeFrame?: boolean;
+  /** Square output side, in device pixels, at which this viewer shows the device. */
+  outputSize?: number;
 }
 
 export function sendDeviceView(

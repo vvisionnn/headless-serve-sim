@@ -50,6 +50,9 @@ final class ClientManager {
     var onScroll: ((ScrollEventPayload) -> Void)?
     var onSoftwareKeyboard: (() -> Void)?
     var onDeviceView: ((DeviceViewPayload) -> Void)?
+    /// Largest output side any connected viewer displays at; nil when none reported.
+    var onOutputSize: ((Int?) -> Void)?
+    private var outputSizes: [ObjectIdentifier: Int] = [:]
 
     // MARK: - Configuration
 
@@ -89,6 +92,15 @@ final class ClientManager {
     func setDeviceComposition(_ enabled: Bool) {
         configLock.lock(); deviceComposition = enabled; configLock.unlock()
         broadcastConfig()
+    }
+
+    private func setOutputSize(_ size: Int?, for id: ObjectIdentifier) {
+        configLock.lock()
+        let previous = outputSizes.values.max()
+        outputSizes[id] = size
+        let next = outputSizes.values.max()
+        configLock.unlock()
+        if next != previous { onOutputSize?(next) }
     }
 
     func setDeviceView(includeFrame: Bool) {
@@ -317,6 +329,7 @@ final class ClientManager {
 
     func removeWSClient(_ session: WebSocketSession) {
         let id = ObjectIdentifier(session)
+        setOutputSize(nil, for: id)
         queue.async {
             self.wsSessions.removeValue(forKey: id)
             print("[clients] WS input client disconnected (\(self.wsSessions.count) total)")
@@ -378,6 +391,7 @@ final class ClientManager {
             onSoftwareKeyboard?()
         } else if type == 0x0F {
             guard let view = try? JSONDecoder().decode(DeviceViewPayload.self, from: data[1...]) else { return }
+            if let size = view.outputSize { setOutputSize(size, for: ObjectIdentifier(session)) }
             onDeviceView?(view)
         }
     }

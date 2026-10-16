@@ -71,7 +71,7 @@ if let raw = ProcessInfo.processInfo.environment["SERVE_SIM_H264_BASE_LAYER"],
 let temporalLayerDescription = temporalLayerFraction.map { "\($0)" } ?? "off"
 print("[main] H.264 base-layer fraction: \(temporalLayerDescription)")
 
-let useLowLatency = !isDuo && ProcessInfo.processInfo.environment["SERVE_SIM_H264_LOW_LATENCY"] != "0"
+let useLowLatency = ProcessInfo.processInfo.environment["SERVE_SIM_H264_LOW_LATENCY"] != "0"
 var expectedFrameRateOverride: Int?
 if let raw = ProcessInfo.processInfo.environment["SERVE_SIM_H264_EXPECTED_FPS"],
    let parsed = Int(raw), parsed > 0 {
@@ -85,7 +85,7 @@ if let raw = ProcessInfo.processInfo.environment["SERVE_SIM_H264_MAX_DIMENSION"]
    let parsed = Int(raw), parsed >= 64 {
     h264MaxDimension = parsed
 }
-if isDuo { h264MaxDimension = max(h264MaxDimension, DuoOutput.maxEncodedDimension) }
+if isDuo { h264MaxDimension = max(h264MaxDimension, DuoOutput.maximumSide) }
 print("[main] H.264 max encoded dimension: \(h264MaxDimension)")
 
 let avccHighWaterBytes = isDuo ? 2 * 1024 * 1024 : 256 * 1024
@@ -408,6 +408,7 @@ if isDuo, #available(macOS 15.0, *) {
         duoPump?.update(rotation: view.rotation, scale: view.scale, includeFrame: view.includeFrame)
         if let includeFrame = view.includeFrame { httpServer.clientManager.setDeviceView(includeFrame: includeFrame) }
     }
+    httpServer.clientManager.onOutputSize = { side in duoPump?.update(side: DuoOutput.side(requested: side)) }
     httpServer.clientManager.setDeviceComposition(true)
 }
 
@@ -430,7 +431,7 @@ if isDuo, #available(macOS 15.0, *) {
         if state.includeFrame {
             if NativeDuo.renderer == nil { NativeDuo.renderer = try await DuoRenderer(modelURL: modelPath, maximumOutputBuffers: NativeDuo.outputBufferLimit) }
             guard let renderer = NativeDuo.renderer else { return }
-            renderer.update(angle: state.angle, rotation: state.rotation, scale: DuoOutput.renderScale(for: state.scale), width: DuoOutput.size.width, height: DuoOutput.size.height, yaw: state.yaw)
+            renderer.update(angle: state.angle, rotation: state.rotation, scale: DuoOutput.renderScale(for: state.scale), width: state.side, height: state.side, yaw: state.yaw)
             buffer = try await renderer.render(panels: panels, blankedDisplays: state.blankedDisplays)
             pieces = renderer.projectionPieces
             bounds = renderer.frameBounds
@@ -439,7 +440,7 @@ if isDuo, #available(macOS 15.0, *) {
             buttons = renderer.buttonProjections
         } else {
             let renderer = NativeDuo.rawRenderer
-            buffer = try renderer.render(panel, displayId: id, rotation: rawRotation, scale: DuoOutput.renderScale(for: state.scale), width: DuoOutput.size.width, height: DuoOutput.size.height, blanked: state.blankedDisplays.contains(id))
+            buffer = try renderer.render(panel, displayId: id, rotation: rawRotation, scale: DuoOutput.renderScale(for: state.scale), width: state.side, height: state.side, blanked: state.blankedDisplays.contains(id))
             pieces = renderer.projectionPieces
             bounds = renderer.frameBounds
             mask = renderer.alphaMask

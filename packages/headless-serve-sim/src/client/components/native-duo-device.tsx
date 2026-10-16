@@ -9,7 +9,7 @@ import {
 } from "../duo-model";
 import { AxSelectionContext, useAxSnapshotContext } from "../hooks/use-ax-snapshot";
 import { axElementKey, axElementSummary, axNodeForElement } from "../utils/ax";
-import { duoViewport } from "../utils/duo-viewport";
+import { duoOutputSide, duoViewport } from "../utils/duo-viewport";
 
 const FINGER_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='9' fill='rgba(255,255,255,0.45)' stroke='rgba(0,0,0,0.55)' stroke-width='1.25' filter='drop-shadow(0 1px 2px rgba(0,0,0,0.45))'/%3E%3C/svg%3E") 12 12, pointer`;
 
@@ -24,6 +24,8 @@ interface Props {
   scale?: number;
   streaming?: boolean;
   onButton?: (button: string) => void;
+  /** Output side this viewer needs; held steady while an encoded recording runs. */
+  onOutputSide?: (side: number) => void;
   onTouch: (touch: {
     type: string;
     x: number;
@@ -61,12 +63,14 @@ export function NativeDuoDevice(props: Props) {
   const ax = useRef({ snapshot, selection });
   ax.current = { snapshot, selection };
   const redraw = useRef<(() => void) | null>(null);
+  const outputSideRef = useRef({ recordings: 0, request: null as (() => void) | null });
   const buttonsRef = useRef<HTMLDivElement | null>(null);
   const fingersRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const outputSide = outputSideRef.current;
     const context = canvas.getContext("2d", { desynchronized: true })!;
     let source: SimulatorRecordingSource | null = null;
     let unsubscribe: (() => void) | undefined;
@@ -97,7 +101,20 @@ export function NativeDuoDevice(props: Props) {
       },
       get subscribeEncoded() {
         const encodedSource = props.sourceRef.current;
-        return encodedSource?.subscribeEncoded?.bind(encodedSource);
+        const subscribe = encodedSource?.subscribeEncoded?.bind(encodedSource);
+        if (!subscribe) return undefined;
+        // A resolution change would end an MP4 recording, so hold the size until it stops.
+        return (listener: Parameters<typeof subscribe>[0]) => {
+          const unsubscribe = subscribe(listener);
+          outputSide.recordings++;
+          let active = true;
+          return () => {
+            if (!active) return;
+            active = false;
+            unsubscribe();
+            if (--outputSide.recordings === 0) outputSide.request?.();
+          };
+        };
       },
       get requestKeyframe() {
         const encodedSource = props.sourceRef.current;
@@ -536,6 +553,41 @@ export function NativeDuoDevice(props: Props) {
       canvas.removeEventListener("wheel", wheel);
     };
   }, [props.sourceRef, props.recordingSourceRef]);
+  useEffect(() => {
+    const outputSide = outputSideRef.current;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const send = () => {
+      if (outputSide.recordings > 0) return;
+      const { width, height, scale, onOutputSide } = latest.current;
+      onOutputSide?.(duoOutputSide(width, height, scale ?? 1, window.devicePixelRatio || 1));
+    };
+    // Debounced so a resize drag rebuilds the encoder once, not on every step.
+    const request = () => {
+      clearTimeout(timer);
+      timer = setTimeout(send, 150);
+    };
+    // A pixel-ratio change (window moved to another display) fires no resize.
+    let ratio: MediaQueryList | null = null;
+    const watchRatio = () => {
+      ratio?.removeEventListener("change", onRatio);
+      ratio = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+      ratio.addEventListener("change", onRatio);
+    };
+    const onRatio = () => {
+      watchRatio();
+      request();
+    };
+    outputSide.request = send;
+    send();
+    watchRatio();
+    window.addEventListener("resize", request);
+    return () => {
+      clearTimeout(timer);
+      ratio?.removeEventListener("change", onRatio);
+      window.removeEventListener("resize", request);
+      outputSide.request = null;
+    };
+  }, [props.width, props.height, props.scale]);
   useLayoutEffect(() => {
     redraw.current?.();
   }, [

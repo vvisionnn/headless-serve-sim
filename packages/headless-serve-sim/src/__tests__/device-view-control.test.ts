@@ -22,3 +22,11 @@ test("view preferences survive closed and connecting sockets and replay on open"
   sendDeviceView(ws, view);
   expect(payload(ws.messages[1]!)).toEqual({ rotation: 90 });
 });
+
+test("output side persists across sends without a known rotation", () => {
+  const ws = socket(1);
+  const view: DeviceView = { outputSize: 1459 };
+  sendDeviceView(ws, view);
+  sendDeviceView(ws, view);
+  expect(payload(ws.messages[1]!)).toEqual({ outputSize: 1459 });
+});

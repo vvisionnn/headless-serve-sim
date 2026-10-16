@@ -20,6 +20,8 @@ struct DeviceViewPayload: Codable {
     let rotation: Double?
     let scale: Double?
     let includeFrame: Bool?
+    /// Square output side, in pixels, at which this viewer displays the device.
+    let outputSize: Int?
 }
 
 struct SetModePayload: Codable {

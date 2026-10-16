@@ -18,7 +18,8 @@ actor FocusRecorder {
     var blanked: [Set<Int>] = []
     var angles: [Double] = []
     var rotations: [Double] = []
-    func record(_ state: DuoFramePump.State) { yaws.append(state.yaw); blanked.append(state.blankedDisplays); angles.append(state.angle); rotations.append(state.rotation) }
+    var sides: [Int] = []
+    func record(_ state: DuoFramePump.State) { yaws.append(state.yaw); blanked.append(state.blankedDisplays); angles.append(state.angle); rotations.append(state.rotation); sides.append(state.side) }
 }
 
 @main struct PumpTest {
@@ -134,6 +135,12 @@ actor FocusRecorder {
         dedupPump.update()
         try? await Task.sleep(nanoseconds: 40_000_000)
         guard await deduplicated.angles.count == 2 else { fatalError("explicit refresh must remain available for keyframes") }
+        dedupPump.update(side: 1536)
+        try? await Task.sleep(nanoseconds: 40_000_000)
+        guard await deduplicated.angles.count == 2 else { fatalError("an unchanged output side must not recompose") }
+        dedupPump.update(side: 1024)
+        try? await Task.sleep(nanoseconds: 40_000_000)
+        guard await deduplicated.sides.last == 1024, await deduplicated.angles.count == 3 else { fatalError("a new output side must recompose at that side") }
         dedupPump.stop()
         print("Duo frame pump self-test passed")
     }

@@ -9,6 +9,7 @@ final class DuoFramePump {
         var yaw: Double = 0
         var scale: Double = 1
         var includeFrame = true
+        var side = DuoOutput.defaultSide
         var blankedDisplays: Set<Int> = []
     }
 
@@ -38,10 +39,10 @@ final class DuoFramePump {
         schedule()
     }
 
-    func update(angle: Double? = nil, rotation: Double? = nil, scale: Double? = nil, includeFrame: Bool? = nil, displayId: Int? = nil, blankedDisplay: Int? = nil, blanked: Bool? = nil) {
+    func update(angle: Double? = nil, rotation: Double? = nil, scale: Double? = nil, includeFrame: Bool? = nil, displayId: Int? = nil, blankedDisplay: Int? = nil, blanked: Bool? = nil, side: Int? = nil) {
         lock.lock()
         var changed = angle == nil && rotation == nil && scale == nil && includeFrame == nil
-            && displayId == nil && blankedDisplay == nil && blanked == nil
+            && displayId == nil && blankedDisplay == nil && blanked == nil && side == nil
         if let angle, angle.isFinite, (0...180).contains(angle) {
             changed = changed || hinge.target != angle || !seededHinge
             hinge.target = angle
@@ -69,6 +70,10 @@ final class DuoFramePump {
         if let scale, scale.isFinite, (0.5...2).contains(scale) {
             changed = changed || state.scale != scale
             state.scale = scale
+        }
+        if let side {
+            changed = changed || state.side != side
+            state.side = side
         }
         if let includeFrame {
             changed = changed || state.includeFrame != includeFrame

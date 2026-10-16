@@ -43,6 +43,8 @@ test("a delayed JPEG seed never overwrites a newer decoded frame", async () => {
       },
     );
     replaceGlobal("EncodedVideoChunk", class {});
+    replaceGlobal("requestAnimationFrame", () => 1);
+    replaceGlobal("cancelAnimationFrame", () => {});
     replaceGlobal(
       "createImageBitmap",
       () =>
