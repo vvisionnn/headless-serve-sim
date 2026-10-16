@@ -1,8 +1,11 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawn, type ChildProcessByStdio } from "child_process";
 import { existsSync, statSync } from "fs";
 import { join } from "path";
 import net from "net";
+
+// Waits below are hang guards sized for any machine; tests must outlive them.
+setDefaultTimeout(120_000);
 
 const HELPER_PATH = join(import.meta.dir, "../../dist/simcam/headless-serve-sim-camera-helper");
 
@@ -173,7 +176,7 @@ async function loadIOSurface(): Promise<NonNullable<typeof iosurface>> {
   return iosurface;
 }
 
-function sendHelperCommand(socketPath: string, cmd: object, timeoutMs = 3000): Promise<any> {
+function sendHelperCommand(socketPath: string, cmd: object, timeoutMs = 60_000): Promise<any> {
   return new Promise((resolve, reject) => {
     const c = net.createConnection(socketPath);
     let buf = "";
@@ -246,14 +249,14 @@ describeIf("SimCameraHelper shm probe", () => {
       helperStderr += chunk.toString();
     });
 
-    const ok = await waitFor(() => existsSync(SOCKET_PATH), 5000);
+    const ok = await waitFor(() => existsSync(SOCKET_PATH), 60_000);
     if (!ok) {
       throw new Error(
         `helper never bound socket ${SOCKET_PATH}\n` +
           `helper stderr (first 600 chars):\n${helperStderr.slice(0, 600)}`,
       );
     }
-  }, 10_000);
+  }, 120_000);
 
   afterAll(async () => {
     if (helper && !helper.killed) {
@@ -291,7 +294,7 @@ describeIf("SimCameraHelper shm probe", () => {
     if (!handle) return;
     try {
       const start = readHeader(handle.buffer).frameSeq;
-      const advanced = await waitFor(() => readHeader(handle.buffer).frameSeq > start, 2000);
+      const advanced = await waitFor(() => readHeader(handle.buffer).frameSeq > start, 60_000);
       expect(advanced).toBe(true);
     } finally {
       await closeShm(handle);
@@ -339,7 +342,7 @@ describeIf("SimCameraHelper shm probe", () => {
         const header = readHeader(handle.buffer);
         const t = readSurfaceTable(handle.buffer);
         return header.frameSeq !== initialFrameSeq && t.latestIndex < t.surfaceCount;
-      }, 1000);
+      }, 60_000);
       expect(moved).toBe(true);
     } finally {
       await closeShm(handle);
@@ -436,7 +439,7 @@ describeIf("SimCameraHelper signal teardown", () => {
       },
     );
     try {
-      const bound = await waitFor(() => existsSync(SOCKET_PATH), 5000);
+      const bound = await waitFor(() => existsSync(SOCKET_PATH), 60_000);
       expect(bound).toBe(true);
 
       // Sanity: the segment exists before the signal, so its absence after
@@ -459,7 +462,7 @@ describeIf("SimCameraHelper signal teardown", () => {
           return false;
         }
         return true;
-      }, 2000);
+      }, 60_000);
       if (!gone) sys.shm_unlink(name);
       expect(gone).toBe(true);
     } finally {
@@ -474,5 +477,5 @@ describeIf("SimCameraHelper signal teardown", () => {
       } catch {}
       if (stderrText.includes("error")) console.error(stderrText.slice(0, 400));
     }
-  }, 20_000);
+  }, 120_000);
 });

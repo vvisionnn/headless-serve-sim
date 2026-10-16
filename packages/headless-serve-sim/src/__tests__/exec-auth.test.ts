@@ -112,7 +112,7 @@ describe("/exec auth", () => {
       ]);
       expect(commands.remaining).toBe(0);
     }, host);
-  }, 30_000);
+  });
 });
 
 describe("/logs auth", () => {

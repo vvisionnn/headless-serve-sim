@@ -100,7 +100,7 @@ describe("sendKeyEventsToWs e2e", () => {
       },
     });
     wsUrl = `ws://127.0.0.1:${server.port}/ws`;
-  }, 30_000);
+  });
 
   afterAll(async () => {
     await server.stop(true);
@@ -117,7 +117,7 @@ describe("sendKeyEventsToWs e2e", () => {
     // Poll until the server has drained all 6 frames before asserting, instead
     // of a single fixed delay: on a loaded runner the final `message` callbacks
     // can land a tick after a fixed wait, momentarily leaving received.length<6.
-    const deadline = Date.now() + 5_000;
+    const deadline = Date.now() + 60_000;
     while (received.length < 6 && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 20));
     }
@@ -127,7 +127,7 @@ describe("sendKeyEventsToWs e2e", () => {
       expect(frame.opcode).toBe(0x06);
     }
     expect(received.map((f) => f.payload)).toEqual(events);
-  }, 30_000);
+  });
 
   it("rejects when the WS endpoint is unreachable", async () => {
     // Port 1 is virtually never accepting connections from a normal process.
@@ -139,5 +139,5 @@ describe("sendKeyEventsToWs e2e", () => {
     }
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toMatch(/WebSocket/);
-  }, 30_000);
+  });
 });

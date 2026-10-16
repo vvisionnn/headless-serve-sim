@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { fetchGatewayStatus } from "../discovery";
 
 describe("fetchGatewayStatus", () => {
@@ -104,11 +104,16 @@ describe("fetchGatewayStatus", () => {
     expect(status!.ok).toBe(true);
   });
 
-  test("uses default baseUrl and timeout", async () => {
-    // This will fail to connect (nothing on default port), returning null
-    const status = await fetchGatewayStatus();
-    // Can't guarantee default port is free, but function should not throw
-    expect(status === null || (status && typeof status.ok === "boolean")).toBe(true);
+  test("uses default baseUrl", async () => {
+    // Stub fetch: whatever happens to listen on this machine's port 7070 is irrelevant.
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((() =>
+      Promise.reject(new Error("unreachable"))) as unknown as typeof fetch);
+    try {
+      expect(await fetchGatewayStatus()).toBeNull();
+      expect(String(fetchSpy.mock.calls[0]![0])).toBe("http://localhost:7070/status");
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   test("returns null on timeout", async () => {

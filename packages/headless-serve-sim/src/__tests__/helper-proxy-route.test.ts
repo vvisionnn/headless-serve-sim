@@ -195,7 +195,7 @@ describe("helper proxy", () => {
     cleanups.push(() => socket.close());
 
     const reply = await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("no reply")), 5000);
+      const timer = setTimeout(() => reject(new Error("no reply")), 60_000);
       socket.on("open", () => socket.send("hello"));
       socket.on("message", (data) => {
         clearTimeout(timer);
@@ -207,7 +207,7 @@ describe("helper proxy", () => {
       });
     });
     expect(reply).toBe("echo:hello");
-  }, 15_000);
+  });
 
   test("rejects a cross-origin helper WebSocket", async () => {
     const helper = await startFakeHelper();
@@ -217,20 +217,12 @@ describe("helper proxy", () => {
     });
     cleanups.push(() => socket.close());
 
+    // Settle on the socket's own outcome, never a timer: a slow machine must
+    // not turn "not yet open" into a pass.
     const opened = await new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => resolve(false), 2_000);
-      socket.on("open", () => {
-        clearTimeout(timer);
-        resolve(true);
-      });
-      socket.on("error", () => {
-        clearTimeout(timer);
-        resolve(false);
-      });
-      socket.on("close", () => {
-        clearTimeout(timer);
-        resolve(false);
-      });
+      socket.on("open", () => resolve(true));
+      socket.on("error", () => resolve(false));
+      socket.on("close", () => resolve(false));
     });
 
     expect(opened).toBe(false);
@@ -243,7 +235,7 @@ describe("helper proxy", () => {
     const socket = new WebSocket(`${origin.replace("http", "ws")}/exec-ws`);
     cleanups.push(() => socket.close());
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("exec-ws never opened")), 5000);
+      const timer = setTimeout(() => reject(new Error("exec-ws never opened")), 60_000);
       socket.on("open", () => {
         clearTimeout(timer);
         resolve();
@@ -253,7 +245,7 @@ describe("helper proxy", () => {
         reject(err);
       });
     });
-  }, 15_000);
+  });
 
   test("the injected preview config points at the proxy, not the helper port", async () => {
     const helper = await startFakeHelper();

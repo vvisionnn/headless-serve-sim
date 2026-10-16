@@ -65,7 +65,7 @@ describe("preview startup", () => {
     await new Promise<void>((resolve, reject) => {
       const deadline = setTimeout(
         () => reject(new Error(`preview did not start:\n${output}`)),
-        5_000,
+        60_000,
       );
       const check = () => {
         if (output.includes("- Local:")) {
@@ -86,11 +86,11 @@ describe("preview startup", () => {
 
   test("source starts unselected without invoking simulator tooling", async () => {
     await expectPassiveStartup(INDEX);
-  }, 10_000);
+  });
 
   test("built CLI starts unselected without invoking simulator tooling", async () => {
     await expectPassiveStartup(DIST_INDEX);
-  }, 10_000);
+  });
 
   async function expectExplicitDeviceRequired(entry: string, args: string[]): Promise<void> {
     const dir = mkdtempSync(join(tmpdir(), "explicit-device-required-"));

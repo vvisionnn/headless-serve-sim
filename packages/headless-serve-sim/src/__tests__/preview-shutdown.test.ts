@@ -57,7 +57,7 @@ mock.module(${JSON.stringify(RUNTIME)}, () => ({
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       const code = await new Promise<number | null>((resolve, reject) => {
-        timeout = setTimeout(() => reject(new Error(`preview did not exit:\n${output}`)), 5000);
+        timeout = setTimeout(() => reject(new Error(`preview did not exit:\n${output}`)), 60_000);
         child.once("error", reject);
         child.once("close", resolve);
       });
@@ -69,5 +69,4 @@ mock.module(${JSON.stringify(RUNTIME)}, () => ({
       rmSync(dir, { recursive: true, force: true });
     }
   },
-  10_000,
 );

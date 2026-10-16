@@ -174,7 +174,7 @@ describe("phone preview route", () => {
     cleanups.push(() => socket.close());
 
     const reply = await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("no reply")), 2_000);
+      const timer = setTimeout(() => reject(new Error("no reply")), 60_000);
       socket.on("open", () => socket.send("hello"));
       socket.on("message", (data) => {
         clearTimeout(timer);

@@ -151,45 +151,60 @@ describe("createMjpegFrameParser correctness against embedded JPEG data", () => 
 });
 
 describe("createMjpegFrameParser cost", () => {
-  // The old reader reallocated the whole backlog per chunk and restarted the
-  // marker scan at zero, so halving the chunk size roughly quadrupled the work.
-  // Both are gone; work must stay proportional to bytes, not bytes squared.
-  function bytesTouchedScaling(chunkSize: number): number {
-    const frames = Array.from({ length: 40 }, () =>
-      partWithLength(jpeg(new Array(2048).fill(0x5a))),
-    );
-    const stream = concat(frames);
-    const parser = createMjpegFrameParser();
-    let pushes = 0;
-    const started = performance.now();
-    for (let i = 0; i < stream.length; i += chunkSize) {
-      parser.push(stream.subarray(i, i + chunkSize));
-      pushes++;
+  // The old reader reallocated the whole backlog per chunk, so halving the
+  // chunk size roughly doubled the bytes copied per frame. Work is counted in
+  // bytes copied, not milliseconds, so the bound holds on any machine.
+  function bytesCopied(run: () => void): number {
+    const proto = Uint8Array.prototype;
+    const { set, copyWithin } = proto;
+    let copied = 0;
+    proto.set = function (this: Uint8Array, source: ArrayLike<number>, offset?: number) {
+      copied += source.length;
+      return set.call(this, source, offset);
+    };
+    proto.copyWithin = function (this: Uint8Array, target: number, start: number, end?: number) {
+      copied += (end ?? this.length) - start;
+      return copyWithin.call(this, target, start, end);
+    };
+    try {
+      run();
+    } finally {
+      proto.set = set;
+      proto.copyWithin = copyWithin;
     }
-    const elapsed = performance.now() - started;
-    expect(pushes).toBeGreaterThan(0);
-    return elapsed;
+    return copied;
+  }
+
+  function feedCounted(stream: Uint8Array, chunkSize: number) {
+    const parser = createMjpegFrameParser();
+    let frames = 0;
+    const copied = bytesCopied(() => {
+      for (let i = 0; i < stream.length; i += chunkSize) {
+        frames += parser.push(stream.subarray(i, i + chunkSize)).length;
+      }
+    });
+    return { frames, copied };
   }
 
   test("finer chunking does not blow up cost superlinearly", () => {
-    const coarse = bytesTouchedScaling(8192);
-    const fine = bytesTouchedScaling(256);
-    // 32x finer chunking. Quadratic accumulation would put `fine` orders of
-    // magnitude above `coarse`; linear keeps it within a small factor. The
-    // bound is loose so this measures the algorithm, not the machine.
-    const budgetMs = Math.max(coarse * 40, 250);
-    expect(fine).toBeLessThan(budgetMs);
+    const stream = concat(
+      Array.from({ length: 40 }, () => partWithLength(jpeg(new Array(2048).fill(0x5a)))),
+    );
+    const coarse = feedCounted(stream, 8192);
+    const fine = feedCounted(stream, 256);
+    expect(coarse.frames).toBe(40);
+    expect(fine.frames).toBe(40);
+    // Each byte is appended once, plus bounded compaction/growth. Backlog
+    // reallocation per chunk would copy many times the stream at 256 B.
+    expect(fine.copied).toBeLessThan(stream.length * 3);
+    expect(coarse.copied).toBeLessThan(stream.length * 3);
   });
 
-  test("a long stream of small chunks completes promptly", () => {
-    const started = performance.now();
-    const parser = createMjpegFrameParser();
+  test("a long stream of small chunks copies each byte a bounded number of times", () => {
     const frame = partWithLength(jpeg(new Array(4096).fill(0x33)));
-    for (let n = 0; n < 200; n++) {
-      for (let i = 0; i < frame.length; i += 128) {
-        parser.push(frame.subarray(i, i + 128));
-      }
-    }
-    expect(performance.now() - started).toBeLessThan(2000);
+    const stream = concat(Array.from({ length: 200 }, () => frame));
+    const { frames, copied } = feedCounted(stream, 128);
+    expect(frames).toBe(200);
+    expect(copied).toBeLessThan(stream.length * 3);
   });
 });

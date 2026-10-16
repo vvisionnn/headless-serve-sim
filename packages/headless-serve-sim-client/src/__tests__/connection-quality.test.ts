@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ConnectionQuality } from "../transport";
+import { waitFor } from "./wait-for";
 
 /**
  * Tests for connection quality monitoring in GatewayTransport.
@@ -43,24 +44,37 @@ function startFrameServer(): {
   return { port: server.port!, sendFrame, close: () => server.stop(), clients };
 }
 
+/** Deterministic clock: frame intervals are exact, independent of machine speed. */
+let clock = 0;
+
 async function createTransport(port: number) {
   const { GatewayTransport } = await import("../transport");
-  const transport = new GatewayTransport({ url: `ws://localhost:${port}` });
+  const transport = new GatewayTransport({ url: `ws://localhost:${port}`, now: () => clock });
   await transport.waitForOpen();
   return transport;
-}
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 describe("Connection quality", () => {
   let server: ReturnType<typeof startFrameServer>;
   let transport: Awaited<ReturnType<typeof createTransport>>;
+  let received = 0;
+
+  /** Sends `count` frames spaced `intervalMs` apart on the test clock. */
+  async function sendFrames(count: number, intervalMs: number) {
+    for (let i = 0; i < count; i++) {
+      clock += intervalMs;
+      const expected = received + 1;
+      server.sendFrame();
+      await waitFor(() => received >= expected);
+    }
+  }
 
   beforeEach(async () => {
+    clock = 0;
+    received = 0;
     server = startFrameServer();
     transport = await createTransport(server.port);
+    transport.onStreamFrame(() => received++);
   });
 
   afterEach(() => {
@@ -76,14 +90,9 @@ describe("Connection quality", () => {
     const qualities: ConnectionQuality[] = [];
     transport.onConnectionQualityChange((q) => qualities.push(q));
 
-    // Send 12 frames rapidly (~30ms apart, well within 100ms threshold)
-    for (let i = 0; i < 12; i++) {
-      server.sendFrame();
-      await sleep(30);
-    }
+    await sendFrames(12, 30); // well within the 100ms threshold
 
     expect(transport.getConnectionQuality()).toBe("good");
-    // Should have received at least one quality change callback
     expect(qualities.length).toBeGreaterThan(0);
     expect(qualities[qualities.length - 1]).toBe("good");
   });
@@ -92,11 +101,7 @@ describe("Connection quality", () => {
     const qualities: ConnectionQuality[] = [];
     transport.onConnectionQualityChange((q) => qualities.push(q));
 
-    // Send frames at ~150ms intervals (between 100-250ms = degraded)
-    for (let i = 0; i < 12; i++) {
-      server.sendFrame();
-      await sleep(150);
-    }
+    await sendFrames(12, 150); // between 100-250ms = degraded
 
     expect(transport.getConnectionQuality()).toBe("degraded");
     expect(qualities).toContain("degraded");
@@ -106,11 +111,7 @@ describe("Connection quality", () => {
     const qualities: ConnectionQuality[] = [];
     transport.onConnectionQualityChange((q) => qualities.push(q));
 
-    // Send frames at ~300ms intervals (>250ms = poor)
-    for (let i = 0; i < 12; i++) {
-      server.sendFrame();
-      await sleep(300);
-    }
+    await sendFrames(12, 300); // >250ms = poor
 
     expect(transport.getConnectionQuality()).toBe("poor");
     expect(qualities).toContain("poor");
@@ -120,22 +121,11 @@ describe("Connection quality", () => {
     const qualities: ConnectionQuality[] = [];
     transport.onConnectionQualityChange((q) => qualities.push(q));
 
-    // Start fast
-    for (let i = 0; i < 12; i++) {
-      server.sendFrame();
-      await sleep(30);
-    }
-
+    await sendFrames(12, 30);
     expect(transport.getConnectionQuality()).toBe("good");
 
-    // Slow down significantly
-    for (let i = 0; i < 12; i++) {
-      server.sendFrame();
-      await sleep(300);
-    }
-
+    await sendFrames(12, 300);
     expect(transport.getConnectionQuality()).toBe("poor");
-    // Should have seen both good and poor
     expect(qualities).toContain("good");
     expect(qualities).toContain("poor");
   });
@@ -144,21 +134,11 @@ describe("Connection quality", () => {
     const qualities: ConnectionQuality[] = [];
     const unsub = transport.onConnectionQualityChange((q) => qualities.push(q));
 
-    server.sendFrame();
-    await sleep(30);
-    server.sendFrame();
-    await sleep(30);
-
+    await sendFrames(2, 30);
     unsub();
+    await sendFrames(10, 300);
 
-    // Send more frames after unsubscribe
-    for (let i = 0; i < 10; i++) {
-      server.sendFrame();
-      await sleep(300);
-    }
-
-    // Should not have received poor quality callback after unsub
-    const poorAfterUnsub = qualities.filter((q) => q === "poor");
-    expect(poorAfterUnsub.length).toBe(0);
+    expect(transport.getConnectionQuality()).toBe("poor");
+    expect(qualities.filter((q) => q === "poor").length).toBe(0);
   });
 });

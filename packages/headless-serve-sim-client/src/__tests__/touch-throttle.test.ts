@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { decodeTouchMessage, isBinaryTouchMessage } from "../touch-codec";
+import { waitFor } from "./wait-for";
 
 /**
  * Tests for touch throttle + backpressure in GatewayTransport.
@@ -68,23 +69,26 @@ function startEchoServer(): {
   return { port: server.port!, messages, close: () => server.stop() };
 }
 
+/** Deterministic clock: throttle decisions don't depend on how fast this machine runs the loop. */
+let clock = 0;
+
 // Dynamically import so the test module resolves correctly
 async function createTransport(port: number) {
   const { GatewayTransport } = await import("../transport");
-  const transport = new GatewayTransport({ url: `ws://localhost:${port}` });
+  const transport = new GatewayTransport({ url: `ws://localhost:${port}`, now: () => clock });
   await transport.waitForOpen();
   return transport;
-}
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 describe("Touch throttle", () => {
   let server: ReturnType<typeof startEchoServer>;
   let transport: Awaited<ReturnType<typeof createTransport>>;
 
+  const count = (kind: string, type: string) =>
+    server.messages.filter((m) => m.type === kind && m.data?.type === type).length;
+
   beforeEach(async () => {
+    clock = 0;
     server = startEchoServer();
     transport = await createTransport(server.port);
   });
@@ -98,7 +102,7 @@ describe("Touch throttle", () => {
     transport.streamTouch({ type: "begin", x: 0.1, y: 0.2 });
     transport.streamTouch({ type: "end", x: 0.1, y: 0.2 });
 
-    await sleep(50);
+    await waitFor(() => count("stream:touch", "end") === 1);
 
     const types = server.messages.map((m) => m.data?.type);
     expect(types).toContain("begin");
@@ -108,15 +112,13 @@ describe("Touch throttle", () => {
   test("rapid moves are throttled (fewer sent than generated)", async () => {
     transport.streamTouch({ type: "begin", x: 0, y: 0 });
 
-    // Send 60 moves as fast as possible (~1ms each)
+    // 60 moves within one throttle interval on the test clock.
     for (let i = 0; i < 60; i++) {
       transport.streamTouch({ type: "move", x: i / 60, y: i / 60 });
     }
 
     transport.streamTouch({ type: "end", x: 1, y: 1 });
-
-    // Wait for any pending throttled sends to flush
-    await sleep(100);
+    await waitFor(() => count("stream:touch", "end") === 1);
 
     const moves = server.messages.filter((m) => m.data?.type === "move");
     const begins = server.messages.filter((m) => m.data?.type === "begin");
@@ -140,8 +142,7 @@ describe("Touch throttle", () => {
 
     // Immediately end — this should flush the buffered move
     transport.streamTouch({ type: "end", x: 0.9, y: 0.9 });
-
-    await sleep(100);
+    await waitFor(() => count("stream:touch", "end") === 1);
 
     // Find the last move before end
     const touchMsgs = server.messages.filter((m) => m.type === "stream:touch");
@@ -158,14 +159,13 @@ describe("Touch throttle", () => {
 
   test("sequence numbers are monotonically increasing", async () => {
     transport.streamTouch({ type: "begin", x: 0, y: 0 });
-    // Space out moves so they actually send
+    // Space out moves past the throttle interval so each one sends.
     for (let i = 0; i < 5; i++) {
+      clock += 35;
       transport.streamTouch({ type: "move", x: i / 5, y: i / 5 });
-      await sleep(35); // > throttle interval
     }
     transport.streamTouch({ type: "end", x: 1, y: 1 });
-
-    await sleep(50);
+    await waitFor(() => count("stream:touch", "end") === 1);
 
     const seqs = server.messages
       .filter((m) => m.type === "stream:touch" && typeof m.seq === "number")
@@ -184,15 +184,13 @@ describe("Touch throttle", () => {
     transport.streamTouch({ type: "begin", x: 0, y: 0 });
     transport.streamTouch({ type: "move", x: 0.5, y: 0.5 });
     transport.streamTouch({ type: "end", x: 0.5, y: 0.5 });
-
-    await sleep(50);
+    await waitFor(() => count("stream:touch", "end") === 1);
 
     // Second gesture immediately
     transport.streamTouch({ type: "begin", x: 0.1, y: 0.1 });
     transport.streamTouch({ type: "move", x: 0.2, y: 0.2 });
     transport.streamTouch({ type: "end", x: 0.2, y: 0.2 });
-
-    await sleep(100);
+    await waitFor(() => count("stream:touch", "end") === 2);
 
     const begins = server.messages.filter((m) => m.data?.type === "begin");
     const ends = server.messages.filter((m) => m.data?.type === "end");
@@ -216,8 +214,7 @@ describe("Touch throttle", () => {
     }
 
     transport.streamMultiTouch({ type: "end", x1: 0.1, y1: 0.1, x2: 0.9, y2: 0.9 });
-
-    await sleep(100);
+    await waitFor(() => count("stream:multitouch", "end") === 1);
 
     const moves = server.messages.filter(
       (m) => m.type === "stream:multitouch" && m.data?.type === "move",
@@ -241,7 +238,7 @@ describe("Touch throttle", () => {
       transport.streamButton("home");
     }
 
-    await sleep(50);
+    await waitFor(() => server.messages.filter((m) => m.type === "stream:button").length >= 5);
 
     const buttons = server.messages.filter((m) => m.type === "stream:button");
     expect(buttons.length).toBe(5);
@@ -250,7 +247,7 @@ describe("Touch throttle", () => {
   test("digital crown rotation is sent as JSON", async () => {
     transport.streamDigitalCrown(0.125);
 
-    await sleep(50);
+    await waitFor(() => server.messages.some((m) => m.type === "stream:digital-crown"));
 
     const crown = server.messages.filter((m) => m.type === "stream:digital-crown");
     expect(crown.length).toBe(1);

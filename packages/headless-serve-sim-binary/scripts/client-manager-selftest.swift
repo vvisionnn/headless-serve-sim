@@ -19,6 +19,10 @@ enum HIDInjector {
     static let orientationLandscapeRight: UInt32 = 3
 }
 
+/// Socket writes run in blocks on the manager's serial queue; a synchronous
+/// call on that queue returns only after every earlier block has run.
+func flush(_ manager: ClientManager) { _ = manager.avccTransportMetrics() }
+
 @main enum ClientManagerSelftest {
     static func main() throws {
         let manager = ClientManager()
@@ -28,14 +32,14 @@ enum HIDInjector {
         let first = WebSocketSession(), second = WebSocketSession()
         manager.addWSClient(first)
         manager.addWSClient(second)
-        Thread.sleep(forTimeInterval: 0.02)
+        flush(manager)
         manager.onDeviceView = { view in
             if let includeFrame = view.includeFrame { manager.setDeviceView(includeFrame: includeFrame) }
         }
         let hide = Data([0x0f]) + Data(#"{"includeFrame":false}"#.utf8)
         manager.handleMessage(from: first, data: hide)
         manager.handleMessage(from: second, data: hide)
-        Thread.sleep(forTimeInterval: 0.02)
+        flush(manager)
         for session in [first, second] {
             let frames = session.writtenFrames()
             precondition(frames.count == 2, "both tabs must receive one genuine shared preference transition, not duplicate echoes")
@@ -43,7 +47,7 @@ enum HIDInjector {
             precondition(config["includeFrame"] as? Bool == false)
         }
         manager.handleMessage(from: second, data: Data([0x0f]) + Data(#"{"includeFrame":true}"#.utf8))
-        Thread.sleep(forTimeInterval: 0.02)
+        flush(manager)
         precondition(first.writtenFrames().count == 3 && second.writtenFrames().count == 3)
         let legacy = try JSONDecoder().decode(ScrollEventPayload.self, from: Data(#"{"dx":10,"dy":20}"#.utf8))
         let targeted = try JSONDecoder().decode(ScrollEventPayload.self, from: Data(#"{"dx":10,"dy":20,"displayId":3}"#.utf8))

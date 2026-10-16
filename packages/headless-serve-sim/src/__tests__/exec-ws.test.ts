@@ -15,10 +15,10 @@ import { createScriptedHostCommands } from "../test-support/scripted-host-comman
 // keep our EventSource side-channels — so every `{sub, path}` request is
 // rejected. The rejection test below guards that decision.
 
-const PORT = 3461;
 const TOKEN = "exec-ws-test-token";
 
 let server: PreviewServer;
+const socketsClosed: Promise<void>[] = [];
 const hostCommands = createScriptedHostCommands([{ result: { stdout: "channel-works\n" } }]);
 
 beforeAll(async () => {
@@ -27,16 +27,16 @@ beforeAll(async () => {
     execToken: TOKEN,
     serveSimBin: "test-headless-serve-sim",
   });
-  server = await servePreview({ port: PORT, middleware, host: "127.0.0.1" });
-}, 60_000);
+  server = await servePreview({ port: 0, middleware, host: "127.0.0.1" });
+});
 
 afterAll(async () => {
-  // Let any client socket from the last test finish its async close before the
+  // Wait for every client socket to finish its async close before the
   // (graceful) server stop, so a late teardown reset can't surface as a stray
   // unhandled rejection that fails the run.
-  await new Promise((r) => setTimeout(r, 50));
+  await Promise.all(socketsClosed);
   server?.stop(true);
-}, 60_000);
+});
 
 interface Reply {
   ready?: boolean;
@@ -55,7 +55,7 @@ function connect(token: string): Promise<{
   closed: Promise<void>;
 }> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/exec-ws`);
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/exec-ws`);
     const queue: Reply[] = [];
     const waiters: Array<(r: Reply) => void> = [];
     let settled = false;
@@ -63,11 +63,12 @@ function connect(token: string): Promise<{
     const closed = new Promise<void>((r) => {
       closeResolve = r;
     });
+    socketsClosed.push(closed);
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
       reject(new Error("connect timeout"));
-    }, 30_000);
+    }, 60_000);
     ws.onopen = () => {
       clearTimeout(timer);
       ws.send(JSON.stringify({ token }));

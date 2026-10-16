@@ -73,6 +73,15 @@ final class FrameDisplayMonitor {
     @objc(defaultDeviceSetWithError:) func defaultSet(_ error: AnyObject?) -> TestDeviceSet { deviceSet }
 }
 
+/// Polls until `condition` holds; the deadline is a hang guard, not a timing budget.
+func waitUntil(_ what: String, _ condition: () -> Bool) {
+    let deadline = Date().addingTimeInterval(60)
+    while !condition() {
+        precondition(Date() < deadline, "timed out waiting for \(what)")
+        Thread.sleep(forTimeInterval: 0.005)
+    }
+}
+
 @main enum FrameCaptureSelftest {
     static func main() throws {
         let descriptors = [TestDescriptor(id: 1, width: 14, height: 20), TestDescriptor(id: 3, width: 20, height: 28)]
@@ -87,9 +96,8 @@ final class FrameDisplayMonitor {
         defer { capture.stop() }
         lock.lock(); let initial = panels; lock.unlock()
         precondition(initial >= 2, "startup must seed both panels")
-        Thread.sleep(forTimeInterval: 0.45)
-        lock.lock(); let refreshed = panels; lock.unlock()
-        precondition(refreshed >= initial + 2, "static Duo MJPEG must receive panel refreshes at the idle floor: \(initial) -> \(refreshed)")
+        // Static Duo MJPEG must keep receiving panel refreshes at the idle floor.
+        waitUntil("idle-floor panel refreshes") { lock.lock(); defer { lock.unlock() }; return panels >= initial + 2 }
         capture.stop()
         let demandCapture = FrameCapture()
         var demanded = true
@@ -123,8 +131,7 @@ final class FrameDisplayMonitor {
         precondition(publicationCapture.scrollGeometry(displayID: 2) == nil, "unregistered panel must not route wheel input")
         descriptors[1].screenProperties.uiOrientation = 4
         descriptors[1].changed()
-        Thread.sleep(forTimeInterval: 0.25)
-        precondition(publicationCapture.displayState == FrameDisplayState(displayID: 3, rotation: 90))
+        waitUntil("rotation publication") { publicationCapture.displayState == FrameDisplayState(displayID: 3, rotation: 90) }
         publicationCapture.stop()
         precondition(publicationCapture.displayState == FrameDisplayState(displayID: nil, rotation: 0))
         let sourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()

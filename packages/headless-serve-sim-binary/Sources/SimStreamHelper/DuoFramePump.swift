@@ -135,6 +135,13 @@ final class DuoFramePump {
         }
     }
 
+    /// True when no composition is running or pending and nothing is animating.
+    var isIdle: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !running
+    }
+
     func stop() {
         lock.lock()
         stopped = true

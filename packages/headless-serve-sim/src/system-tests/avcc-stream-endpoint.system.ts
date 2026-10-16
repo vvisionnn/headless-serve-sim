@@ -12,7 +12,8 @@ import { join } from "path";
  */
 
 const CLI_PATH = join(import.meta.dir, "../../src/index.ts");
-const STREAM_BUDGET_MS = process.env.CI ? 30_000 : 12_000;
+// Hang guard, not a latency budget: encoder warm-up time varies by machine.
+const STREAM_BUDGET_MS = 60_000;
 
 // Envelope tags — kept in sync with Swift AVCCEnvelope / TS avcc-codec.
 const TAG_DESCRIPTION = 0x01;

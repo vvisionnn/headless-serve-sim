@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { waitFor } from "./wait-for";
 
 /**
  * Tests for the adaptive frame rate controller in GatewayTransport.
@@ -63,17 +64,27 @@ async function createTransport(port: number) {
   return transport;
 }
 
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 describe("Adaptive FPS", () => {
   let server: ReturnType<typeof startEchoServer>;
   let transport: Awaited<ReturnType<typeof createTransport>>;
 
+  let received = 0;
+
+  /** Sends `count` frames, each awaited until the transport has handled it. */
+  async function sendFrames(count: number) {
+    for (let i = 0; i < count; i++) {
+      const expected = received + 1;
+      server.sendToAll(JSON.stringify({ type: "stream:frame", data: "fakebase64" }));
+      await waitFor(() => received >= expected);
+    }
+  }
+  const sent = (type: string) => server.messages.filter((m) => m.type === type);
+
   beforeEach(async () => {
+    received = 0;
     server = startEchoServer();
     transport = await createTransport(server.port);
+    transport.onStreamFrame(() => received++);
   });
 
   afterEach(() => {
@@ -83,7 +94,7 @@ describe("Adaptive FPS", () => {
 
   test("streamSetFps sends stream:set-fps message", async () => {
     transport.streamSetFps(15);
-    await sleep(50);
+    await waitFor(() => sent("stream:set-fps").length === 1);
     const setFpsMsgs = server.messages.filter((m) => m.type === "stream:set-fps");
     expect(setFpsMsgs.length).toBe(1);
     expect(setFpsMsgs[0]!.maxFps).toBe(15);
@@ -118,10 +129,7 @@ describe("Adaptive FPS", () => {
     });
 
     // Send 3 frames to trigger degradation (ADAPTIVE_DEGRADE_COUNT = 3)
-    for (let i = 0; i < 3; i++) {
-      server.sendToAll(JSON.stringify({ type: "stream:frame", data: "fakebase64" }));
-      await sleep(20);
-    }
+    await sendFrames(3);
 
     expect(events.length).toBeGreaterThanOrEqual(1);
     expect(events[0]!.fps).toBe(15); // halved from 30
@@ -146,20 +154,14 @@ describe("Adaptive FPS", () => {
       configurable: true,
     });
 
-    for (let i = 0; i < 3; i++) {
-      server.sendToAll(JSON.stringify({ type: "stream:frame", data: "fakebase64" }));
-      await sleep(20);
-    }
+    await sendFrames(3);
 
     expect(transport.adaptiveFps).toBe(15);
 
     // Now simulate low buffer for recovery (ADAPTIVE_RECOVER_COUNT = 10)
     mockBuffered = 0;
 
-    for (let i = 0; i < 10; i++) {
-      server.sendToAll(JSON.stringify({ type: "stream:frame", data: "fakebase64" }));
-      await sleep(20);
-    }
+    await sendFrames(10);
 
     expect(transport.adaptiveFps).toBe(20); // 15 + 5 = 20
   });
@@ -176,10 +178,7 @@ describe("Adaptive FPS", () => {
 
     // Keep degrading: 30 -> 15 -> 7 -> 5 (min)
     // Need 3 frames per degradation step
-    for (let i = 0; i < 12; i++) {
-      server.sendToAll(JSON.stringify({ type: "stream:frame", data: "fakebase64" }));
-      await sleep(20);
-    }
+    await sendFrames(12);
 
     expect(transport.adaptiveFps).toBe(5);
   });
@@ -196,20 +195,14 @@ describe("Adaptive FPS", () => {
       configurable: true,
     });
 
-    for (let i = 0; i < 3; i++) {
-      server.sendToAll(JSON.stringify({ type: "stream:frame", data: "fakebase64" }));
-      await sleep(20);
-    }
+    await sendFrames(3);
 
     expect(transport.adaptiveFps).toBe(15);
 
     // Now recover fully: 15 -> 20 -> 25 -> 30
     mockBuffered = 0;
 
-    for (let i = 0; i < 40; i++) {
-      server.sendToAll(JSON.stringify({ type: "stream:frame", data: "fakebase64" }));
-      await sleep(20);
-    }
+    await sendFrames(40);
 
     expect(transport.adaptiveFps).toBe(30);
     expect(transport.adaptiveState).toBe("normal");
@@ -217,7 +210,7 @@ describe("Adaptive FPS", () => {
 
   test("stream:set-fps messages are sent to server on degradation", async () => {
     transport.streamStart();
-    await sleep(30);
+    await waitFor(() => sent("stream:start").length === 1);
     server.messages.length = 0; // clear stream:start
 
     const ws = (transport as any).ws;
@@ -227,12 +220,9 @@ describe("Adaptive FPS", () => {
       configurable: true,
     });
 
-    for (let i = 0; i < 3; i++) {
-      server.sendToAll(JSON.stringify({ type: "stream:frame", data: "fakebase64" }));
-      await sleep(20);
-    }
+    await sendFrames(3);
 
-    await sleep(50);
+    await waitFor(() => sent("stream:set-fps").length >= 1);
     const setFpsMsgs = server.messages.filter((m) => m.type === "stream:set-fps");
     expect(setFpsMsgs.length).toBeGreaterThanOrEqual(1);
     expect(setFpsMsgs[0]!.maxFps).toBe(15);

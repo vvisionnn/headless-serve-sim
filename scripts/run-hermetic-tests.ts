@@ -38,7 +38,9 @@ try {
     );
   }
 
-  const result = Bun.spawnSync([process.execPath, "test", ...targets], {
+  // One generous hang guard for every test instead of per-test budgets: how
+  // fast a test finishes depends on the machine, not on whether it is correct.
+  const result = Bun.spawnSync([process.execPath, "test", "--timeout", "120000", ...targets], {
     cwd: process.cwd(),
     env: {
       ...process.env,

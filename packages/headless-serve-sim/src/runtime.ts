@@ -2,7 +2,7 @@
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "http";
-import { createServer as createNetServer } from "net";
+import { createServer as createNetServer, type AddressInfo } from "net";
 import type { Duplex } from "stream";
 
 export function dirnameOf(metaUrl: string): string {
@@ -34,6 +34,8 @@ export async function isPortFree(port: number): Promise<boolean> {
 }
 
 export interface PreviewServer {
+  /** The bound port; differs from the requested one when that was 0. */
+  port: number;
   stop(force?: boolean): void;
 }
 
@@ -89,6 +91,7 @@ export async function servePreview(opts: {
   });
 
   return {
+    port: (server.address() as AddressInfo).port,
     stop: () => {
       opts.middleware.dispose?.();
       server.close();

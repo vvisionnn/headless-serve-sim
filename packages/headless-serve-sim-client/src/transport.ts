@@ -36,6 +36,8 @@ export interface GatewayTransportOptions {
    * hang forever.
    */
   fileOpTimeoutMs?: number;
+  /** Clock for frame timing, touch throttling and heartbeat. Defaults to `Date.now`. */
+  now?: () => number;
 }
 
 interface PendingExec {
@@ -112,6 +114,7 @@ interface PendingMove<T> {
 }
 
 export class GatewayTransport {
+  private readonly _now: () => number;
   private ws: WebSocket;
   private pending = new Map<string, PendingExec>();
   private pendingFiles = new Map<string, PendingFile>();
@@ -163,6 +166,7 @@ export class GatewayTransport {
   }> | null = null;
 
   constructor(options: GatewayTransportOptions) {
+    this._now = options.now ?? Date.now;
     this._fileOpTimeoutMs = options.fileOpTimeoutMs ?? DEFAULT_FILE_OP_TIMEOUT_MS;
 
     // Heartbeat configuration
@@ -254,7 +258,7 @@ export class GatewayTransport {
     this.ws.onmessage = (event) => {
       // ── Binary message: frame data ──
       if (event.data instanceof ArrayBuffer) {
-        this._lastMessageTime = Date.now();
+        this._lastMessageTime = this._now();
         const buf = event.data as ArrayBuffer;
         if (buf.byteLength < 1) return;
         const view = new Uint8Array(buf);
@@ -274,7 +278,7 @@ export class GatewayTransport {
         return;
       }
 
-      this._lastMessageTime = Date.now();
+      this._lastMessageTime = this._now();
 
       let parsed: any;
       try {
@@ -547,7 +551,7 @@ export class GatewayTransport {
 
     if (data.type === "begin") {
       this._cancelPendingTouch();
-      this.lastTouchSendTime = Date.now();
+      this.lastTouchSendTime = this._now();
       this.ws.send(encodeSingleTouch(data, seq));
       return;
     }
@@ -561,7 +565,7 @@ export class GatewayTransport {
       return;
     }
 
-    const now = Date.now();
+    const now = this._now();
     const elapsed = now - this.lastTouchSendTime;
 
     if (elapsed >= TOUCH_THROTTLE_MS) {
@@ -581,7 +585,7 @@ export class GatewayTransport {
             const pending = this.pendingTouch;
             this.pendingTouch = null;
             if (pending) {
-              this.lastTouchSendTime = Date.now();
+              this.lastTouchSendTime = this._now();
               this.ws.send(encodeSingleTouch(pending.data, this.touchSeq));
             }
           }, delay),
@@ -607,7 +611,7 @@ export class GatewayTransport {
 
     if (data.type === "begin") {
       this._cancelPendingMultiTouch();
-      this.lastMultiTouchSendTime = Date.now();
+      this.lastMultiTouchSendTime = this._now();
       this.ws.send(encodeMultiTouch(data, seq));
       return;
     }
@@ -620,7 +624,7 @@ export class GatewayTransport {
       return;
     }
 
-    const now = Date.now();
+    const now = this._now();
     const elapsed = now - this.lastMultiTouchSendTime;
 
     if (elapsed >= TOUCH_THROTTLE_MS) {
@@ -638,7 +642,7 @@ export class GatewayTransport {
             const pending = this.pendingMultiTouch;
             this.pendingMultiTouch = null;
             if (pending) {
-              this.lastMultiTouchSendTime = Date.now();
+              this.lastMultiTouchSendTime = this._now();
               this.ws.send(encodeMultiTouch(pending.data, this.multiTouchSeq));
             }
           }, delay),
@@ -678,7 +682,7 @@ export class GatewayTransport {
       clearTimeout(this.pendingTouch.timer);
       const pending = this.pendingTouch;
       this.pendingTouch = null;
-      this.lastTouchSendTime = Date.now();
+      this.lastTouchSendTime = this._now();
       this.ws.send(encodeSingleTouch(pending.data, this.touchSeq));
     }
   }
@@ -695,7 +699,7 @@ export class GatewayTransport {
       clearTimeout(this.pendingMultiTouch.timer);
       const pending = this.pendingMultiTouch;
       this.pendingMultiTouch = null;
-      this.lastMultiTouchSendTime = Date.now();
+      this.lastMultiTouchSendTime = this._now();
       this.ws.send(encodeMultiTouch(pending.data, this.multiTouchSeq));
     }
   }
@@ -775,7 +779,7 @@ export class GatewayTransport {
   // ─── Connection quality ───
 
   private _trackFrameTiming(): void {
-    const now = Date.now();
+    const now = this._now();
     if (this.lastFrameTime !== null) {
       const interval = now - this.lastFrameTime;
       this.frameIntervals.push(interval);
@@ -817,7 +821,7 @@ export class GatewayTransport {
 
   private _startHeartbeat(): void {
     if (!this._heartbeatEnabled) return;
-    this._lastMessageTime = Date.now();
+    this._lastMessageTime = this._now();
     this._heartbeatInterval = setInterval(() => {
       this._sendPing();
     }, this._heartbeatIntervalMs);

@@ -22,6 +22,24 @@ actor FocusRecorder {
     func record(_ state: DuoFramePump.State) { yaws.append(state.yaw); blanked.append(state.blankedDisplays); angles.append(state.angle); rotations.append(state.rotation); sides.append(state.side) }
 }
 
+/// Hang guard only: how long a healthy run takes depends on the machine.
+let hangGuard: TimeInterval = 60
+
+/// Waits until `condition` holds.
+func until(_ what: String, _ condition: () async -> Bool) async {
+    let deadline = Date().addingTimeInterval(hangGuard)
+    while !(await condition()) {
+        guard Date() < deadline else { fatalError("timed out waiting for \(what)") }
+        try? await Task.sleep(nanoseconds: 1_000_000)
+    }
+}
+
+/// Waits until the pump has composed everything pending and stopped animating,
+/// so "nothing else was composed" checks are exact rather than timing guesses.
+func settle(_ pump: DuoFramePump) async {
+    await until("pump to settle") { pump.isIdle }
+}
+
 @main struct PumpTest {
     static func finiteRotationsDoNotBlock() {
         for rotation in [1e20, -1e20, Double.greatestFiniteMagnitude, -Double.greatestFiniteMagnitude] {
@@ -32,7 +50,7 @@ actor FocusRecorder {
                 pump.stop()
                 finished.signal()
             }
-            guard finished.wait(timeout: .now() + .milliseconds(200)) == .success else {
+            guard finished.wait(timeout: .now() + hangGuard) == .success else {
                 fatalError("finite rotation \(rotation) blocked pump update/stop")
             }
         }
@@ -47,12 +65,12 @@ actor FocusRecorder {
             let unseeded = DuoFramePump { _, state in await fallback.record(state) }
             unseeded.update(includeFrame: includeFrame)
             unseeded.offer(panel: 3, buffer: buffer!)
-            try? await Task.sleep(nanoseconds: 40_000_000)
+            await settle(unseeded)
             guard await fallback.angles == [180] else {
                 fatalError("missing hinge sample must compose the safe default, includeFrame=\(includeFrame)")
             }
             unseeded.update(angle: 130)
-            try? await Task.sleep(nanoseconds: 40_000_000)
+            await settle(unseeded)
             guard await fallback.angles.last == 130 else {
                 fatalError("first valid hinge sample must seed the real pose without animating from the fallback")
             }
@@ -62,53 +80,37 @@ actor FocusRecorder {
         let seamPump = DuoFramePump { _, state in await seam.record(state) }
         seamPump.update(rotation: 170)
         seamPump.offer(panel: 3, buffer: buffer!)
-        for _ in 0..<300 {
-            if await seam.rotations.last == 170 { break }
-            try? await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await settle(seamPump)
         guard await seam.rotations.last == 170 else { fatalError("initial rotation did not settle") }
         seamPump.update(rotation: 350)
-        for _ in 0..<300 {
-            if await seam.rotations.last == 350 { break }
-            try? await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await settle(seamPump)
         guard await seam.rotations.last == 350 else { fatalError("seam setup rotation did not settle") }
         seamPump.update(rotation: -350)
-        for _ in 0..<300 {
-            if let rotation = await seam.rotations.last, rotation == 370 || rotation == 10 { break }
-            try? await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await settle(seamPump)
         guard await seam.rotations.last == 370 else { fatalError("signed degree seam must take the nearest 20-degree route, not -340") }
         seamPump.stop()
         let recorder = Recorder()
         let pump = DuoFramePump { _, state in await recorder.record(state.scale, includeFrame: state.includeFrame) }
         pump.update(angle: 180)
         pump.offer(panel: 3, buffer: buffer!)
-        for _ in 0..<200 {
-            if await recorder.release != nil { break }
-            try? await Task.sleep(nanoseconds: 1_000_000)
-        }
-        guard await recorder.release != nil else { fatalError("composition never started") }
+        await until("composition to start") { await recorder.release != nil }
         for step in 1...180 { pump.update(scale: 1 + Double(step) / 180) }
         pump.update(includeFrame: false)
         await recorder.resume()
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        await settle(pump)
         guard await recorder.angles == [1, 2] else { fatalError("must compose only newest pending view") }
         guard await recorder.includedFrames == [true, false] else { fatalError("screen-only toggle must reach the next coalesced composition") }
         pump.stop()
+        // A stopped pump never schedules, so this is checked synchronously.
         pump.update(angle: 0)
-        try? await Task.sleep(nanoseconds: 20_000_000)
-        guard await recorder.angles.count == 2 else { fatalError("composition continued after stop") }
+        guard pump.isIdle, await recorder.angles.count == 2 else { fatalError("composition continued after stop") }
         let focus = FocusRecorder()
         let focusPump = DuoFramePump { _, state in await focus.record(state) }
         focusPump.update(angle: 180, displayId: 3)
         focusPump.offer(panel: 3, buffer: buffer!)
-        try? await Task.sleep(nanoseconds: 40_000_000)
+        await settle(focusPump)
         focusPump.update(displayId: 1)
-        for _ in 0..<300 {
-            if await focus.yaws.last == 90 { break }
-            try? await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await settle(focusPump)
         let yaws = await focus.yaws
         precondition(yaws.first == 0)
         guard yaws.contains(where: { $0 > 0 && $0 < 90 }) else {
@@ -117,10 +119,10 @@ actor FocusRecorder {
         precondition(yaws.last == 90)
         precondition(zip(yaws, yaws.dropFirst()).allSatisfy { $0 <= $1 })
         focusPump.update(blankedDisplay: 1, blanked: true)
-        try? await Task.sleep(nanoseconds: 40_000_000)
+        await settle(focusPump)
         guard await focus.blanked.last == [1] else { fatalError("display blanking must reach the next composition") }
         focusPump.update(blankedDisplay: 1, blanked: false)
-        try? await Task.sleep(nanoseconds: 40_000_000)
+        await settle(focusPump)
         let finalBlanked = await focus.blanked.last
         precondition(finalBlanked == [])
         focusPump.stop()
@@ -128,18 +130,18 @@ actor FocusRecorder {
         let dedupPump = DuoFramePump { _, state in await deduplicated.record(state) }
         dedupPump.update(angle: 180, rotation: 0, scale: 1, includeFrame: true, displayId: 3)
         dedupPump.offer(panel: 3, buffer: buffer!)
-        try? await Task.sleep(nanoseconds: 40_000_000)
+        await settle(dedupPump)
         for _ in 0..<2 { dedupPump.update(angle: 180, rotation: 0, scale: 1, includeFrame: true, displayId: 3) }
-        try? await Task.sleep(nanoseconds: 40_000_000)
+        await settle(dedupPump)
         guard await deduplicated.angles.count == 1 else { fatalError("identical view echoes must not render/encode again") }
         dedupPump.update()
-        try? await Task.sleep(nanoseconds: 40_000_000)
+        await settle(dedupPump)
         guard await deduplicated.angles.count == 2 else { fatalError("explicit refresh must remain available for keyframes") }
         dedupPump.update(side: 1536)
-        try? await Task.sleep(nanoseconds: 40_000_000)
+        await settle(dedupPump)
         guard await deduplicated.angles.count == 2 else { fatalError("an unchanged output side must not recompose") }
         dedupPump.update(side: 1024)
-        try? await Task.sleep(nanoseconds: 40_000_000)
+        await settle(dedupPump)
         guard await deduplicated.sides.last == 1024, await deduplicated.angles.count == 3 else { fatalError("a new output side must recompose at that side") }
         dedupPump.stop()
         print("Duo frame pump self-test passed")

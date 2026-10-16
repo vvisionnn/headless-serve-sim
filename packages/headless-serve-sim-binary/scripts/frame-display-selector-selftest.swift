@@ -1,5 +1,17 @@
 import Foundation
 
+/// Polls until `condition` holds or a hang guard expires; returns the final result.
+/// The guard is far beyond any healthy run so no machine's speed is assumed.
+@discardableResult
+func waitUntil(_ condition: () -> Bool) -> Bool {
+    let deadline = Date().addingTimeInterval(60)
+    while !condition() {
+        if Date() >= deadline { return false }
+        Thread.sleep(forTimeInterval: 0.01)
+    }
+    return true
+}
+
 @main
 private enum FrameDisplaySelectorSelftest {
     static func main() {
@@ -55,21 +67,11 @@ private enum FrameDisplaySelectorSelftest {
             lock.lock(); samples.append(display); lock.unlock()
         }
         defer { monitor.stop() }
-        var seeded = false
-        for _ in 0..<200 {
-            lock.lock(); seeded = samples.contains(FrameObservedDisplay(displayID: 3, rotation: 0)); lock.unlock()
-            if seeded { break }
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        let seeded = waitUntil { lock.lock(); defer { lock.unlock() }; return samples.contains(FrameObservedDisplay(displayID: 3, rotation: 0)) }
         precondition(seeded, "observer must publish its first unambiguous sample")
         process.terminate()
         let expected = FrameObservedDisplay(displayID: 1, rotation: 90, blanked: true)
-        var recovered = false
-        for _ in 0..<260 {
-            lock.lock(); recovered = samples.last == expected; lock.unlock()
-            if recovered { break }
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        let recovered = waitUntil { lock.lock(); defer { lock.unlock() }; return samples.last == expected }
         precondition(recovered, "observer death must resume primary polling with fresh ID, rotation and blanking")
     }
 
@@ -99,12 +101,7 @@ private enum FrameDisplaySelectorSelftest {
             lock.lock(); samples.append(display); lock.unlock()
         }
         defer { monitor.stop() }
-        var found = false
-        for _ in 0..<200 {
-            lock.lock(); found = samples.contains(FrameObservedDisplay(displayID: 1, rotation: 0)); lock.unlock()
-            if found { break }
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        let found = waitUntil { lock.lock(); defer { lock.unlock() }; return samples.contains(FrameObservedDisplay(displayID: 1, rotation: 0)) }
         guard found else { fatalError("runtime activation cannot establish primary focus when both panels stay enabled") }
     }
 
@@ -120,12 +117,10 @@ private enum FrameDisplaySelectorSelftest {
         process.arguments = [script.path]
         let monitor = FrameDisplayMonitor(makeStreamProcess: { _, _ in process })
         monitor.start(deviceUDID: "test", allowedIDs: [1, 3], observerPath: script.path) { _ in }
-        let deadline = Date().addingTimeInterval(2)
-        while !process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+        waitUntil { process.isRunning }
         precondition(process.isRunning, "persistent monitor must own one running observer")
         monitor.stop()
-        let stopped = Date().addingTimeInterval(2)
-        while process.isRunning && Date() < stopped { Thread.sleep(forTimeInterval: 0.01) }
+        waitUntil { !process.isRunning }
         precondition(!process.isRunning, "persistent observer must stop with capture")
     }
 
@@ -135,12 +130,10 @@ private enum FrameDisplaySelectorSelftest {
         process.arguments = ["30"]
         let monitor = FrameDisplayMonitor(makeProcess: { _ in process })
         monitor.start(deviceUDID: "test") { _ in preconditionFailure("stopped monitor must not emit") }
-        let deadline = Date().addingTimeInterval(2)
-        while !process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+        waitUntil { process.isRunning }
         precondition(process.isRunning, "test process must be in flight")
         monitor.stop()
-        let stoppedDeadline = Date().addingTimeInterval(2)
-        while process.isRunning && Date() < stoppedDeadline { Thread.sleep(forTimeInterval: 0.01) }
+        waitUntil { !process.isRunning }
         if process.isRunning {
             process.terminate()
             preconditionFailure("stopping monitor must terminate its in-flight process")

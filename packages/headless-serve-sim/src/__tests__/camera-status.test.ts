@@ -72,6 +72,7 @@ describe("cameraStatus against a stub helper socket", () => {
       });
     });
     try {
+      rmSync(socketPath, { force: true }); // a crashed earlier run may have left it
       await new Promise<void>((resolve) => server.listen(socketPath, resolve));
 
       // Point the module's state dir entries at a live pid we control.
@@ -101,6 +102,7 @@ describe("cameraStatus against a stub helper socket", () => {
       /* accept and say nothing */
     });
     try {
+      rmSync(socketPath, { force: true }); // a crashed earlier run may have left it
       await new Promise<void>((resolve) => server.listen(socketPath, resolve));
       const stateDir = join(tmpdir(), "headless-serve-sim", "simcam");
       mkdirSync(stateDir, { recursive: true });
@@ -114,5 +116,5 @@ describe("cameraStatus against a stub helper socket", () => {
       rmSync(socketPath, { force: true });
       rmSync(join(tmpdir(), "headless-serve-sim", "simcam", `${udid}.pid`), { force: true });
     }
-  }, 10_000);
+  });
 });

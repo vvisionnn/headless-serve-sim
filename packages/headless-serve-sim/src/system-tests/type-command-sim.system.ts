@@ -61,7 +61,7 @@ describeWithSim(`headless-serve-sim type e2e (booted sim ${bootedUdid ?? "<skipp
     const result = spawnSync("bun", ["run", CLI_PATH, "type", "Hi!", "-d", bootedUdid!], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"],
-      timeout: 15_000,
+      timeout: 60_000,
     });
     expect(result.status).toBe(0);
 
@@ -70,7 +70,7 @@ describeWithSim(`headless-serve-sim type e2e (booted sim ${bootedUdid ?? "<skipp
     // On a loaded runner they can take well over 200ms to be received over the
     // WS and flushed, so poll until the expected count lands rather than sleeping
     // a fixed amount. Assertion (exactly 10) is unchanged.
-    const deadline = Date.now() + 10_000;
+    const deadline = Date.now() + 60_000;
     let logAfter = readFileSync(logFile, "utf-8");
     while (countKeyLines(logAfter) - beforeCount < 10 && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 50));
@@ -91,7 +91,7 @@ describeWithSim(`headless-serve-sim type e2e (booted sim ${bootedUdid ?? "<skipp
     // And we should see balanced down/up events for the new slice.
     expect(countMatches(newLines, /\[hid\] Key down /g)).toBe(5);
     expect(countMatches(newLines, /\[hid\] Key up /g)).toBe(5);
-  }, 60_000);
+  }, 120_000);
 });
 
 function countKeyLines(s: string): number {

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { createSimMiddleware } from "../middleware";
 import type { CommandRequest, CommandResult, HostCommands } from "../runtime/host-commands";
+import { waitFor } from "../test-support/wait-for";
 
 const DEVICE = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE";
 const TOKEN = "logs-route-token";
@@ -179,7 +180,7 @@ describe("GET /logs", () => {
       }
       controller.abort();
       await reader.cancel().catch(() => {});
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await waitFor(() => harness.stops() === 1);
 
       expect(response.status).toBe(200);
       expect(body).toBe(':\n\ndata: {"eventMessage":"route-works"}\n\n');
@@ -214,5 +215,5 @@ describe("GET /logs", () => {
       server.closeAllConnections?.();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
-  }, 15_000);
+  });
 });

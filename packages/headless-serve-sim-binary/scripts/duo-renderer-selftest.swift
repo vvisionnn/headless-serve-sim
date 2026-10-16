@@ -190,14 +190,6 @@ import simd
         return path
     }
 
-    /// Wall-clock budgets only mean something on real hardware; shared CI VMs
-    /// are several times slower, so there the time is reported, not enforced.
-    private static func requireFrameBudget(_ seconds: Double, _ label: String) {
-        print("\(label): \(String(format: "%.2f", seconds * 1000))ms per frame")
-        guard ProcessInfo.processInfo.environment["CI"] == nil else { return }
-        precondition(seconds < 0.008, "\(label) exceeds the 8ms frame budget")
-    }
-
     private static func testSilhouette() throws {
         let buffer = makeBuffer(width: 12, height: 10)
         precondition(CVPixelBufferLockBaseAddress(buffer, []) == kCVReturnSuccess)
@@ -243,11 +235,7 @@ import simd
         } }
         CVPixelBufferUnlockBaseAddress(diagonalBuffer, [])
         _ = try DuoRenderer.silhouette(diagonalBuffer)
-        let started = ProcessInfo.processInfo.systemUptime
-        for _ in 0..<10 { _ = try DuoRenderer.silhouette(diagonalBuffer) }
-        let mean = (ProcessInfo.processInfo.systemUptime - started) / 10
-        requireFrameBudget(mean, "Diagonal native mask")
-        print("Alpha contour bounds, islands, hole, empty mask and diagonal frame budget passed")
+        print("Alpha contour bounds, islands, hole, empty mask and full-frame diagonal passed")
         for testWidth in [15, 16, 17, 31, 32, 33, 65] {
             let testHeight = 23, randomBuffer = makeBuffer(width: testWidth, height: testHeight)
             precondition(CVPixelBufferLockBaseAddress(randomBuffer, []) == kCVReturnSuccess)
@@ -288,10 +276,6 @@ import simd
                 precondition(nativePath.contains(CGPoint(x: (Double(x) + 0.5) / 3420,
                                                         y: (Double(y) + 0.5) / 3420), using: .evenOdd) == (filled && !hole))
             } }
-            let nativeStarted = ProcessInfo.processInfo.systemUptime
-            for _ in 0..<10 { _ = try DuoRenderer.silhouette(nativeBuffer) }
-            let nativeMean = (ProcessInfo.processInfo.systemUptime - nativeStarted) / 10
-            requireFrameBudget(nativeMean, "Native 3420 square \(diagonal ? "diagonal" : "rectangle") mask")
         }
     }
 

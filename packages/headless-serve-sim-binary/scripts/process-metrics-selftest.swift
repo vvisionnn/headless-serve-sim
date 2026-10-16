@@ -300,12 +300,19 @@ private enum ProcessMetricsSelftest {
             },
             minimumSampleIntervalSeconds: 0
         )
+        // Compare against this process's own CPU/wall ratio over the same window
+        // rather than assuming how much CPU a loaded machine grants the loop. A
+        // wrong Mach timebase is off by ~24x, far outside this band.
+        let wallStart = DispatchTime.now().uptimeNanoseconds
+        let cpuStart = clock_gettime_nsec_np(CLOCK_PROCESS_CPUTIME_ID)
         _ = nativeSampler.sample(bundleId: selfBundle, pid: getpid())
         let deadline = mach_absolute_time() + UInt64(0.15 / machTicksToSeconds(1))
         while mach_absolute_time() < deadline {}
         let busy = nativeSampler.sample(bundleId: selfBundle, pid: getpid())
+        let observedPercent = Double(clock_gettime_nsec_np(CLOCK_PROCESS_CPUTIME_ID) - cpuStart)
+            / Double(DispatchTime.now().uptimeNanoseconds - wallStart) * 100
         check(
-            (busy.cpuPercent ?? 0) > 20 && (busy.cpuPercent ?? 0) < 180,
+            (busy.cpuPercent ?? 0) > observedPercent / 2 && (busy.cpuPercent ?? 0) < observedPercent * 2,
             "real busy-loop CPU uses the correct Mach timebase"
         )
         check(
