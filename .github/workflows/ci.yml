@@ -32,18 +32,13 @@ jobs:
   # Full build + hermetic tests on macOS. On a v* tag this also
   # packages the binary and uploads it for the release job.
   build-test:
-    runs-on: macos-15 # Apple Silicon (arm64)
+    # Apple Silicon (arm64), Xcode 26 by default: the oldest toolchain this project
+    # supports, and the first whose RealityKit SDK the Duo renderer compiles against.
+    runs-on: macos-26
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      # The image defaults to Xcode 16, whose RealityKit SDK predates the Swift 6
-      # Sendable annotations the Duo renderer relies on. Build with the newest
-      # installed Xcode 26, the oldest toolchain this project supports.
-      - name: Select Xcode 26
-        run: |
-          xcode=$(ls -d /Applications/Xcode_26.[0-9]*.app | grep -E 'Xcode_26\.[0-9.]+\.app$' | sort -V | tail -1)
-          sudo xcode-select -s "$xcode"
-          xcodebuild -version
+      - run: xcodebuild -version
       - uses: jdx/mise-action@v4
       - run: bun install --frozen-lockfile
 
