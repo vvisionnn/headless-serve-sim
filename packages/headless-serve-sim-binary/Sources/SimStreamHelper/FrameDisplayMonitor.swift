@@ -112,16 +112,17 @@ final class FrameDisplayMonitor {
         streamQueue.async { [weak self, weak process] in
             guard let process else { return }
             defer {
-                if let self {
-                    self.lock.lock()
-                    if self.streamProcess === process {
-                        self.streamProcess = nil
-                        try? self.streamInput?.fileHandleForWriting.close()
-                        self.streamInput = nil
-                        self.primaryDisplay = nil
-                        self.timer?.schedule(deadline: .now(), repeating: .seconds(1))
+                // A named binding: older compilers reject `if let self` inside `defer`.
+                if let monitor = self {
+                    monitor.lock.lock()
+                    if monitor.streamProcess === process {
+                        monitor.streamProcess = nil
+                        try? monitor.streamInput?.fileHandleForWriting.close()
+                        monitor.streamInput = nil
+                        monitor.primaryDisplay = nil
+                        monitor.timer?.schedule(deadline: .now(), repeating: .seconds(1))
                     }
-                    self.lock.unlock()
+                    monitor.lock.unlock()
                 }
             }
             var pending = Data()

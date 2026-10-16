@@ -32,7 +32,8 @@ jobs:
   # Full build + hermetic tests on macOS. On a v* tag this also
   # packages the binary and uploads it for the release job.
   build-test:
-    runs-on: macos-14 # Apple Silicon (arm64)
+    # macOS 15 SDK (Xcode 16+): the Duo renderer uses RealityKit LowLevelTexture.
+    runs-on: macos-15 # Apple Silicon (arm64)
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
