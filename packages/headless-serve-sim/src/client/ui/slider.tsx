@@ -85,7 +85,7 @@ export function Slider({
         aria-valuenow={value}
         aria-disabled={disabled || undefined}
         tabIndex={disabled ? -1 : 0}
-        className="relative h-5 flex-1 cursor-grab touch-none select-none active:cursor-grabbing"
+        className="relative h-5 flex-1 cursor-grab touch-none rounded-full select-none active:cursor-grabbing"
         style={{ scaleX, originX }}
         onKeyDown={(e) => {
           const s = step ?? (max - min) / 20;

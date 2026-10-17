@@ -104,7 +104,8 @@ import {
   isPreviewControlTarget,
 } from "./utils/shortcuts";
 import { rotateLeft } from "./utils/rotate";
-import { createSettleWatch } from "./utils/turn-settle";
+import { whenStreamMoves } from "./utils/stream-motion";
+import { cn } from "./lib/cn";
 import { sameDuoBounds, type DuoBounds } from "./utils/duo-bounds";
 import { rotationStart, type StagePose } from "./utils/stage-pose";
 import {
@@ -776,7 +777,13 @@ function AppWithConfig({
     }),
     foldable ? null : deviceOrientation,
   );
-  const nativeComposition = foldable && activeStreamConfig.deviceComposition === true;
+  // The helper's capability decides. Until a foldable's helper has said either
+  // way, expect its composite rather than drawing a stand-in phone that the
+  // real device would then replace.
+  const nativeComposition =
+    foldable &&
+    (activeStreamConfig.deviceComposition === true ||
+      (activeStreamConfig.deviceComposition === undefined && !streaming));
   const deviceFrameSpecs =
     config.deviceFrameSpecs ?? (config.deviceFrameSpec ? [config.deviceFrameSpec] : []);
   const selectedFrameSpec =
@@ -1032,13 +1039,10 @@ function AppWithConfig({
   // landscape stream arriving on load.
   const rotateRequestedAt = useRef(0);
   const deviceOrientationEdit = useRef(0);
-  // The screen as it was when a turn began; held on the glass while it turns.
-  const turnSnapshot = useRef<string | null>(null);
   const rotateDevice = useCallback(
     (orientation: SimulatorOrientation) => {
       rotateRequestedAt.current = Date.now();
       if (!foldable) {
-        turnSnapshot.current = snapshotScreen(simContainerRef.current)?.url ?? null;
         deviceOrientationEdit.current++;
         setDeviceOrientation(orientation);
       }
@@ -1713,38 +1717,6 @@ function AppWithConfig({
     [poseRotation, poseCx, poseCy, visible.width, visible.height],
   );
   const poseRef = useRef(pose);
-  const [turnFrame, setTurnFrame] = useState<{
-    id: number;
-    url: string;
-    rotate: number;
-    width: number;
-    height: number;
-  } | null>(null);
-  // Let go once iOS has finished redrawing for the new orientation: its own
-  // rotation animation plays in the stream after the device turn starts.
-  const turnFrameId = turnFrame?.id;
-  useEffect(() => {
-    if (turnFrameId === undefined) return;
-    const settled = createSettleWatch({ minMs: 450, stillMs: 120, maxMs: 1500 });
-    const probe = document.createElement("canvas");
-    probe.width = probe.height = 24;
-    const ctx = probe.getContext("2d", { willReadFrequently: true });
-    let raf = requestAnimationFrame(function watch(now) {
-      const stream = simContainerRef.current?.querySelector<HTMLCanvasElement | HTMLVideoElement>(
-        "canvas, video",
-      );
-      let sample: Uint8ClampedArray | null = null;
-      if (ctx && stream) {
-        try {
-          ctx.drawImage(stream, 0, 0, 24, 24);
-          sample = ctx.getImageData(0, 0, 24, 24).data;
-        } catch {}
-      }
-      if (settled(now, sample)) setTurnFrame(null);
-      else raf = requestAnimationFrame(watch);
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [turnFrameId]);
   const turnRef = useRef<HTMLDivElement>(null);
   const shadowLiftRef = useRef<HTMLDivElement>(null);
   const dockLiftRef = useRef<HTMLDivElement>(null);
@@ -1752,25 +1724,9 @@ function AppWithConfig({
     const prev = poseRef.current;
     poseRef.current = pose;
     if (prev.rotation === pose.rotation || !prev.width || !pose.width) return;
-    const snapshot = turnSnapshot.current;
-    turnSnapshot.current = null;
     if (Date.now() - rotateRequestedAt.current > 5000) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const start = rotationStart(prev, pose);
-    // iOS animates its own rotation inside the framebuffer — a tilted page
-    // with black corners — while the device turns. Hold the old picture on
-    // the glass, turned with the device, until iOS has settled.
-    const glass = simContainerRef.current;
-    if (snapshot && glass) {
-      const quarter = Math.abs(start.rotate) === 90;
-      setTurnFrame({
-        id: Date.now(),
-        url: snapshot,
-        rotate: -start.rotate,
-        width: quarter ? glass.offsetHeight : glass.offsetWidth,
-        height: quarter ? glass.offsetWidth : glass.offsetHeight,
-      });
-    }
     flyRotate.set(start.rotate);
     flyScale.set(start.scale);
     flyX.set(start.x);
@@ -1782,14 +1738,29 @@ function AppWithConfig({
       turnRef.current.style.transform = `translateX(${start.x}px) translateY(${start.y}px) scale(${start.scale}) rotate(${start.rotate}deg)`;
     for (const el of [shadowLiftRef.current, dockLiftRef.current])
       if (el) el.style.transform = `translateY(${start.lift}px)`;
-    for (const [value, rest] of [
-      [flyRotate, 0],
-      [flyScale, 1],
-      [flyX, 0],
-      [flyY, 0],
-      [dockLift, 0],
-    ] as const)
-      animate(value, rest, spring.rotate);
+    // iOS turns the picture inside the screen as one motion with the device,
+    // the way a real phone does: hold the device until the stream starts
+    // turning, then move with it at its pace, so the picture stays upright
+    // while the device swings round beneath it.
+    let turning = false;
+    const turn = () => {
+      if (turning) return;
+      turning = true;
+      const transition = { duration: (Math.abs(start.rotate) / 90) * 0.5, ease: IOS_ROTATION_EASE };
+      for (const [value, rest] of [
+        [flyRotate, 0],
+        [flyScale, 1],
+        [flyX, 0],
+        [flyY, 0],
+        [dockLift, 0],
+      ] as const)
+        animate(value, rest, transition);
+    };
+    const cancel = whenStreamMoves(simContainerRef.current, 200, turn);
+    return () => {
+      cancel();
+      turn();
+    };
   }, [pose, flyRotate, flyScale, flyX, flyY, dockLift]);
 
   // Arriving from the wall: fly in from the tile once the device has a place
@@ -1953,7 +1924,6 @@ function AppWithConfig({
     },
     onOrientationChange: (orientation) => {
       rotateRequestedAt.current = Date.now();
-      if (!foldable) turnSnapshot.current = snapshotScreen(simContainerRef.current)?.url ?? null;
       orientationEditRef.current++;
       setDuoOrientation(orientation);
       deviceOrientationEdit.current++;
@@ -1984,29 +1954,11 @@ function AppWithConfig({
   const toastRight = inspectorOpen && !overlayPanels ? INS_W + 30 : 20;
   const bootedCount = devices.filter((d) => d.state === "Booted").length;
 
+  // The Duo has no screen on the stage until its first composite lands.
+  const screenless = nativeComposition && !duoBounds;
   const screenOverlays = (
     <>
       <Shutter count={shutter} />
-      <AnimatePresence>
-        {turnFrame && (
-          <motion.img
-            key={turnFrame.id}
-            src={turnFrame.url}
-            alt=""
-            aria-hidden
-            draggable={false}
-            className="pointer-events-none absolute top-1/2 left-1/2 z-[71] max-w-none select-none"
-            style={{
-              width: turnFrame.width,
-              height: turnFrame.height,
-              x: "-50%",
-              y: "-50%",
-              rotate: turnFrame.rotate,
-            }}
-            exit={{ opacity: 0, transition: { duration: 0.28, ease: [0.32, 0.72, 0, 1] } }}
-          />
-        )}
-      </AnimatePresence>
       {reveal && <AppearanceReveal key={reveal.id} url={reveal.url} onDone={endReveal} />}
       <AnimatePresence>
         {heldFrame && (
@@ -2023,8 +1975,10 @@ function AppWithConfig({
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {!streaming && !streamError && !heldFrame && <ScreenStatus key="connecting" />}
-        {streamError && <ScreenStatus key="error" error={streamError} />}
+        {!streaming && !streamError && !heldFrame && (
+          <ScreenStatus key="connecting" bare={screenless} />
+        )}
+        {streamError && <ScreenStatus key="error" error={streamError} bare={screenless} />}
       </AnimatePresence>
       <AnimatePresence>{mediaDrop.isDragOver && <DropOverlay />}</AnimatePresence>
     </>
@@ -2075,23 +2029,35 @@ function AppWithConfig({
       >
         {screenContent}
       </div>
-      <NativeDuoDevice
-        sourceRef={recordingSourceRef}
-        recordingSourceRef={duoRecordingSourceRef}
-        width={deviceAvailWidth}
-        height={deviceAvailHeight}
-        onTouch={onStreamTouch}
-        onMultiTouch={onStreamMultiTouch}
-        onScroll={onStreamScroll}
-        onButton={onStreamButton}
-        axEnabled={axOverlayEnabled}
-        includeFrame={showBezels}
-        scale={deviceScale}
-        landscape={duoOrientation?.startsWith("landscape") ?? false}
-        streaming={streaming}
-        onBoundsChange={updateDuoBounds}
-        onOutputSide={changeOutputSide}
-      />
+      {/* The Duo's first composite settles in, as a device arriving does. */}
+      <motion.div
+        className="absolute inset-0"
+        initial={false}
+        animate={
+          screenless
+            ? { opacity: 0, scale: 0.94, filter: "blur(6px)" }
+            : { opacity: 1, scale: 1, filter: "blur(0px)" }
+        }
+        transition={{ ...spring.surface, opacity: { duration: 0.4 } }}
+      >
+        <NativeDuoDevice
+          sourceRef={recordingSourceRef}
+          recordingSourceRef={duoRecordingSourceRef}
+          width={deviceAvailWidth}
+          height={deviceAvailHeight}
+          onTouch={onStreamTouch}
+          onMultiTouch={onStreamMultiTouch}
+          onScroll={onStreamScroll}
+          onButton={onStreamButton}
+          axEnabled={axOverlayEnabled}
+          includeFrame={showBezels}
+          scale={deviceScale}
+          landscape={duoOrientation?.startsWith("landscape") ?? false}
+          streaming={streaming}
+          onBoundsChange={updateDuoBounds}
+          onOutputSide={changeOutputSide}
+        />
+      </motion.div>
       <div
         className="pointer-events-none absolute overflow-hidden"
         style={{ left: visible.x, top: visible.y, width: visible.width, height: visible.height }}
@@ -2285,8 +2251,12 @@ function AppWithConfig({
                     className="pointer-events-none absolute top-0 left-0"
                     style={{ y: dockLift }}
                   >
-                    <div
+                    <motion.div
                       className="absolute top-0 left-0 h-[22px] rounded-[50%] bg-black/25 blur-[14px] dark:bg-black/70"
+                      // Nothing rests on the stage until the Duo's first frame.
+                      initial={false}
+                      animate={{ opacity: screenless ? 0 : 1 }}
+                      transition={{ duration: 0.4 }}
                       style={{
                         transform: `translate(${deviceLeft + visible.x + visible.width * 0.14}px, ${deviceBottom - 12}px)`,
                         width: visible.width * 0.72,
@@ -2473,11 +2443,21 @@ async function pngSize(blob: Blob): Promise<{ width: number; height: number } | 
   }
 }
 
-/** Connecting / stream-error state, quietly over the screen. */
-function ScreenStatus({ error }: { error?: string }) {
+/** UIKit turns the interface on an ease-in-out curve. */
+const IOS_ROTATION_EASE = [0.42, 0, 0.58, 1] as const;
+
+/**
+ * Connecting / stream-error state, quietly over the screen. `bare` is for a
+ * device with no screen on the stage yet (the Duo before its first frame):
+ * the status floats as a capsule instead of dimming a screen that isn't there.
+ */
+function ScreenStatus({ error, bare }: { error?: string; bare?: boolean }) {
   return (
     <motion.div
-      className="pointer-events-none absolute inset-0 z-[70] flex items-center justify-center bg-black/55 p-5"
+      className={cn(
+        "pointer-events-none absolute inset-0 z-[70] flex items-center justify-center p-5",
+        !bare && "bg-black/55",
+      )}
       initial={{ opacity: 0 }}
       // A healthy stream connects in well under this; only a slow one says so.
       animate={{ opacity: 1, transition: { duration: 0.25, delay: error ? 0 : 0.4 } }}
@@ -2490,7 +2470,12 @@ function ScreenStatus({ error }: { error?: string }) {
           {error}
         </span>
       ) : (
-        <span className="flex items-center gap-2 text-footnote font-medium text-white/85">
+        <span
+          className={cn(
+            "flex items-center gap-2 text-footnote font-medium",
+            bare ? "glass-pop rounded-full py-2 pr-3.5 pl-3 text-label" : "text-white/85",
+          )}
+        >
           <LoaderCircle className="size-4 animate-spin" />
           Connecting…
         </span>
