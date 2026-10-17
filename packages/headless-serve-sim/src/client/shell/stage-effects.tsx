@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from "motion/react";
+import { animate, AnimatePresence, motion, useMotionTemplate, useMotionValue } from "motion/react";
 import { ImageDown } from "lucide-react";
 import { useEffect, useState, type RefObject } from "react";
 import { spring } from "../lib/motion";
@@ -23,6 +23,51 @@ export function glowColors(data: ArrayLike<number>): string[] {
 }
 
 /**
+ * The largest painted surface under `root` — the canvas or image the stream
+ * is actually drawn into. The Duo keeps a 1px hidden decoder beside the
+ * canvas it shows, so "first match" would pick the wrong one.
+ */
+export function largestSurface(
+  root: HTMLElement | null,
+): HTMLCanvasElement | HTMLImageElement | HTMLVideoElement | null {
+  let best: HTMLCanvasElement | HTMLImageElement | HTMLVideoElement | null = null;
+  let area = 0;
+  for (const el of root?.querySelectorAll<HTMLCanvasElement | HTMLImageElement | HTMLVideoElement>(
+    "canvas, video, img",
+  ) ?? []) {
+    const a = el.clientWidth * el.clientHeight;
+    if (a > area) {
+      area = a;
+      best = el;
+    }
+  }
+  return best;
+}
+
+/**
+ * Freeze what's on screen right now, at its on-screen size. Used where a
+ * motion must start at once — the screenshot thumbnail lifts off before
+ * simctl has written the PNG, and the appearance reveal needs the old frame.
+ */
+export function snapshotScreen(root: HTMLElement | null): { url: string; rect: DOMRect } | null {
+  const source = largestSurface(root);
+  if (!source) return null;
+  const rect = source.getBoundingClientRect();
+  if (rect.width < 2 || rect.height < 2) return null;
+  try {
+    const ratio = Math.min(2, window.devicePixelRatio || 1);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(rect.width * ratio);
+    canvas.height = Math.round(rect.height * ratio);
+    canvas.getContext("2d")?.drawImage(source, 0, 0, canvas.width, canvas.height);
+    return { url: canvas.toDataURL("image/png"), rect };
+  } catch {
+    // A tainted or not-yet-decoded surface: the caller falls back.
+    return null;
+  }
+}
+
+/**
  * Sample the live stream's pixels into a 2×2 canvas about once a second. The
  * surface is whatever SimulatorView paints into (a canvas for H.264, an img
  * for MJPEG); a tainted cross-origin frame simply keeps the last colours.
@@ -41,17 +86,7 @@ export function useScreenColors(screen: RefObject<HTMLElement | null>, enabled: 
     if (!ctx) return;
     let last = "";
     const tick = () => {
-      // The largest painted surface — the Duo keeps a 1px hidden decoder
-      // beside the canvas it actually shows.
-      let source: CanvasImageSource | null = null;
-      let best = 0;
-      for (const el of screen.current?.querySelectorAll<HTMLElement>("canvas, video, img") ?? []) {
-        const area = el.clientWidth * el.clientHeight;
-        if (area > best) {
-          best = area;
-          source = el as unknown as CanvasImageSource;
-        }
-      }
+      const source = largestSurface(screen.current);
       if (!source) return;
       try {
         ctx.drawImage(source, 0, 0, 2, 2);
@@ -99,6 +134,45 @@ export function ScreenGlow({ colors, w, h }: { colors: string[]; w: number; h: n
         mixBlendMode: "var(--glow-blend)" as never,
         opacity: "var(--glow-strength)" as never,
       }}
+    />
+  );
+}
+
+/**
+ * Appearance change: the old frame stays on top and a circle opens in it from
+ * the bottom edge — where the appearance control sits — revealing the new
+ * appearance underneath. Waits a beat first so the simulator has repainted.
+ */
+export function AppearanceReveal({ url, onDone }: { url: string; onDone: () => void }) {
+  const radius = useMotionValue(0);
+  const mask = useMotionTemplate`radial-gradient(circle at 50% 100%, transparent ${radius}px, #000 calc(${radius}px + 1px))`;
+  useEffect(() => {
+    let stop = () => {};
+    const t = setTimeout(() => {
+      const el = document.querySelector("[data-appearance-reveal]");
+      const r = el?.getBoundingClientRect();
+      const end = r ? Math.hypot(r.width / 2, r.height) : 2000;
+      const anim = animate(radius, end, {
+        duration: 0.7,
+        ease: [0.32, 0.72, 0, 1],
+        onComplete: onDone,
+      });
+      stop = () => anim.stop();
+    }, 380);
+    return () => {
+      clearTimeout(t);
+      stop();
+    };
+  }, [radius, onDone]);
+  return (
+    <motion.img
+      data-appearance-reveal
+      src={url}
+      alt=""
+      aria-hidden
+      draggable={false}
+      className="pointer-events-none absolute inset-0 z-[78] size-full select-none"
+      style={{ maskImage: mask, WebkitMaskImage: mask }}
     />
   );
 }

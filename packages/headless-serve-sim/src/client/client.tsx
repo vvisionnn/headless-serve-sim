@@ -9,7 +9,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { animate, AnimatePresence, motion } from "motion/react";
+import { animate, AnimatePresence, motion, useMotionValue } from "motion/react";
 import { LoaderCircle, TriangleAlert } from "lucide-react";
 import {
   SimulatorView,
@@ -56,10 +56,12 @@ import {
   type ShellToast,
 } from "./shell/shell-context";
 import {
+  AppearanceReveal,
   DropOverlay,
   ScreenGlow,
   ScreenshotFlight,
   Shutter,
+  snapshotScreen,
   useScreenColors,
   type Flight,
 } from "./shell/stage-effects";
@@ -96,6 +98,7 @@ import {
   isPreviewControlTarget,
 } from "./utils/shortcuts";
 import { rotateLeft } from "./utils/rotate";
+import { sameDuoBounds } from "./utils/duo-bounds";
 import {
   b64ToBlob,
   captureScreenshot,
@@ -478,6 +481,8 @@ function AppWithConfig({
   }, []);
   const [shutter, setShutter] = useState(0);
   const [flight, setFlight] = useState<Flight | null>(null);
+  const [reveal, setReveal] = useState<{ id: number; url: string } | null>(null);
+  const endReveal = useCallback(() => setReveal(null), []);
   const endFlight = useCallback(() => setFlight(null), []);
 
   const foldable =
@@ -506,13 +511,9 @@ function AppWithConfig({
       element.style.width = `${bounds.width}px`;
       element.style.height = `${bounds.height}px`;
     }
-    setDuoBounds((previous) =>
-      previous &&
-      Math.abs(previous.fittedWidth - bounds.fittedWidth) < 1 &&
-      Math.abs(previous.fittedHeight - bounds.fittedHeight) < 1
-        ? previous
-        : bounds,
-    );
+    // The dock and fold bar sit under the visible device, so any move or
+    // resize matters — not only a change of the fitted size.
+    setDuoBounds((previous) => (previous && sameDuoBounds(previous, bounds) ? previous : bounds));
   }, []);
   const [slowAnimations, setSlowAnimations] = useState(false);
   const [keyboardCapture, setKeyboardCapture] = useState(false);
@@ -983,6 +984,9 @@ function AppWithConfig({
   // mode and sets the opposite, so every invocation is a real toggle — shared
   // by the toolbar button and the ⇧⌘A shortcut.
   const toggleAppearance = useCallback(() => {
+    // Hold the current frame so the new appearance can be revealed under it.
+    const snap = snapshotScreen(simContainerRef.current);
+    if (snap) setReveal({ id: Date.now(), url: snap.url });
     void toggleSimulatorAppearance(config.device, execOnHost, refreshUiSettings).catch(() => {});
   }, [config.device]);
 
@@ -991,7 +995,11 @@ function AppWithConfig({
   // "download now", so the PNG still downloads straight away too.
   const captureAndDownloadScreenshot = useCallback(async () => {
     setShutter((n) => n + 1);
-    const from = simContainerRef.current?.getBoundingClientRect() ?? null;
+    // The thumbnail lifts off at once, from the frame on screen; the real
+    // PNG from simctl lands in Recent when it's ready.
+    const snap = snapshotScreen(simContainerRef.current);
+    if (snap) setFlight({ id: Date.now(), from: snap.rect, url: snap.url });
+    const from = snap ? null : (simContainerRef.current?.getBoundingClientRect() ?? null);
     try {
       const shot = await captureScreenshot(config.device, {
         display: activeStreamConfig.displayId ? `${activeStreamConfig.displayId}` : "",
@@ -1346,6 +1354,42 @@ function AppWithConfig({
   const stageRight = inspectorOpen && !overlayPanels ? INS_W + GAP * 2 : 0;
   const [consoleHeight, setConsoleHeight] = useState(300);
   const insetBottom = consoleOpen ? consoleHeight + GAP : 0;
+  // The device glides as the console rises: the inset it fits against
+  // springs from where it is now, so the device re-fits every frame instead
+  // of jumping to its final size.
+  const [stageInset, setStageInset] = useState(insetBottom);
+  const stageInsetRef = useRef(insetBottom);
+  useEffect(() => {
+    const anim = animate(stageInsetRef.current, insetBottom, {
+      ...spring.surface,
+      onUpdate: (v) => {
+        stageInsetRef.current = v;
+        setStageInset(v);
+      },
+    });
+    return () => anim.stop();
+  }, [insetBottom]);
+
+  // Wall → stage: the tile you clicked flies into place as the same object.
+  const deviceRef = useRef<HTMLDivElement>(null);
+  const flyX = useMotionValue(0);
+  const flyY = useMotionValue(0);
+  const flyScale = useMotionValue(1);
+  const flyFrom = useCallback(
+    (tile: DOMRect) => {
+      const el = deviceRef.current;
+      if (!el) return;
+      const to = el.getBoundingClientRect();
+      if (!to.width) return;
+      flyX.set(tile.left + tile.width / 2 - (to.left + to.width / 2));
+      flyY.set(tile.top + tile.height / 2 - (to.top + to.height / 2));
+      flyScale.set(tile.width / to.width);
+      animate(flyX, 0, spring.surface);
+      animate(flyY, 0, spring.surface);
+      animate(flyScale, 1, spring.surface);
+    },
+    [flyX, flyY, flyScale],
+  );
 
   // The stage's live box — measured, so the device tracks the panels' springs.
   const stageRef = useRef<HTMLDivElement>(null);
@@ -1371,7 +1415,7 @@ function AppWithConfig({
   const deviceAvailWidth = Math.max(0, stageWidth - 64);
   const deviceAvailHeight = Math.max(
     0,
-    stageHeight - insetBottom - DOCK_SPACE - 28 - (foldable ? FOLD_SPACE : 0),
+    stageHeight - stageInset - DOCK_SPACE - 28 - (foldable ? FOLD_SPACE : 0),
   );
 
   // Which way the device is turned. Prefer the reported orientation; fall back
@@ -1660,6 +1704,7 @@ function AppWithConfig({
   const screenOverlays = (
     <>
       <Shutter count={shutter} />
+      {reveal && <AppearanceReveal key={reveal.id} url={reveal.url} onDone={endReveal} />}
       <AnimatePresence>
         {!streaming && !streamError && <ScreenStatus key="connecting" />}
         {streamError && <ScreenStatus key="error" error={streamError} />}
@@ -1725,6 +1770,7 @@ function AppWithConfig({
         axEnabled={axOverlayEnabled}
         includeFrame={showBezels}
         scale={deviceScale}
+        landscape={duoOrientation?.startsWith("landscape") ?? false}
         streaming={streaming}
         onBoundsChange={updateDuoBounds}
         onOutputSide={changeOutputSide}
@@ -1750,14 +1796,8 @@ function AppWithConfig({
             fittedSize={{ width: duoBounds.fittedWidth, height: duoBounds.fittedHeight }}
             availableSize={{ width: deviceAvailWidth - 24, height: deviceAvailHeight - 24 }}
             scale={deviceScale}
-            maxScale={
-              Math.min(deviceAvailWidth - 24, deviceAvailHeight - 24) /
-              Math.min(
-                deviceAvailWidth,
-                deviceAvailHeight,
-                simulatorMaxWidth("iphone", { width: 2, height: 1 }),
-              )
-            }
+            // The Duo is fitted to the stage at 1; scaling only shrinks it.
+            maxScale={1}
             onScaleChange={setDeviceScale}
           />
         </div>
@@ -1881,72 +1921,72 @@ function AppWithConfig({
                   aria-hidden={wallOpen || undefined}
                 >
                   <motion.div
+                    ref={deviceRef}
                     className="absolute"
                     initial={{ opacity: 0, y: 40, filter: "blur(12px)" }}
-                    animate={{
-                      opacity: 1,
-                      y: 0,
-                      filter: "blur(0px)",
-                      top: deviceTop,
-                    }}
+                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
                     transition={{ ...spring.surface, opacity: { duration: 0.4 } }}
-                    style={{ left: deviceLeft, width: deviceBox.width, height: deviceBox.height }}
+                    style={{
+                      left: deviceLeft,
+                      top: deviceTop,
+                      width: deviceBox.width,
+                      height: deviceBox.height,
+                    }}
                   >
-                    <div
-                      className="absolute"
-                      style={{
-                        left: visible.x,
-                        top: visible.y,
-                        width: visible.width,
-                        height: visible.height,
-                      }}
+                    <motion.div
+                      className="absolute inset-0"
+                      style={{ x: flyX, y: flyY, scale: flyScale }}
                     >
-                      <ScreenGlow colors={glowColors} w={visible.width} h={visible.height} />
-                    </div>
-                    <div className="relative size-full">{device}</div>
+                      <div
+                        className="absolute"
+                        style={{
+                          left: visible.x,
+                          top: visible.y,
+                          width: visible.width,
+                          height: visible.height,
+                        }}
+                      >
+                        <ScreenGlow colors={glowColors} w={visible.width} h={visible.height} />
+                      </div>
+                      <div className="relative size-full">{device}</div>
+                    </motion.div>
                   </motion.div>
 
                   {/* Contact shadow: the device rests on the stage rather than floating in it. */}
-                  <motion.div
+                  <div
                     aria-hidden
-                    className="pointer-events-none absolute top-0 left-0 rounded-[50%] bg-black/25 blur-[14px] dark:bg-black/70"
-                    initial={false}
-                    animate={{
-                      x: deviceLeft + visible.x + visible.width * 0.14,
-                      y: deviceBottom - 12,
+                    className="pointer-events-none absolute top-0 left-0 h-[22px] rounded-[50%] bg-black/25 blur-[14px] dark:bg-black/70"
+                    style={{
+                      transform: `translate(${deviceLeft + visible.x + visible.width * 0.14}px, ${deviceBottom - 12}px)`,
                       width: visible.width * 0.72,
-                      height: 22,
                     }}
-                    transition={spring.surface}
                   />
 
                   {/* Dock rides just under the device's lower edge. */}
-                  <motion.div
-                    className="absolute top-0 left-0 z-20 flex flex-col items-center gap-2.5"
-                    initial={false}
-                    animate={{ x: stageWidth / 2, y: deviceBottom + 22 }}
-                    transition={spring.surface}
+                  <div
+                    className="absolute top-0 left-0 z-20"
+                    style={{ transform: `translate(${stageWidth / 2}px, ${deviceBottom + 22}px)` }}
                   >
-                    <div className="-translate-x-1/2">
+                    <div className="flex -translate-x-1/2 flex-col items-center gap-2.5">
                       <DeviceDock />
+                      {foldable && (
+                        <motion.div
+                          className="glass-sm w-[400px] max-w-[calc(100vw-48px)] rounded-[22px]"
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ ...spring.surface, delay: 0.3 }}
+                        >
+                          <DeviceMotionTool
+                            disabled={!streaming}
+                            angle={hingeAngle}
+                            pose={duoPose}
+                            onAngleChange={changeHingeAngle}
+                            error={foldError}
+                          />
+                        </motion.div>
+                      )}
                     </div>
-                    {foldable && (
-                      <motion.div
-                        className="glass-sm w-[400px] max-w-[calc(100vw-48px)] -translate-x-1/2 rounded-[22px]"
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ ...spring.surface, delay: 0.3 }}
-                      >
-                        <DeviceMotionTool
-                          disabled={!streaming}
-                          angle={hingeAngle}
-                          pose={duoPose}
-                          onAngleChange={changeHingeAngle}
-                          error={foldError}
-                        />
-                      </motion.div>
-                    )}
-                  </motion.div>
+                  </div>
                 </motion.div>
 
                 <AnimatePresence>
@@ -1962,8 +2002,14 @@ function AppWithConfig({
                         currentUdid={config.device}
                         insetBottom={insetBottom}
                         onFocus={(udid) => {
+                          const tile = document
+                            .querySelector(`[data-wall-tile="${CSS.escape(udid)}"]`)
+                            ?.getBoundingClientRect();
                           setWallOpen(false);
-                          if (udid === config.device) return;
+                          if (udid === config.device) {
+                            if (tile) requestAnimationFrame(() => flyFrom(tile));
+                            return;
+                          }
                           const target = devices.find((d) => d.udid === udid) ?? {
                             udid,
                             name: udid,

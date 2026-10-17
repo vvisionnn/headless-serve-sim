@@ -43,7 +43,11 @@ export interface RecordingController {
  * here instead of threading a dozen props through every layer.
  */
 export interface Shell {
-  theme: { pref: ThemePref; resolved: "light" | "dark"; setPref: (p: ThemePref) => void };
+  theme: {
+    pref: ThemePref;
+    resolved: "light" | "dark";
+    setPref: (p: ThemePref, origin?: { x: number; y: number }) => void;
+  };
 
   navigatorOpen: boolean;
   setNavigatorOpen: (v: boolean | ((p: boolean) => boolean)) => void;
