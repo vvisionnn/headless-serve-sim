@@ -26,8 +26,16 @@ final class DuoFramePump {
     private var running = false
     private var stopped = false
     private let compose: ([Int: CVPixelBuffer], State) async -> Void
+    /// How long to wait for the first hinge sample before composing the open
+    /// default. A fresh helper hears the hinge shortly after its first panel;
+    /// composing before then shows the open device, edge-on when the cover
+    /// display has focus, and snaps once the real angle lands.
+    private let hingeGrace: TimeInterval
+    private let created = ProcessInfo.processInfo.systemUptime
+    private var graceRetryScheduled = false
 
-    init(compose: @escaping ([Int: CVPixelBuffer], State) async -> Void) {
+    init(hingeGrace: TimeInterval = 2, compose: @escaping ([Int: CVPixelBuffer], State) async -> Void) {
+        self.hingeGrace = hingeGrace
         self.compose = compose
     }
 
@@ -92,6 +100,18 @@ final class DuoFramePump {
     private func schedule() {
         lock.lock()
         guard !running, !stopped, !panels.isEmpty else { lock.unlock(); return }
+        let waited = ProcessInfo.processInfo.systemUptime - created
+        if !seededHinge && waited < hingeGrace {
+            let retry = !graceRetryScheduled
+            graceRetryScheduled = true
+            lock.unlock()
+            if retry {
+                DispatchQueue.global().asyncAfter(deadline: .now() + (hingeGrace - waited)) { [weak self] in
+                    self?.schedule()
+                }
+            }
+            return
+        }
         running = true
         lock.unlock()
         Task { await drain() }

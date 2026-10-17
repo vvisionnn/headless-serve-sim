@@ -62,9 +62,10 @@ func settle(_ pump: DuoFramePump) async {
         finiteRotationsDoNotBlock()
         for includeFrame in [true, false] {
             let fallback = FocusRecorder()
-            let unseeded = DuoFramePump { _, state in await fallback.record(state) }
+            let unseeded = DuoFramePump(hingeGrace: 0.2) { _, state in await fallback.record(state) }
             unseeded.update(includeFrame: includeFrame)
             unseeded.offer(panel: 3, buffer: buffer!)
+            await until("fallback composition after the hinge grace") { await !fallback.angles.isEmpty }
             await settle(unseeded)
             guard await fallback.angles == [180] else {
                 fatalError("missing hinge sample must compose the safe default, includeFrame=\(includeFrame)")
@@ -76,9 +77,25 @@ func settle(_ pump: DuoFramePump) async {
             }
             unseeded.stop()
         }
+        // A fresh helper learns the hinge a moment after its first panel; the
+        // open default (edge-on when the cover display has focus) must not be
+        // shown in the meantime.
+        let early = FocusRecorder()
+        let earlyPump = DuoFramePump(hingeGrace: hangGuard) { _, state in await early.record(state) }
+        earlyPump.update(displayId: 1)
+        earlyPump.offer(panel: 1, buffer: buffer!)
+        await settle(earlyPump)
+        guard await early.angles.isEmpty else { fatalError("composed before the hinge was known") }
+        earlyPump.update(angle: 0)
+        await settle(earlyPump)
+        let earlyAngles = await early.angles
+        guard earlyAngles == [0] else {
+            fatalError("first composition must use the observed hinge: \(earlyAngles)")
+        }
+        earlyPump.stop()
         let seam = FocusRecorder()
         let seamPump = DuoFramePump { _, state in await seam.record(state) }
-        seamPump.update(rotation: 170)
+        seamPump.update(angle: 180, rotation: 170)
         seamPump.offer(panel: 3, buffer: buffer!)
         await settle(seamPump)
         guard await seam.rotations.last == 170 else { fatalError("initial rotation did not settle") }
