@@ -174,15 +174,19 @@ export function StreamStats({
         }
       >
         <div className="row flex min-h-10 items-center justify-between gap-2 px-3 py-2">
-          <span className="flex items-center gap-2">
-            <span className="font-mono text-caption text-label-2">{resolution}</span>
-            {dropped > 0 && <Badge tone="orange">{dropped} discarded</Badge>}
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate font-mono text-caption text-label-2">{resolution}</span>
+            {dropped > 0 && (
+              <span className="truncate font-mono text-caption2 text-orange">
+                {dropped} discarded
+              </span>
+            )}
           </span>
           {modeAvailable && (
             <Segmented<StreamMode>
               aria-label="Stream mode"
               size="sm"
-              className="w-[176px]"
+              className="w-[148px] shrink-0"
               value={mode}
               onChange={onModeChange}
               items={[

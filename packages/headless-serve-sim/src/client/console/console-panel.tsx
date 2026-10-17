@@ -140,7 +140,7 @@ export function ConsolePanel({
               <RotateCw />
             </IconButton>
           )}
-          <span aria-hidden className="mx-1 h-4 w-px bg-separator" />
+          {tab !== "input" && <span aria-hidden className="mx-1 h-4 w-px bg-separator" />}
           <IconButton size="md" label="Close console" onClick={() => shell.setConsoleOpen(false)}>
             <X />
           </IconButton>
