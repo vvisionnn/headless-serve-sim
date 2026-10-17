@@ -18,7 +18,7 @@ import {
   createHelperSocketProxy,
 } from "./helper-proxy";
 import { debugMw } from "./debug";
-import { resolveInstalledDeviceMetadata } from "./device-metadata";
+import { resolveInstalledDeviceMetadata, type DeviceMetadata } from "./device-metadata";
 import { createExecUpgradeHandler, type UiRequestHandler } from "./exec-ws";
 import type { CommandResult, HostCommands } from "./runtime/host-commands";
 import { createNodeHostCommands } from "./runtime/node-host-commands";
@@ -1039,6 +1039,8 @@ export interface SimMiddlewareOptions {
   allowRemoteAdmin?: boolean;
   /** Bind helpers spawned from this preview to a specific interface. */
   helperHost?: string;
+  /** Override installed-device metadata lookup for `/grid/api/frame`. Intended for tests. */
+  resolveDeviceMetadata?: (udid: string) => Promise<DeviceMetadata | undefined>;
 }
 
 function safeEqualString(a: string, b: string): boolean {
@@ -1114,6 +1116,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
   const proxyHelpers = options?.proxyHelpers ?? false;
   const codec = options?.codec ?? "auto";
   const phonePreview = options?.phonePreview ?? null;
+  const resolveDeviceMetadata = options?.resolveDeviceMetadata ?? resolveInstalledDeviceMetadata;
   /** Per-request proxy descriptor, or null when proxying is off. */
   const proxyFor = (req: SimReq): { base: string; host: string; secure: boolean } | null => {
     if (!proxyHelpers) return null;
@@ -1362,6 +1365,23 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
         "Cache-Control": "no-store",
       });
       res.end(JSON.stringify(await buildMemoryReport(hostCommands)));
+      return;
+    }
+
+    // One simulator's installed frame spec, so the wall can draw every running
+    // device in its real bezel. Resolved once per device type and cached.
+    if (url === base + "/grid/api/frame") {
+      const device = new URL(req.url ?? "/", "http://localhost").searchParams.get("device");
+      if (!device) {
+        res.writeHead(400, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        res.end(JSON.stringify({ error: "device is required" }));
+        return;
+      }
+      void (async () => {
+        const metadata = await resolveDeviceMetadata(device).catch(() => undefined);
+        res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        res.end(JSON.stringify({ deviceFrameSpec: metadata?.deviceFrameSpec ?? null }));
+      })();
       return;
     }
 
