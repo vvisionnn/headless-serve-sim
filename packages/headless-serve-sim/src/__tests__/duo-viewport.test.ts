@@ -1,40 +1,53 @@
 import { expect, test } from "bun:test";
 import { duoOutputSide, duoViewport } from "../client/utils/duo-viewport";
 
-test("keeps one display scale when folding crosses a square silhouette", () => {
-  const wide = duoViewport([0.075, 0.075, 0.85, 0.84], 3420, 3420, 1400, 800);
-  const tall = duoViewport([0.075, 0.075, 0.84, 0.85], 3420, 3420, 1400, 800);
-  expect(wide.width / wide.crop.width).toBeCloseTo(tall.width / tall.crop.width, 6);
-  const edge = duoViewport([0.45, 0.075, 0.1, 0.85], 3420, 3420, 1400, 800);
-  expect(edge.width / edge.crop.width).toBeCloseTo(wide.width / wide.crop.width, 6);
-  expect(edge.height).toBeLessThan(621);
+// Silhouettes measured from a live iPhone Duo composite (portrait).
+const FOLDED = [0.28, 0.2, 0.44, 0.61];
+const OPEN = [0.1, 0.19, 0.8, 0.62];
+
+test("keeps one display scale across fold poses", () => {
+  const folded = duoViewport(FOLDED, 3420, 3420, 1400, 800);
+  const open = duoViewport(OPEN, 3420, 3420, 1400, 800);
+  expect(folded.width / folded.crop.width).toBeCloseTo(open.width / open.crop.width, 6);
+  expect(folded.crop).toEqual({ x: 957, y: 684, width: 1506, height: 2087 });
 });
 
-test("caps initial Duo size without reducing its native pixels", () => {
-  const view = duoViewport([0.08, 0.2, 0.84, 0.6], 3420, 3420, 1400, 800);
-  expect(view.width).toBeCloseTo((2874 * 620) / (3420 * 0.85));
-  expect(view.crop).toEqual({ x: 273, y: 684, width: 2874, height: 2052 });
-  const larger = duoViewport([0.08, 0.2, 0.84, 0.6], 3420, 3420, 1400, 800, 1.5);
-  expect(larger.width).toBeCloseTo((2874 * 800) / (3420 * 0.85));
-  expect(larger.crop).toEqual(view.crop);
+test("fills the stage height like a phone instead of a fixed cap", () => {
+  const folded = duoViewport(FOLDED, 3420, 3420, 1400, 800);
+  expect(folded.height).toBeGreaterThan(760);
+  expect(folded.height).toBeLessThanOrEqual(800);
+  const open = duoViewport(OPEN, 3420, 3420, 1400, 800);
+  expect(open.width).toBeLessThanOrEqual(1400);
+  expect(open.height).toBeLessThanOrEqual(800);
 });
 
-test("fits the full native device without shrinking it for transparent stream padding", () => {
-  const view = duoViewport([0.08, 0.2, 0.84, 0.6], 3420, 3420, 1000, 450);
-  expect(view.crop).toEqual({ x: 273, y: 684, width: 2874, height: 2052 });
-  expect(view.width / view.height).toBeCloseTo(2874 / 2052);
-  expect(view.width).toBeCloseTo((2874 * 450) / (3420 * 0.85));
-  expect(view.height).toBeLessThan(450);
-  const smaller = duoViewport([0.08, 0.2, 0.84, 0.6], 3420, 3420, 1000, 450, 0.5);
-  expect(smaller.width).toBeCloseTo(view.width / 2);
-  expect(smaller.height).toBeCloseTo(view.height / 2);
+test("fits the open device's width on a narrow stage", () => {
+  const open = duoViewport(OPEN, 3420, 3420, 700, 900);
+  expect(open.width).toBeLessThanOrEqual(700);
+  expect(open.width).toBeGreaterThan(660);
+});
+
+test("swaps the extent when the device is turned to landscape", () => {
+  const turned = [0.19, 0.1, 0.62, 0.8];
+  const view = duoViewport(turned, 3420, 3420, 1400, 800, 1, true);
+  expect(view.height).toBeLessThanOrEqual(800);
+  expect(view.height).toBeGreaterThan(760);
+});
+
+test("scale shrinks the device but never past the fit", () => {
+  const fit = duoViewport(FOLDED, 3420, 3420, 1400, 800);
+  const half = duoViewport(FOLDED, 3420, 3420, 1400, 800, 0.5);
+  expect(half.width).toBeCloseTo(fit.width / 2);
+  expect(half.crop).toEqual(fit.crop);
+  const big = duoViewport(FOLDED, 3420, 3420, 1400, 800, 3);
+  expect(big.height).toBeCloseTo(fit.height);
 });
 
 test("requests the output side the viewer actually displays", () => {
-  // The device envelope is 85% of the square output; 620 CSS px is the default cap.
-  expect(duoOutputSide(1400, 800, 1, 2)).toBe(Math.ceil((620 * 2) / 0.85));
-  expect(duoOutputSide(1400, 800, 1, 1)).toBe(Math.ceil(620 / 0.85));
-  // Zoom grows the request until the device fills the shorter side.
-  expect(duoOutputSide(1400, 800, 1.5, 2)).toBe(Math.ceil((800 * 2) / 0.85));
-  expect(duoOutputSide(1400, 800, 9, 2)).toBe(Math.ceil((800 * 2) / 0.85));
+  const side = Math.min(1400 / 0.82, 800 / 0.63);
+  expect(duoOutputSide(1400, 800, 1, 2)).toBe(Math.ceil(side * 2));
+  expect(duoOutputSide(1400, 800, 1, 1)).toBe(Math.ceil(side));
+  expect(duoOutputSide(1400, 800, 0.5, 2)).toBe(Math.ceil(side));
+  expect(duoOutputSide(1400, 800, 9, 2)).toBe(Math.ceil(side * 2));
+  expect(duoOutputSide(800, 1400, 1, 1, true)).toBe(Math.ceil(side));
 });

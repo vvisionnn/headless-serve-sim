@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { DeviceBezel } from "../components/device-bezel";
 import { useFrameSpec } from "../hooks/use-frame-spec";
 import { useGridDevices } from "../hooks/use-grid-devices";
+import { useMjpegStream } from "../hooks/use-mjpeg-stream";
 import { spring } from "../lib/motion";
 import { StatusDot } from "../ui/badge";
 import { Button, IconButton } from "../ui/button";
@@ -36,6 +37,18 @@ export const LINEUP_SHARE: Record<Kind, number> = { phone: 1, tablet: 0.74, watc
 
 /** Body aspect (w/h) used until the real frame spec arrives, or when there is none. */
 const FALLBACK_ASPECT: Record<Kind, number> = { phone: 0.49, tablet: 0.74, watch: 0.82 };
+
+/** Body aspect (w/h) of the widest phone, the folded iPhone Duo. */
+const WIDEST_PHONE_ASPECT = 0.73;
+
+/**
+ * Height of a phone in the lineup. Narrow columns would cap a wide phone by
+ * width while a slim one grows to the full row, so every phone is held to the
+ * height the widest one can reach — phones read as the same size.
+ */
+export function wallLineupHeight(cellW: number, cellH: number): number {
+  return Math.min((cellH - 72) * 0.82, (cellW * 0.86) / WIDEST_PHONE_ASPECT);
+}
 
 /** The wall shows what is running: streaming first, then booted-but-idle. */
 export function wallDevices(devices: GridDevice[]): GridDevice[] {
@@ -178,7 +191,7 @@ function Tile({
   const live = !!device.helper;
   const [hover, setHover] = useState(false);
   const availW = cellW * 0.86;
-  const availH = (cellH - 72) * 0.82 * LINEUP_SHARE[kind];
+  const availH = wallLineupHeight(cellW, cellH) * LINEUP_SHARE[kind];
   const geometry = spec
     ? fitDeviceBezel({
         spec,
@@ -224,6 +237,7 @@ function Tile({
         animate={{ y: hover && live ? -6 : 0 }}
         transition={spring.ui}
         aria-label={`Focus ${device.name}`}
+        data-wall-tile={device.device}
       >
         <motion.div
           layoutId={live ? `device-${device.device}` : undefined}
@@ -232,15 +246,9 @@ function Tile({
         >
           {nativeComposite && live ? (
             // The Duo streams a native composite that already draws the
-            // device; a second bezel around it would frame it twice.
-            <div className="absolute inset-0 overflow-hidden rounded-[18px]">
-              <img
-                src={device.helper!.streamUrl}
-                alt={device.name}
-                draggable={false}
-                className="pointer-events-none size-full object-contain select-none"
-              />
-            </div>
+            // device; crop it to the device itself so it sits on the wall
+            // like every other phone, with no second bezel and no backdrop.
+            <DuoCompositeScreen streamUrl={device.helper!.streamUrl} label={device.name} />
           ) : spec && geometry ? (
             <DeviceBezel spec={spec} geometry={geometry}>
               {screen}
@@ -307,4 +315,77 @@ function Tile({
       </div>
     </motion.div>
   );
+}
+
+/**
+ * A Duo's composited stream, cropped to the device and clipped to its
+ * silhouette — the same paint the stage does, without the 3D interaction.
+ */
+function DuoCompositeScreen({ streamUrl, label }: { streamUrl: string; label: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { subscribeFrame } = useMjpegStream(streamUrl);
+  useEffect(() => {
+    let busy = false;
+    return subscribeFrame((blobUrl, _bytes, composition) => {
+      const canvas = canvasRef.current;
+      if (busy || !canvas || !composition) {
+        URL.revokeObjectURL(blobUrl);
+        return;
+      }
+      busy = true;
+      const image = new Image();
+      image.onload = () => {
+        busy = false;
+        URL.revokeObjectURL(blobUrl);
+        const crop = duoTileCrop(composition.bounds, image.naturalWidth, image.naturalHeight);
+        if (canvas.width !== crop.width || canvas.height !== crop.height) {
+          canvas.width = crop.width;
+          canvas.height = crop.height;
+        }
+        const context = canvas.getContext("2d");
+        if (!context) return;
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.save();
+        // The mask is in unit coordinates of the whole frame.
+        context.setTransform(image.naturalWidth, 0, 0, image.naturalHeight, -crop.x, -crop.y);
+        context.clip(new Path2D(composition.mask), "evenodd");
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.drawImage(
+          image,
+          crop.x,
+          crop.y,
+          crop.width,
+          crop.height,
+          0,
+          0,
+          crop.width,
+          crop.height,
+        );
+        context.restore();
+      };
+      image.onerror = () => {
+        busy = false;
+        URL.revokeObjectURL(blobUrl);
+      };
+      image.src = blobUrl;
+    });
+  }, [subscribeFrame]);
+  return (
+    <canvas
+      ref={canvasRef}
+      role="img"
+      aria-label={label}
+      className="pointer-events-none absolute inset-0 size-full object-contain"
+    />
+  );
+}
+
+/** Pixel crop of the device's normalized bounds within a composited frame. */
+export function duoTileCrop(bounds: number[], width: number, height: number) {
+  const x = Math.max(0, Math.floor((bounds[0] ?? 0) * width));
+  const y = Math.max(0, Math.floor((bounds[1] ?? 0) * height));
+  const right = Math.min(width, Math.ceil(((bounds[0] ?? 0) + (bounds[2] ?? 1)) * width));
+  const bottom = Math.min(height, Math.ceil(((bounds[1] ?? 0) + (bounds[3] ?? 1)) * height));
+  return { x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) };
 }

@@ -22,6 +22,8 @@ interface Props {
   axEnabled: boolean;
   includeFrame?: boolean;
   scale?: number;
+  /** The composite is drawn turned to landscape. */
+  landscape?: boolean;
   streaming?: boolean;
   onButton?: (button: string) => void;
   /** Output side this viewer needs; held steady while an encoded recording runs. */
@@ -146,6 +148,7 @@ export function NativeDuoDevice(props: Props) {
         latest.current.width,
         latest.current.height,
         latest.current.scale ?? metadata.scale,
+        latest.current.landscape,
       );
       crop = view.crop;
       const displayWidth = view.width,
@@ -192,6 +195,8 @@ export function NativeDuoDevice(props: Props) {
         next.height,
         latest.current.width,
         latest.current.height,
+        1,
+        latest.current.landscape,
       );
       const bounds = {
         x: (latest.current.width - displayWidth) / 2,
@@ -558,8 +563,10 @@ export function NativeDuoDevice(props: Props) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const send = () => {
       if (outputSide.recordings > 0) return;
-      const { width, height, scale, onOutputSide } = latest.current;
-      onOutputSide?.(duoOutputSide(width, height, scale ?? 1, window.devicePixelRatio || 1));
+      const { width, height, scale, landscape, onOutputSide } = latest.current;
+      onOutputSide?.(
+        duoOutputSide(width, height, scale ?? 1, window.devicePixelRatio || 1, landscape),
+      );
     };
     // Debounced so a resize drag rebuilds the encoder once, not on every step.
     const request = () => {
@@ -587,7 +594,7 @@ export function NativeDuoDevice(props: Props) {
       window.removeEventListener("resize", request);
       outputSide.request = null;
     };
-  }, [props.width, props.height, props.scale]);
+  }, [props.width, props.height, props.scale, props.landscape]);
   useLayoutEffect(() => {
     redraw.current?.();
   }, [
@@ -595,6 +602,7 @@ export function NativeDuoDevice(props: Props) {
     props.height,
     props.axEnabled,
     props.scale,
+    props.landscape,
     props.streaming,
     snapshot,
     selection?.selectedKey,

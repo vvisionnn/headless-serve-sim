@@ -173,8 +173,8 @@ test("native composition paints mask holes and records its fitted canvas aspect"
     source.requestKeyframe = undefined;
     expect(outputRef.current?.subscribeEncoded).toBeUndefined();
     expect(outputRef.current?.requestKeyframe).toBeUndefined();
-    expect(snapshot.surfaceWidth).toBeCloseTo(450 / 0.85);
-    expect(snapshot.surfaceHeight).toBeCloseTo((450 * 900) / (1280 * 0.85));
+    expect(snapshot.surfaceWidth).toBeCloseTo(450 / 0.63);
+    expect(snapshot.surfaceHeight).toBeCloseTo((450 * 900) / (1280 * 0.63));
     expect(snapshot.width / snapshot.height).toBeCloseTo(
       snapshot.surfaceWidth / snapshot.surfaceHeight,
     );
