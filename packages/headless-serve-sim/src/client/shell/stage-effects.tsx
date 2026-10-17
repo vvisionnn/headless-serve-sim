@@ -23,7 +23,7 @@ export function glowColors(data: ArrayLike<number>): string[] {
 }
 
 /**
- * The largest painted surface under `root` — the canvas or image the stream
+ * The largest painted surface at or under `root` — the canvas or image the stream
  * is actually drawn into. The Duo keeps a 1px hidden decoder beside the
  * canvas it shows, so "first match" would pick the wrong one.
  */
@@ -32,9 +32,11 @@ export function largestSurface(
 ): HTMLCanvasElement | HTMLImageElement | HTMLVideoElement | null {
   let best: HTMLCanvasElement | HTMLImageElement | HTMLVideoElement | null = null;
   let area = 0;
-  for (const el of root?.querySelectorAll<HTMLCanvasElement | HTMLImageElement | HTMLVideoElement>(
-    "canvas, video, img",
-  ) ?? []) {
+  const surfaces = [
+    ...(root?.matches("canvas, video, img") ? [root] : []),
+    ...(root?.querySelectorAll("canvas, video, img") ?? []),
+  ] as (HTMLCanvasElement | HTMLImageElement | HTMLVideoElement)[];
+  for (const el of surfaces) {
     const a = el.clientWidth * el.clientHeight;
     if (a > area) {
       area = a;

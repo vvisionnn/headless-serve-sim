@@ -9,7 +9,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { animate, AnimatePresence, motion, useMotionValue } from "motion/react";
+import { animate, AnimatePresence, motion, useIsPresent, useMotionValue } from "motion/react";
 import { LoaderCircle, TriangleAlert } from "lucide-react";
 import {
   SimulatorView,
@@ -98,7 +98,14 @@ import {
   isPreviewControlTarget,
 } from "./utils/shortcuts";
 import { rotateLeft } from "./utils/rotate";
-import { sameDuoBounds } from "./utils/duo-bounds";
+import { sameDuoBounds, type DuoBounds } from "./utils/duo-bounds";
+import { rotationStart, type StagePose } from "./utils/stage-pose";
+import {
+  handOffStage,
+  primeStageFrame,
+  publishStageLayout,
+  takeStageHandoff,
+} from "./shell/stage-handoff";
 import {
   b64ToBlob,
   captureScreenshot,
@@ -172,12 +179,22 @@ function App() {
     return { config, helperAvailable: config !== null };
   });
   const { config, helperAvailable } = connection;
-  // Capture the explicit selection once. Reconnection stays pinned to this
-  // identity even while the helper config is temporarily absent.
-  const urlDeviceRef = useRef<string | null>(
+  // The explicit selection. Reconnection stays pinned to it even while the
+  // helper config is temporarily absent; an in-place switch moves it.
+  const [urlDevice, setUrlDevice] = useState<string | null>(() =>
     new URLSearchParams(window.location.search).get("device"),
   );
   const [streaming, setStreaming] = useState(false);
+  // Only the shell for the selected device may report streaming: the old one
+  // keeps painting while it fades out and must not flip the new one live.
+  const selectedDeviceRef = useRef(config?.device);
+  selectedDeviceRef.current = config?.device;
+  const setStreamingForSelected = useMemo(() => {
+    const device = config?.device;
+    return (value: boolean) => {
+      if (selectedDeviceRef.current === device) setStreaming(value);
+    };
+  }, [config?.device]);
   const [devices, setDevices] = useState<SimDevice[]>([]);
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [devicesError, setDevicesError] = useState<string | null>(null);
@@ -190,7 +207,7 @@ function App() {
   const [lastDevice, setLastDevice] = useState<{ udid: string; name: string | null } | null>(() => {
     const p = selectedPreviewConfig(window.__SIM_PREVIEW__);
     return selectedSimulatorTarget({
-      urlDevice: urlDeviceRef.current,
+      urlDevice: urlDevice,
       liveDevice: p?.device ?? null,
       liveDeviceName: p?.deviceName ?? null,
     });
@@ -201,7 +218,7 @@ function App() {
     () => selectedPreviewConfig(window.__SIM_PREVIEW__)?.deviceFrameSpec ?? null,
   );
   const eventsDevice = resolveEventsDevice({
-    urlDevice: urlDeviceRef.current,
+    urlDevice: urlDevice,
     initialDevice: lastDevice?.udid ?? null,
   });
 
@@ -275,6 +292,40 @@ function App() {
     if (!helperAvailable) setStreaming(false);
   }, [helperAvailable]);
 
+  // Switch simulators in place: fetch the target's config first, then swap it
+  // in one render, so the window never blanks the way a page load does.
+  const switchDevice = useCallback(async (udid: string, push = true) => {
+    const url = new URL(simEndpoint("api"), window.location.href);
+    url.searchParams.set("device", udid);
+    const res = await fetch(url.toString(), { cache: "no-store" });
+    const next = selectedPreviewConfig(
+      (await res.json().catch(() => null)) as Partial<PreviewConfig> | null,
+    );
+    if (!next || next.device !== udid) throw new Error("The simulator isn't streaming yet");
+    // A Duo streams its whole composite, not a screen; it arrives on its own.
+    if (!next.deviceTypeIdentifier?.endsWith(".iPhone-Duo")) await primeStageFrame(next.streamUrl);
+    window.__SIM_PREVIEW__ = next;
+    if (push) {
+      const location = new URL(window.location.href);
+      location.searchParams.set("device", udid);
+      window.history.pushState(null, "", location);
+    }
+    setStreaming(false);
+    setUrlDevice(udid);
+    setConnection({ config: next, helperAvailable: true });
+  }, []);
+  // Back and forward walk the same in-place switches.
+  useEffect(() => {
+    const onPop = () => {
+      const udid = new URLSearchParams(window.location.search).get("device");
+      if (!udid) return;
+      handOffStage();
+      void switchDevice(udid, false).catch(() => window.location.reload());
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [switchDevice]);
+
   useEffect(() => {
     const request = selectedSimulatorReattachRequest(helperAvailable, eventsDevice);
     if (!request) return;
@@ -326,24 +377,48 @@ function App() {
   }
 
   return (
-    <AppWithConfig
-      config={config}
-      theme={theme}
-      devices={devices}
-      devicesLoading={devicesLoading}
-      devicesError={devicesError}
-      stoppingUdids={stoppingUdids}
-      setStoppingUdids={setStoppingUdids}
-      switching={switching}
-      setSwitching={setSwitching}
-      axOverlayEnabled={axOverlayEnabled}
-      setAxOverlayEnabled={setAxOverlayEnabled}
-      selectedDevtoolsTargetId={selectedDevtoolsTargetId}
-      setSelectedDevtoolsTargetId={setSelectedDevtoolsTargetId}
-      streaming={streaming}
-      setStreaming={setStreaming}
-      fetchDevices={fetchDevices}
-    />
+    <AnimatePresence initial={false}>
+      <ShellLayer key={config.device}>
+        <AppWithConfig
+          config={config}
+          theme={theme}
+          devices={devices}
+          devicesLoading={devicesLoading}
+          devicesError={devicesError}
+          stoppingUdids={stoppingUdids}
+          setStoppingUdids={setStoppingUdids}
+          switching={switching}
+          setSwitching={setSwitching}
+          axOverlayEnabled={axOverlayEnabled}
+          setAxOverlayEnabled={setAxOverlayEnabled}
+          selectedDevtoolsTargetId={selectedDevtoolsTargetId}
+          setSelectedDevtoolsTargetId={setSelectedDevtoolsTargetId}
+          streaming={streaming}
+          setStreaming={setStreamingForSelected}
+          fetchDevices={fetchDevices}
+          onSwitchDevice={switchDevice}
+        />
+      </ShellLayer>
+    </AnimatePresence>
+  );
+}
+
+/**
+ * One shell per simulator. On a switch the new one mounts in place underneath
+ * and the old one fades out over it, so only what differs — the device, the
+ * wall closing — appears to move.
+ */
+function ShellLayer({ children }: { children: React.ReactNode }) {
+  const present = useIsPresent();
+  return (
+    <motion.div
+      className="fixed inset-0"
+      style={present ? undefined : { zIndex: 1, pointerEvents: "none" }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
+    >
+      {children}
+    </motion.div>
   );
 }
 
@@ -364,6 +439,8 @@ interface AppWithConfigProps {
   streaming: boolean;
   setStreaming: (v: boolean) => void;
   fetchDevices: () => Promise<void>;
+  /** Swap the window to another simulator without reloading the page. */
+  onSwitchDevice: (udid: string) => Promise<void>;
 }
 
 // Floating-panel geometry — the same numbers as the approved design.
@@ -394,7 +471,12 @@ function AppWithConfig({
   streaming,
   setStreaming,
   fetchDevices,
+  onSwitchDevice,
 }: AppWithConfigProps) {
+  // A device switch hands over the window's layout and where the device was,
+  // so the shell stays still and plays no entrance; a page load plays it.
+  const [handoff] = useState(takeStageHandoff);
+  const intro = handoff === null;
   const selectedDevice = devices.find((d) => d.udid === config.device) ?? null;
   // Prefer the live device-list name; fall back to the name baked into
   // __SIM_PREVIEW__ so the device type — and thus the frame's size cap — is
@@ -414,30 +496,44 @@ function AppWithConfig({
   const [navigatorOpen, setNavigatorOpen] = usePersistedFlag(
     "headless-serve-sim:navigator-open",
     false,
-    launchPanes ? launchPanes.includes("devices") : undefined,
+    handoff
+      ? handoff.layout.navigatorOpen
+      : launchPanes
+        ? launchPanes.includes("devices")
+        : undefined,
   );
   const [inspectorOpen, setInspectorOpen] = usePersistedFlag(
     "headless-serve-sim:inspector-open",
     true,
-    launchPanes ? launchPanes.includes("inspector") || launchPanes.includes("metrics") : undefined,
+    handoff
+      ? handoff.layout.inspectorOpen
+      : launchPanes
+        ? launchPanes.includes("inspector") || launchPanes.includes("metrics")
+        : undefined,
   );
-  const [inspectorTab, setInspectorTab] = useState<InspectorTab>(() =>
-    paneInitiallyOpen(launchState, "metrics", false) &&
-    !paneInitiallyOpen(launchState, "inspector", false)
-      ? "activity"
-      : "device",
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>(
+    () =>
+      handoff?.layout.inspectorTab ??
+      (paneInitiallyOpen(launchState, "metrics", false) &&
+      !paneInitiallyOpen(launchState, "inspector", false)
+        ? "activity"
+        : "device"),
   );
   const [consoleOpen, setConsoleOpen] = useState(
     () =>
-      paneInitiallyOpen(launchState, "logs", false) ||
-      paneInitiallyOpen(launchState, "devtools", false),
+      handoff?.layout.consoleOpen ??
+      (paneInitiallyOpen(launchState, "logs", false) ||
+        paneInitiallyOpen(launchState, "devtools", false)),
   );
-  const [consoleTab, setConsoleTab] = useState<ConsoleTab>(() =>
-    paneInitiallyOpen(launchState, "devtools", false) &&
-    !paneInitiallyOpen(launchState, "logs", false)
-      ? "web"
-      : "logs",
+  const [consoleTab, setConsoleTab] = useState<ConsoleTab>(
+    () =>
+      handoff?.layout.consoleTab ??
+      (paneInitiallyOpen(launchState, "devtools", false) &&
+      !paneInitiallyOpen(launchState, "logs", false)
+        ? "web"
+        : "logs"),
   );
+  const [consoleHeight, setConsoleHeight] = useState(handoff?.layout.consoleHeight ?? 300);
   const [wallOpen, setWallOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const devtoolsOpen = consoleOpen && consoleTab === "web";
@@ -488,6 +584,8 @@ function AppWithConfig({
   const foldable =
     config.deviceTypeIdentifier === "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo";
   const [hingeAngle, setHingeAngle] = useState(180);
+  // The fold bar waits for the real angle rather than flashing the default.
+  const [hingeKnown, setHingeKnown] = useState(false);
   const [foldError, setFoldError] = useState<string | null>(null);
   const [showBezels, setShowBezels] = useState(config.screenConfig?.includeFrame ?? true);
   const [streamError, setStreamError] = useState<string | null>(null);
@@ -495,15 +593,8 @@ function AppWithConfig({
   const [duoOrientation, setDuoOrientation] = useState<SimulatorOrientation | null>(null);
   const [deviceScale, setDeviceScale] = useState(1);
   const duoResizeRef = useRef<HTMLDivElement | null>(null);
-  const [duoBounds, setDuoBounds] = useState<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    fittedWidth: number;
-    fittedHeight: number;
-  } | null>(null);
-  const updateDuoBounds = useCallback((bounds: NonNullable<typeof duoBounds>) => {
+  const [duoBounds, setDuoBounds] = useState<DuoBounds | null>(null);
+  const updateDuoBounds = useCallback((bounds: DuoBounds) => {
     const element = duoResizeRef.current;
     if (element) {
       element.style.left = `${bounds.x}px`;
@@ -533,6 +624,7 @@ function AppWithConfig({
       const edit = ++hingeEditRef.current;
       hingePendingRef.current = true;
       setHingeAngle(angle);
+      setHingeKnown(true);
       setFoldError(null);
       void foldControl
         .set(angle)
@@ -579,6 +671,7 @@ function AppWithConfig({
       } catch (error) {
         if (!stopped) setFoldError(error instanceof Error ? error.message : String(error));
       }
+      if (!stopped) setHingeKnown(true);
       if (!stopped) timer = setTimeout(read, 2000);
     };
     void read();
@@ -919,8 +1012,12 @@ function AppWithConfig({
         : next,
     );
   }, []);
+  // Set when someone asks for a turn, so only that turn animates — not a
+  // landscape stream arriving on load.
+  const rotateRequestedAt = useRef(0);
   const rotateDevice = useCallback(
     (orientation: SimulatorOrientation) => {
+      rotateRequestedAt.current = Date.now();
       if (foldable) {
         const physical = {
           portrait: "portrait",
@@ -1281,7 +1378,7 @@ function AppWithConfig({
   ]);
 
   const switchToDevice = useCallback(
-    async (d: SimDevice) => {
+    async (d: SimDevice, from?: { rect: DOMRect | null; frame: string | null }) => {
       if (switching || d.udid === config.device) return;
       setSwitching(true);
       try {
@@ -1299,14 +1396,15 @@ function AppWithConfig({
         if (!response.ok || !result?.ok) {
           throw new Error(result?.error || "Failed to start headless-serve-sim");
         }
-        const nextUrl = new URL(window.location.href);
-        nextUrl.searchParams.set("device", d.udid);
-        window.location.assign(nextUrl.toString());
+        handOffStage({ from: from?.rect ?? null, frame: from?.frame ?? null });
+        await onSwitchDevice(d.udid);
       } catch {
+        takeStageHandoff();
+      } finally {
         setSwitching(false);
       }
     },
-    [switching, config.device, config.gridStartEndpoint, setSwitching],
+    [switching, config.device, config.gridStartEndpoint, setSwitching, onSwitchDevice],
   );
 
   const uploads = useUploadToasts();
@@ -1352,8 +1450,17 @@ function AppWithConfig({
   const overlayPanels = viewportWidth < 1080;
   const stageLeft = navigatorOpen && !overlayPanels ? NAV_W + GAP * 2 : 0;
   const stageRight = inspectorOpen && !overlayPanels ? INS_W + GAP * 2 : 0;
-  const [consoleHeight, setConsoleHeight] = useState(300);
   const insetBottom = consoleOpen ? consoleHeight + GAP : 0;
+  useEffect(() => {
+    publishStageLayout({
+      navigatorOpen,
+      inspectorOpen,
+      inspectorTab,
+      consoleOpen,
+      consoleTab,
+      consoleHeight,
+    });
+  }, [navigatorOpen, inspectorOpen, inspectorTab, consoleOpen, consoleTab, consoleHeight]);
   // The device glides as the console rises: the inset it fits against
   // springs from where it is now, so the device re-fits every frame instead
   // of jumping to its final size.
@@ -1375,12 +1482,19 @@ function AppWithConfig({
   const flyX = useMotionValue(0);
   const flyY = useMotionValue(0);
   const flyScale = useMotionValue(1);
+  const flyRotate = useMotionValue(0);
+  // What hangs under the device (shadow, dock) rides with a turn.
+  const dockLift = useMotionValue(0);
+  // The visible device within the device box (the Duo draws inside a larger one).
+  const visibleRef = useRef({ x: 0, y: 0, width: 0, height: 0 });
   const flyFrom = useCallback(
     (tile: DOMRect) => {
       const el = deviceRef.current;
       if (!el) return;
-      const to = el.getBoundingClientRect();
-      if (!to.width) return;
+      const box = el.getBoundingClientRect();
+      const v = visibleRef.current;
+      if (!v.width) return;
+      const to = { left: box.left + v.x, top: box.top + v.y, width: v.width, height: v.height };
       flyX.set(tile.left + tile.width / 2 - (to.left + to.width / 2));
       flyY.set(tile.top + tile.height / 2 - (to.top + to.height / 2));
       flyScale.set(tile.width / to.width);
@@ -1528,6 +1642,56 @@ function AppWithConfig({
       : { x: 0, y: 0, width: deviceAvailWidth, height: deviceAvailHeight }
     : { x: 0, y: 0, width: deviceBox.width, height: deviceBox.height };
   const deviceBottom = deviceTop + visible.y + visible.height;
+  visibleRef.current = visible;
+
+  // Rotation turns the device on the stage, as in the design: the new
+  // orientation is drawn at once, then sprung back from the old angle, size
+  // and place, so it reads as one object turning rather than a swap.
+  const pose: StagePose = {
+    rotation: nativeComposition ? (duoBounds?.rotation ?? 0) : bezelRotation,
+    cx: deviceLeft + visible.x + visible.width / 2,
+    cy: deviceTop + visible.y + visible.height / 2,
+    width: visible.width,
+    height: visible.height,
+  };
+  const poseRef = useRef(pose);
+  useLayoutEffect(() => {
+    const prev = poseRef.current;
+    poseRef.current = pose;
+    if (prev.rotation === pose.rotation || !prev.width || !pose.width) return;
+    if (Date.now() - rotateRequestedAt.current > 5000) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const start = rotationStart(prev, pose);
+    flyRotate.set(start.rotate);
+    flyScale.set(start.scale);
+    flyX.set(start.x);
+    flyY.set(start.y);
+    dockLift.set(start.lift);
+    for (const [value, rest] of [
+      [flyRotate, 0],
+      [flyScale, 1],
+      [flyX, 0],
+      [flyY, 0],
+      [dockLift, 0],
+    ] as const)
+      animate(value, rest, spring.rotate);
+  });
+
+  // Arriving from the wall: fly in from the tile once the device has a place
+  // (a Duo has none until its first composite), holding the tile's last
+  // frame on the screen until the new stream paints over it.
+  const pendingFlight = useRef(handoff?.from ?? null);
+  const placed = !foldable || duoBounds !== null;
+  useLayoutEffect(() => {
+    const tile = pendingFlight.current;
+    if (!tile || !placed) return;
+    pendingFlight.current = null;
+    flyFrom(tile);
+  });
+  const [heldFrame, setHeldFrame] = useState(handoff?.frame ?? null);
+  useEffect(() => {
+    if (streaming) setHeldFrame(null);
+  }, [streaming]);
   const glowColors = useScreenColors(simContainerRef, streaming && !wallOpen);
 
   const recording = useScreenRecording({
@@ -1706,7 +1870,21 @@ function AppWithConfig({
       <Shutter count={shutter} />
       {reveal && <AppearanceReveal key={reveal.id} url={reveal.url} onDone={endReveal} />}
       <AnimatePresence>
-        {!streaming && !streamError && <ScreenStatus key="connecting" />}
+        {heldFrame && (
+          <motion.img
+            key="held"
+            src={heldFrame}
+            alt=""
+            aria-hidden
+            draggable={false}
+            className="pointer-events-none absolute inset-0 z-[72] size-full select-none"
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {!streaming && !streamError && !heldFrame && <ScreenStatus key="connecting" />}
         {streamError && <ScreenStatus key="error" error={streamError} />}
       </AnimatePresence>
       <AnimatePresence>{mediaDrop.isDragOver && <DropOverlay />}</AnimatePresence>
@@ -1857,7 +2035,7 @@ function AppWithConfig({
           }
         >
           <div className="stage-bg fixed inset-0 overflow-hidden">
-            <AnimatePresence>
+            <AnimatePresence initial={intro}>
               {navigatorOpen && (
                 <motion.aside
                   key="nav"
@@ -1883,7 +2061,7 @@ function AppWithConfig({
               )}
             </AnimatePresence>
 
-            <AnimatePresence>
+            <AnimatePresence initial={intro}>
               {inspectorOpen && (
                 <motion.aside
                   key="ins"
@@ -1923,8 +2101,16 @@ function AppWithConfig({
                   <motion.div
                     ref={deviceRef}
                     className="absolute"
-                    initial={{ opacity: 0, y: 40, filter: "blur(12px)" }}
-                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                    initial={
+                      intro
+                        ? { opacity: 0, y: 40, filter: "blur(12px)" }
+                        : handoff.from
+                          ? false
+                          : // Switched without a tile to fly from: the new device
+                            // settles in place as the old one fades over it.
+                            { opacity: 0, scale: 0.94, filter: "blur(6px)" }
+                    }
+                    animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
                     transition={{ ...spring.surface, opacity: { duration: 0.4 } }}
                     style={{
                       left: deviceLeft,
@@ -1935,7 +2121,7 @@ function AppWithConfig({
                   >
                     <motion.div
                       className="absolute inset-0"
-                      style={{ x: flyX, y: flyY, scale: flyScale }}
+                      style={{ x: flyX, y: flyY, scale: flyScale, rotate: flyRotate }}
                     >
                       <div
                         className="absolute"
@@ -1953,28 +2139,35 @@ function AppWithConfig({
                   </motion.div>
 
                   {/* Contact shadow: the device rests on the stage rather than floating in it. */}
-                  <div
+                  <motion.div
                     aria-hidden
-                    className="pointer-events-none absolute top-0 left-0 h-[22px] rounded-[50%] bg-black/25 blur-[14px] dark:bg-black/70"
-                    style={{
-                      transform: `translate(${deviceLeft + visible.x + visible.width * 0.14}px, ${deviceBottom - 12}px)`,
-                      width: visible.width * 0.72,
-                    }}
-                  />
+                    className="pointer-events-none absolute top-0 left-0"
+                    style={{ y: dockLift }}
+                  >
+                    <div
+                      className="absolute top-0 left-0 h-[22px] rounded-[50%] bg-black/25 blur-[14px] dark:bg-black/70"
+                      style={{
+                        transform: `translate(${deviceLeft + visible.x + visible.width * 0.14}px, ${deviceBottom - 12}px)`,
+                        width: visible.width * 0.72,
+                      }}
+                    />
+                  </motion.div>
 
                   {/* Dock rides just under the device's lower edge. */}
-                  <div
-                    className="absolute top-0 left-0 z-20"
-                    style={{ transform: `translate(${stageWidth / 2}px, ${deviceBottom + 22}px)` }}
-                  >
-                    <div className="flex -translate-x-1/2 flex-col items-center gap-2.5">
-                      <DeviceDock />
+                  <motion.div className="absolute top-0 left-0 z-20" style={{ y: dockLift }}>
+                    <div
+                      className="flex flex-col items-center gap-2.5"
+                      style={{
+                        transform: `translate(calc(${stageWidth / 2}px - 50%), ${deviceBottom + 22}px)`,
+                      }}
+                    >
+                      <DeviceDock intro={intro} />
                       {foldable && (
                         <motion.div
                           className="glass-sm w-[400px] max-w-[calc(100vw-48px)] rounded-[22px]"
                           initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ ...spring.surface, delay: 0.3 }}
+                          animate={hingeKnown ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
+                          transition={{ ...spring.surface, delay: intro ? 0.3 : 0 }}
                         >
                           <DeviceMotionTool
                             disabled={!streaming}
@@ -1986,7 +2179,7 @@ function AppWithConfig({
                         </motion.div>
                       )}
                     </div>
-                  </div>
+                  </motion.div>
                 </motion.div>
 
                 <AnimatePresence>
@@ -2005,18 +2198,24 @@ function AppWithConfig({
                           const tile = document
                             .querySelector(`[data-wall-tile="${CSS.escape(udid)}"]`)
                             ?.getBoundingClientRect();
-                          setWallOpen(false);
                           if (udid === config.device) {
+                            setWallOpen(false);
                             if (tile) requestAnimationFrame(() => flyFrom(tile));
                             return;
                           }
+                          // Another simulator: the wall stays up until its shell
+                          // takes over, so the old device never reappears between.
+                          const screen = document.querySelector<HTMLElement>(
+                            `[data-wall-tile="${CSS.escape(udid)}"] [data-wall-screen]`,
+                          );
+                          const frame = snapshotScreen(screen)?.url ?? null;
                           const target = devices.find((d) => d.udid === udid) ?? {
                             udid,
                             name: udid,
                             state: "Booted",
                             runtime: "",
                           };
-                          void switchToDevice(target);
+                          void switchToDevice(target, { rect: tile ?? null, frame });
                         }}
                       />
                     </motion.div>
@@ -2041,7 +2240,7 @@ function AppWithConfig({
                 />
               </div>
 
-              <AnimatePresence>
+              <AnimatePresence initial={intro}>
                 {consoleOpen && (
                   <ConsoleDrawer
                     key="console"
@@ -2135,8 +2334,9 @@ function ScreenStatus({ error }: { error?: string }) {
     <motion.div
       className="pointer-events-none absolute inset-0 z-[70] flex items-center justify-center bg-black/55 p-5"
       initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+      // A healthy stream connects in well under this; only a slow one says so.
+      animate={{ opacity: 1, transition: { duration: 0.25, delay: error ? 0 : 0.4 } }}
+      exit={{ opacity: 0, transition: { duration: 0.2 } }}
       role={error ? "alert" : "status"}
     >
       {error ? (

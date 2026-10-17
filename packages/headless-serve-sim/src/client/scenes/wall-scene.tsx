@@ -210,7 +210,11 @@ function Tile({
     <img
       src={device.helper!.streamUrl}
       alt={device.name}
+      // The helper allows any origin; asking for CORS keeps the pixels
+      // readable, so a switch can hold this frame while the stage connects.
+      crossOrigin="anonymous"
       draggable={false}
+      data-wall-screen
       className="pointer-events-none absolute inset-0 size-full object-cover select-none"
     />
   ) : (
@@ -376,6 +380,7 @@ function DuoCompositeScreen({ streamUrl, label }: { streamUrl: string; label: st
       ref={canvasRef}
       role="img"
       aria-label={label}
+      data-wall-screen
       className="pointer-events-none absolute inset-0 size-full object-contain"
     />
   );

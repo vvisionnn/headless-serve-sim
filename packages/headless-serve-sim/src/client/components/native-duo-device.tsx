@@ -9,6 +9,7 @@ import {
 } from "../duo-model";
 import { AxSelectionContext, useAxSnapshotContext } from "../hooks/use-ax-snapshot";
 import { axElementKey, axElementSummary, axNodeForElement } from "../utils/ax";
+import type { DuoBounds } from "../utils/duo-bounds";
 import { duoOutputSide, duoViewport } from "../utils/duo-viewport";
 
 const FINGER_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='9' fill='rgba(255,255,255,0.45)' stroke='rgba(0,0,0,0.55)' stroke-width='1.25' filter='drop-shadow(0 1px 2px rgba(0,0,0,0.45))'/%3E%3C/svg%3E") 12 12, pointer`;
@@ -44,14 +45,7 @@ interface Props {
     displayId?: number;
   }) => void;
   onScroll: (scroll: { x: number; y: number; dx: number; dy: number; displayId?: number }) => void;
-  onBoundsChange: (bounds: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    fittedWidth: number;
-    fittedHeight: number;
-  }) => void;
+  onBoundsChange: (bounds: DuoBounds) => void;
 }
 
 export function NativeDuoDevice(props: Props) {
@@ -205,6 +199,7 @@ export function NativeDuoDevice(props: Props) {
         height: displayHeight,
         fittedWidth: fitted.width,
         fittedHeight: fitted.height,
+        rotation: metadata.rotation,
       };
       const identity = Object.values(bounds).map(Math.round).join(":");
       if (identity !== lastBounds) {

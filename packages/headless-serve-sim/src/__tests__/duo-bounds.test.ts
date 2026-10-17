@@ -1,7 +1,15 @@
 import { expect, test } from "bun:test";
 import { sameDuoBounds } from "../client/utils/duo-bounds";
 
-const base = { x: 10, y: 20, width: 300, height: 400, fittedWidth: 300, fittedHeight: 400 };
+const base = {
+  x: 10,
+  y: 20,
+  width: 300,
+  height: 400,
+  fittedWidth: 300,
+  fittedHeight: 400,
+  rotation: 0,
+};
 
 test("a resize that keeps the fitted size still counts as a change", () => {
   // Scaling the Duo grows the visible device while the fitted size stays put;
@@ -11,4 +19,8 @@ test("a resize that keeps the fitted size still counts as a change", () => {
 
 test("sub-pixel paint jitter is ignored", () => {
   expect(sameDuoBounds(base, { ...base, x: 10.3, height: 400.4 })).toBe(true);
+});
+
+test("a turn of the composite is a change even when the box keeps its size", () => {
+  expect(sameDuoBounds(base, { ...base, rotation: 90 })).toBe(false);
 });

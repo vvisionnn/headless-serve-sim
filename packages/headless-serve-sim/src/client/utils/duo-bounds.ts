@@ -5,6 +5,8 @@ export interface DuoBounds {
   height: number;
   fittedWidth: number;
   fittedHeight: number;
+  /** The composite's rotation, so the stage turns in step with its frames. */
+  rotation: number;
 }
 
 /** Sub-pixel jitter from the per-frame paint isn't a move worth re-rendering for. */

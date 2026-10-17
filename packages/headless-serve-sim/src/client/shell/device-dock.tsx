@@ -23,7 +23,7 @@ const REACH = 110;
  * icons swell toward the pointer like the macOS Dock, labels rise above.
  * Placing them under the device maps each control to what it acts on.
  */
-export function DeviceDock() {
+export function DeviceDock({ intro = true }: { intro?: boolean }) {
   const shell = useShell();
   const mouseX = useMotionValue(Infinity);
   const watch = shell.device?.type === "watch";
@@ -33,7 +33,7 @@ export function DeviceDock() {
       onMouseMove={(e) => mouseX.set(e.clientX)}
       onMouseLeave={() => mouseX.set(Infinity)}
       className="glass flex h-[50px] items-end gap-1 rounded-[25px] px-[7px] pb-[7px]"
-      initial={{ opacity: 0, y: 12, filter: "blur(6px)" }}
+      initial={intro ? { opacity: 0, y: 12, filter: "blur(6px)" } : false}
       animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
       transition={{ ...spring.surface, delay: 0.25 }}
     >
