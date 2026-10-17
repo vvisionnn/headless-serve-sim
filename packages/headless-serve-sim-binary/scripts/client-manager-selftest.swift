@@ -52,8 +52,20 @@ func flush(_ manager: ClientManager) { _ = manager.avccTransportMetrics() }
         let legacy = try JSONDecoder().decode(ScrollEventPayload.self, from: Data(#"{"dx":10,"dy":20}"#.utf8))
         let targeted = try JSONDecoder().decode(ScrollEventPayload.self, from: Data(#"{"dx":10,"dy":20,"displayId":3}"#.utf8))
         precondition(legacy.displayId == nil && targeted.displayId == 3, "scroll targeting must preserve legacy payloads")
+        // Labels match what clients send to rotate: "landscape_left" is the
+        // device turned clockwise (interface rot90 → content drawn rot270).
+        let plain = ClientManager()
+        plain.setDisplay(id: 1, rotation: 90)
+        precondition(plain.screenConfig()["orientation"] as? String == "landscape_right",
+                     "a display drawn rot90 is the device turned counter-clockwise")
+        plain.setDisplay(id: 1, rotation: 270)
+        precondition(plain.screenConfig()["orientation"] as? String == "landscape_left",
+                     "a display drawn rot270 is the device turned clockwise")
+        plain.setDisplay(id: 1, rotation: 180)
+        precondition(plain.screenConfig()["orientation"] as? String == "portrait_upside_down")
+        plain.stop()
         manager.stop()
-        print("Client manager shared bezel config, duplicate suppression and scroll payload self-test passed")
+        print("Client manager shared bezel config, duplicate suppression, orientation labels and scroll payload self-test passed")
     }
 }
 #endif

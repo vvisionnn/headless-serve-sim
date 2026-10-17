@@ -65,12 +65,15 @@ final class ClientManager {
         if changed { broadcastConfig() }
     }
 
+    /// Publishes the display's orientation in the same vocabulary clients use
+    /// to request one (see the 0x07 handler): "landscape_left" turns the
+    /// device clockwise, which iOS draws into the framebuffer at rot270.
     func setDisplay(id: Int?, rotation: Int) {
         let orientation: String
         switch rotation {
-        case 90: orientation = "landscape_left"
+        case 90: orientation = "landscape_right"
         case 180: orientation = "portrait_upside_down"
-        case 270: orientation = "landscape_right"
+        case 270: orientation = "landscape_left"
         default: orientation = "portrait"
         }
         configLock.lock()
