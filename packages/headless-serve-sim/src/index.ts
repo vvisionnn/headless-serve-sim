@@ -55,6 +55,7 @@ import { createNodeHostCommands } from "./runtime/node-host-commands";
 import { resolveUnembeddedHelperBinary } from "./helper-binary";
 import { resolveNativeSourceRoot } from "./native-source-root";
 import { resolveSimulatorApp, withSimulatorFrameworkPath } from "./xcode-layout";
+import { ensureTouchService } from "./touch-service";
 
 // `import.meta.dir` is Bun-only; resolve once via fileURLToPath so the bundled
 // CLI works under plain `node` too.
@@ -722,6 +723,7 @@ async function startHelper(
   );
   if (opts.attachOnly) await requireAlreadyBooted(udid);
   else await ensureBooted(udid, opts.headed);
+  await ensureTouchService(hostCommands, udid);
 
   const host = "127.0.0.1";
   const helperPath = findHelperBinary();
@@ -821,6 +823,7 @@ async function follow(devices: string[], startPort: number, quiet: boolean, head
     // Return existing server if already running
     const existing = readState(udid);
     if (existing) {
+      await ensureTouchService(hostCommands, udid);
       if (!quiet) {
         const name = getDeviceName(udid) ?? udid;
         if (udids.length > 1) console.log(`\n==> ${name} (${udid}) <==`);
@@ -1009,6 +1012,7 @@ async function detach(
     });
     const existing = readState(udid);
     if (existing) {
+      await ensureTouchService(hostCommands, udid);
       states.push(existing);
       if (defaultCandidates) break;
       continue;
