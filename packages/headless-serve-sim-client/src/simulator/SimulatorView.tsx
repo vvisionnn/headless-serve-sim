@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -350,8 +351,10 @@ export function SimulatorView({
     onStreamError?.(error);
   }, [error, onStreamError]);
 
-  // In relay mode, use streamConfig for screen size
-  useEffect(() => {
+  // In relay mode, use streamConfig for screen size. Applied before paint: the
+  // host turns the device box in the same render, and a frame of the stream
+  // laid out for the old orientation inside it reads as a flash.
+  useLayoutEffect(() => {
     if (relayMode && streamConfig) {
       updateScreenConfig(streamConfig);
     }
@@ -1301,6 +1304,18 @@ export function SimulatorView({
   // viewport, so the <img> matches the video 1:1 (no letterbox, no clipping).
   const streamGeometry = streamDisplayGeometry(screenSize);
   const displayScreenSize = streamGeometry.displayConfig;
+  // The ResizeObserver reports after paint; when the shape of the screen
+  // changes (a turn), re-measure before it so the box is right on that frame.
+  // Layout sizes, not bounding rects: an ancestor may be mid-transform.
+  useLayoutEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const width = el.clientWidth;
+    const height = el.clientHeight;
+    setViewportSize((prev) =>
+      prev && prev.width === width && prev.height === height ? prev : { width, height },
+    );
+  }, [displayScreenSize?.width, displayScreenSize?.height, streamGeometry.rotationDegrees]);
   const fittedBox = (() => {
     if (!displayScreenSize || !viewportSize) return null;
     if (viewportSize.width === 0 || viewportSize.height === 0) return null;

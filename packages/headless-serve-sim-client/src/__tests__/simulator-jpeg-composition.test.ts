@@ -64,6 +64,9 @@ test("relay recording composition becomes visible only with its corresponding lo
     spyOn(React, "useEffect").mockImplementation((effect, deps) => {
       effects.push({ effect, deps });
     }),
+    spyOn(React, "useLayoutEffect").mockImplementation((effect, deps) => {
+      effects.push({ effect, deps });
+    }),
   ];
   let cleanup: ReturnType<React.EffectCallback> = undefined;
   try {

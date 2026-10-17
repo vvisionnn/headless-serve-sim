@@ -77,6 +77,26 @@ function orientedScreenMask(spec: DeviceFrameSpec, rotation: number): string {
   return `data:image/svg+xml,${encodeURIComponent(svg).replace(/[()']/g, (character) => `%${character.charCodeAt(0).toString(16)}`)}`;
 }
 
+// Decoded masks, kept alive so the browser holds them in its image cache.
+const decodedMasks = new Map<string, HTMLImageElement>();
+
+/**
+ * Decode the screen mask for all four turns up front. A mask image that is
+ * still decoding masks the whole screen out, so a turn that met a fresh one
+ * would show an empty frame for a beat.
+ */
+export function preloadScreenMasks(spec: DeviceFrameSpec) {
+  if (!spec.screenMask || typeof Image === "undefined") return;
+  for (const rotation of [0, 90, -90, 180]) {
+    const url = orientedScreenMask(spec, rotation);
+    if (decodedMasks.has(url)) continue;
+    const image = new Image();
+    image.src = url;
+    void image.decode().catch(() => {});
+    decodedMasks.set(url, image);
+  }
+}
+
 export function DeviceBezel({
   spec,
   geometry,
@@ -95,6 +115,7 @@ export function DeviceBezel({
   onPressButton?: (press: HardwareButtonPress) => void;
 } & Record<string, unknown>) {
   const artwork = useFrameArtwork(spec);
+  useEffect(() => preloadScreenMasks(spec), [spec]);
   const { screen, screenRadii, rotation } = geometry;
   const sideways = Math.abs(rotation) === 90;
   const bodyWidth = sideways ? geometry.artworkHeight : geometry.artworkWidth;

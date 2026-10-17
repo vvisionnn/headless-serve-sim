@@ -199,7 +199,6 @@ export function NativeDuoDevice(props: Props) {
         height: displayHeight,
         fittedWidth: fitted.width,
         fittedHeight: fitted.height,
-        rotation: metadata.rotation,
       };
       const identity = Object.values(bounds).map(Math.round).join(":");
       if (identity !== lastBounds) {

@@ -78,7 +78,13 @@ import { useWebKitDevtools } from "./hooks/use-webkit-devtools";
 import { avccFallbackReducer, initialAvccFallback, AVCC_FRAME_TIMEOUT_MS } from "./avcc-fallback";
 import { parseSimctlList, type SimDevice } from "./utils/devices";
 import { fileExtension } from "./utils/drop";
-import { execOnHost, hostDeviceMotionRequest, hostDeviceTouchRequest } from "./utils/exec";
+import {
+  execOnHost,
+  hostDeviceMotionRequest,
+  hostDeviceTouchRequest,
+  hostSimulatorControlRequest,
+} from "./utils/exec";
+import { screenOrientationForDevice, withDeviceOrientation } from "./utils/device-orientation";
 import { DeviceMotionTool, type DuoPose } from "./components/device-motion-tool";
 import { createFoldControl } from "./utils/fold-control";
 import { sendDeviceView, type DeviceView } from "./utils/device-view-control";
@@ -98,6 +104,7 @@ import {
   isPreviewControlTarget,
 } from "./utils/shortcuts";
 import { rotateLeft } from "./utils/rotate";
+import { createSettleWatch } from "./utils/turn-settle";
 import { sameDuoBounds, type DuoBounds } from "./utils/duo-bounds";
 import { rotationStart, type StagePose } from "./utils/stage-pose";
 import {
@@ -753,13 +760,22 @@ function AppWithConfig({
   // connect + on every dimension/orientation change) instead of a 1s /config poll.
   const [wsStreamConfig, setWsStreamConfig] = useState<StreamConfig | null>(null);
   const streamConfig = wsStreamConfig;
-  const activeStreamConfig = resolveActiveScreenConfig({
-    live: liveStreamConfig,
-    ws: streamConfig,
-    injected: config.screenConfig,
-    fallback:
-      config.deviceFrameSpec?.nativeScreen ?? fallbackScreenSize(deviceType, resolvedDeviceName),
-  });
+  // How the device is held. The helper reports the foreground app's interface
+  // orientation, which stays portrait in a portrait-only app (the home screen)
+  // even with the device sideways; Simulator.app turns the device regardless,
+  // so the stage follows this instead. Set at once when we turn it, confirmed
+  // from devicectl whenever the app's orientation moves.
+  const [deviceOrientation, setDeviceOrientation] = useState<SimulatorOrientation | null>(null);
+  const activeStreamConfig = withDeviceOrientation(
+    resolveActiveScreenConfig({
+      live: liveStreamConfig,
+      ws: streamConfig,
+      injected: config.screenConfig,
+      fallback:
+        config.deviceFrameSpec?.nativeScreen ?? fallbackScreenSize(deviceType, resolvedDeviceName),
+    }),
+    foldable ? null : deviceOrientation,
+  );
   const nativeComposition = foldable && activeStreamConfig.deviceComposition === true;
   const deviceFrameSpecs =
     config.deviceFrameSpecs ?? (config.deviceFrameSpec ? [config.deviceFrameSpec] : []);
@@ -1015,9 +1031,17 @@ function AppWithConfig({
   // Set when someone asks for a turn, so only that turn animates — not a
   // landscape stream arriving on load.
   const rotateRequestedAt = useRef(0);
+  const deviceOrientationEdit = useRef(0);
+  // The screen as it was when a turn began; held on the glass while it turns.
+  const turnSnapshot = useRef<string | null>(null);
   const rotateDevice = useCallback(
     (orientation: SimulatorOrientation) => {
       rotateRequestedAt.current = Date.now();
+      if (!foldable) {
+        turnSnapshot.current = snapshotScreen(simContainerRef.current)?.url ?? null;
+        deviceOrientationEdit.current++;
+        setDeviceOrientation(orientation);
+      }
       if (foldable) {
         const physical = {
           portrait: "portrait",
@@ -1044,6 +1068,33 @@ function AppWithConfig({
     },
     [sendWs, foldable, config.device],
   );
+  // Confirm how the device is held: on connect, and whenever the app's own
+  // orientation moves (something turned it). A read that raced one of our own
+  // turns is dropped rather than snapping the stage back.
+  const reportedOrientation = (streamConfig as { orientation?: SimulatorOrientation } | null)
+    ?.orientation;
+  const deviceOrientationKnown = useRef(false);
+  useEffect(() => {
+    if (foldable || !streaming) return;
+    let stopped = false;
+    const edit = deviceOrientationEdit.current;
+    const timer = setTimeout(() => {
+      void hostSimulatorControlRequest({ device: config.device })
+        .then((state) => {
+          const next = screenOrientationForDevice(state.orientation);
+          if (stopped || !next || edit !== deviceOrientationEdit.current) return;
+          // A turn we didn't make still turns the stage, once we know where it was.
+          if (deviceOrientationKnown.current) rotateRequestedAt.current = Date.now();
+          deviceOrientationKnown.current = true;
+          setDeviceOrientation(next);
+        })
+        .catch(() => {});
+    }, 400);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [foldable, streaming, config.device, reportedOrientation]);
   useEffect(() => {
     if (!nativeComposition) {
       deviceViewRef.current = null;
@@ -1647,26 +1698,90 @@ function AppWithConfig({
   // Rotation turns the device on the stage, as in the design: the new
   // orientation is drawn at once, then sprung back from the old angle, size
   // and place, so it reads as one object turning rather than a swap.
-  const pose: StagePose = {
-    rotation: nativeComposition ? (duoBounds?.rotation ?? 0) : bezelRotation,
-    cx: deviceLeft + visible.x + visible.width / 2,
-    cy: deviceTop + visible.y + visible.height / 2,
-    width: visible.width,
-    height: visible.height,
-  };
+  const poseRotation = nativeComposition ? 0 : bezelRotation;
+  const poseCx = deviceLeft + visible.x + visible.width / 2;
+  const poseCy = deviceTop + visible.y + visible.height / 2;
+  const pose = useMemo<StagePose>(
+    () => ({
+      // The Duo's renderer turns the device itself, frame by frame.
+      rotation: poseRotation,
+      cx: poseCx,
+      cy: poseCy,
+      width: visible.width,
+      height: visible.height,
+    }),
+    [poseRotation, poseCx, poseCy, visible.width, visible.height],
+  );
   const poseRef = useRef(pose);
+  const [turnFrame, setTurnFrame] = useState<{
+    id: number;
+    url: string;
+    rotate: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  // Let go once iOS has finished redrawing for the new orientation: its own
+  // rotation animation plays in the stream after the device turn starts.
+  const turnFrameId = turnFrame?.id;
+  useEffect(() => {
+    if (turnFrameId === undefined) return;
+    const settled = createSettleWatch({ minMs: 450, stillMs: 120, maxMs: 1500 });
+    const probe = document.createElement("canvas");
+    probe.width = probe.height = 24;
+    const ctx = probe.getContext("2d", { willReadFrequently: true });
+    let raf = requestAnimationFrame(function watch(now) {
+      const stream = simContainerRef.current?.querySelector<HTMLCanvasElement | HTMLVideoElement>(
+        "canvas, video",
+      );
+      let sample: Uint8ClampedArray | null = null;
+      if (ctx && stream) {
+        try {
+          ctx.drawImage(stream, 0, 0, 24, 24);
+          sample = ctx.getImageData(0, 0, 24, 24).data;
+        } catch {}
+      }
+      if (settled(now, sample)) setTurnFrame(null);
+      else raf = requestAnimationFrame(watch);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [turnFrameId]);
+  const turnRef = useRef<HTMLDivElement>(null);
+  const shadowLiftRef = useRef<HTMLDivElement>(null);
+  const dockLiftRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const prev = poseRef.current;
     poseRef.current = pose;
     if (prev.rotation === pose.rotation || !prev.width || !pose.width) return;
+    const snapshot = turnSnapshot.current;
+    turnSnapshot.current = null;
     if (Date.now() - rotateRequestedAt.current > 5000) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const start = rotationStart(prev, pose);
+    // iOS animates its own rotation inside the framebuffer — a tilted page
+    // with black corners — while the device turns. Hold the old picture on
+    // the glass, turned with the device, until iOS has settled.
+    const glass = simContainerRef.current;
+    if (snapshot && glass) {
+      const quarter = Math.abs(start.rotate) === 90;
+      setTurnFrame({
+        id: Date.now(),
+        url: snapshot,
+        rotate: -start.rotate,
+        width: quarter ? glass.offsetHeight : glass.offsetWidth,
+        height: quarter ? glass.offsetWidth : glass.offsetHeight,
+      });
+    }
     flyRotate.set(start.rotate);
     flyScale.set(start.scale);
     flyX.set(start.x);
     flyY.set(start.y);
     dockLift.set(start.lift);
+    // Motion writes these on its next frame; the new geometry paints on this
+    // one. Write the start pose now so the two land together.
+    if (turnRef.current)
+      turnRef.current.style.transform = `translateX(${start.x}px) translateY(${start.y}px) scale(${start.scale}) rotate(${start.rotate}deg)`;
+    for (const el of [shadowLiftRef.current, dockLiftRef.current])
+      if (el) el.style.transform = `translateY(${start.lift}px)`;
     for (const [value, rest] of [
       [flyRotate, 0],
       [flyScale, 1],
@@ -1675,7 +1790,7 @@ function AppWithConfig({
       [dockLift, 0],
     ] as const)
       animate(value, rest, spring.rotate);
-  });
+  }, [pose, flyRotate, flyScale, flyX, flyY, dockLift]);
 
   // Arriving from the wall: fly in from the tile once the device has a place
   // (a Duo has none until its first composite), holding the tile's last
@@ -1837,8 +1952,12 @@ function AppWithConfig({
       },
     },
     onOrientationChange: (orientation) => {
+      rotateRequestedAt.current = Date.now();
+      if (!foldable) turnSnapshot.current = snapshotScreen(simContainerRef.current)?.url ?? null;
       orientationEditRef.current++;
       setDuoOrientation(orientation);
+      deviceOrientationEdit.current++;
+      setDeviceOrientation(orientation);
     },
     recording,
     recordingSourceRef: nativeComposition ? duoRecordingSourceRef : recordingSourceRef,
@@ -1868,6 +1987,26 @@ function AppWithConfig({
   const screenOverlays = (
     <>
       <Shutter count={shutter} />
+      <AnimatePresence>
+        {turnFrame && (
+          <motion.img
+            key={turnFrame.id}
+            src={turnFrame.url}
+            alt=""
+            aria-hidden
+            draggable={false}
+            className="pointer-events-none absolute top-1/2 left-1/2 z-[71] max-w-none select-none"
+            style={{
+              width: turnFrame.width,
+              height: turnFrame.height,
+              x: "-50%",
+              y: "-50%",
+              rotate: turnFrame.rotate,
+            }}
+            exit={{ opacity: 0, transition: { duration: 0.28, ease: [0.32, 0.72, 0, 1] } }}
+          />
+        )}
+      </AnimatePresence>
       {reveal && <AppearanceReveal key={reveal.id} url={reveal.url} onDone={endReveal} />}
       <AnimatePresence>
         {heldFrame && (
@@ -2120,6 +2259,7 @@ function AppWithConfig({
                     }}
                   >
                     <motion.div
+                      ref={turnRef}
                       className="absolute inset-0"
                       style={{ x: flyX, y: flyY, scale: flyScale, rotate: flyRotate }}
                     >
@@ -2140,6 +2280,7 @@ function AppWithConfig({
 
                   {/* Contact shadow: the device rests on the stage rather than floating in it. */}
                   <motion.div
+                    ref={shadowLiftRef}
                     aria-hidden
                     className="pointer-events-none absolute top-0 left-0"
                     style={{ y: dockLift }}
@@ -2154,7 +2295,11 @@ function AppWithConfig({
                   </motion.div>
 
                   {/* Dock rides just under the device's lower edge. */}
-                  <motion.div className="absolute top-0 left-0 z-20" style={{ y: dockLift }}>
+                  <motion.div
+                    ref={dockLiftRef}
+                    className="absolute top-0 left-0 z-20"
+                    style={{ y: dockLift }}
+                  >
                     <div
                       className="flex flex-col items-center gap-2.5"
                       style={{

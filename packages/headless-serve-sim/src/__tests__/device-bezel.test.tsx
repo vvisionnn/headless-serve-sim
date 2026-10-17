@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
-import { DeviceBezel } from "../client/components/device-bezel";
+import { DeviceBezel, preloadScreenMasks } from "../client/components/device-bezel";
 import { fitDeviceBezel } from "../client/utils/bezel-geometry";
 
 const spec: DeviceFrameSpec = {
@@ -113,5 +113,28 @@ test("rotates the canonical screen mask into each oriented screen rectangle", ()
     );
     expect(svg).toContain('width="1398" height="2034"');
     expect(svg).toContain(spec.screenMask!.pngDataUrl);
+  }
+});
+
+test("every turn's screen mask is decoded before the device turns", () => {
+  const loaded: string[] = [];
+  const original = (globalThis as { Image?: unknown }).Image;
+  (globalThis as { Image?: unknown }).Image = class {
+    set src(url: string) {
+      loaded.push(url);
+    }
+    decode() {
+      return Promise.resolve();
+    }
+  };
+  try {
+    preloadScreenMasks(spec);
+    preloadScreenMasks(spec);
+    // Four orientations, once each, whatever the device does next.
+    expect(loaded).toHaveLength(4);
+    expect(new Set(loaded).size).toBe(4);
+    expect(loaded[0]).toBe(spec.screenMask!.pngDataUrl);
+  } finally {
+    (globalThis as { Image?: unknown }).Image = original;
   }
 });

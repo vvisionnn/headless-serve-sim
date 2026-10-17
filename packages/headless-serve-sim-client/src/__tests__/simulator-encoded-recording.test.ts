@@ -18,6 +18,9 @@ test("recording source replays its encoded description and requests a fresh IDR"
     ]),
     spyOn(React, "useCallback").mockImplementation((callback) => callback),
     spyOn(React, "useEffect").mockImplementation((effect, deps) => effects.push({ effect, deps })),
+    spyOn(React, "useLayoutEffect").mockImplementation((effect, deps) =>
+      effects.push({ effect, deps }),
+    ),
   ];
   let handleChunk!: Parameters<AvccDemuxer["visit"]>[1];
   const visitor = spyOn(AvccDemuxer.prototype, "visit").mockImplementation(

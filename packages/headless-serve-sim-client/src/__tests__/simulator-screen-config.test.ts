@@ -40,6 +40,9 @@ function withSimulatorView(
     spyOn(React, "useEffect").mockImplementation((effect, deps) => {
       effects.push({ effect, deps });
     }),
+    spyOn(React, "useLayoutEffect").mockImplementation((effect, deps) => {
+      effects.push({ effect, deps });
+    }),
   ];
   try {
     run(

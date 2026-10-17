@@ -1,4 +1,5 @@
 import type { SimulatorOrientation } from "headless-serve-sim-client/simulator";
+import { screenOrientationForDevice } from "./device-orientation";
 
 export function observedDuoOrientation(
   physical: string | null | undefined,
@@ -9,18 +10,7 @@ export function observedDuoOrientation(
 ): SimulatorOrientation | null {
   if (pending || requestedRevision !== currentRevision) return null;
   // The server retains a command only until guest convergence or a bounded timeout.
-  switch (commanded ?? physical) {
-    case "portrait":
-      return "portrait";
-    case "portraitUpsideDown":
-      return "portrait_upside_down";
-    case "landscapeLeft":
-      return "landscape_right";
-    case "landscapeRight":
-      return "landscape_left";
-    default:
-      return null;
-  }
+  return screenOrientationForDevice(commanded ?? physical);
 }
 
 export function shouldApplyObservedHinge(state: {

@@ -77,6 +77,9 @@ async function withView(
     spyOn(React, "useEffect").mockImplementation((effect, deps) => {
       effects.push({ effect, deps });
     }),
+    spyOn(React, "useLayoutEffect").mockImplementation((effect, deps) => {
+      effects.push({ effect, deps });
+    }),
   ];
   const raf = Object.getOwnPropertyDescriptor(globalThis, "requestAnimationFrame");
   Object.defineProperty(globalThis, "requestAnimationFrame", {

@@ -118,6 +118,9 @@ test("gateway hook forwards and replays frame composition to the viewer", async 
       spyOn(React, "useEffect").mockImplementation((effect, dependencies) => {
         effects.push({ effect, dependencies });
       }),
+      spyOn(React, "useLayoutEffect").mockImplementation((effect, dependencies) => {
+        effects.push({ effect, dependencies });
+      }),
       spyOn(Gateway, "connect").mockResolvedValue({ transport, close() {} } as GatewayShell),
     ];
     const url = "ws://gateway.test";

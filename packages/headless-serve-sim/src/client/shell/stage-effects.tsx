@@ -46,10 +46,19 @@ export function largestSurface(
   return best;
 }
 
+/** Degrees a computed CSS `transform` turns its element by. */
+export function screenCaptureAngle(transform: string): number {
+  const m = /^matrix\(([^,]+),\s*([^,]+)/.exec(transform);
+  if (!m) return 0;
+  return (Math.atan2(Number(m[2]), Number(m[1])) * 180) / Math.PI;
+}
+
 /**
  * Freeze what's on screen right now, at its on-screen size. Used where a
  * motion must start at once — the screenshot thumbnail lifts off before
- * simctl has written the PNG, and the appearance reveal needs the old frame.
+ * simctl has written the PNG, the appearance reveal needs the old frame, and
+ * a turn holds it while iOS redraws. A stream the view turns with CSS (a
+ * portrait frame shown sideways) is captured turned, as it looks.
  */
 export function snapshotScreen(root: HTMLElement | null): { url: string; rect: DOMRect } | null {
   const source = largestSurface(root);
@@ -58,10 +67,24 @@ export function snapshotScreen(root: HTMLElement | null): { url: string; rect: D
   if (rect.width < 2 || rect.height < 2) return null;
   try {
     const ratio = Math.min(2, window.devicePixelRatio || 1);
+    const angle = screenCaptureAngle(getComputedStyle(source).transform);
+    const sideways = Math.abs(Math.abs(angle) - 90) < 1;
+    // Layout sizes: an ancestor may itself be scaled or turning.
+    const width = source.offsetWidth || rect.width;
+    const height = source.offsetHeight || rect.height;
     const canvas = document.createElement("canvas");
-    canvas.width = Math.round(rect.width * ratio);
-    canvas.height = Math.round(rect.height * ratio);
-    canvas.getContext("2d")?.drawImage(source, 0, 0, canvas.width, canvas.height);
+    canvas.width = Math.round((sideways ? height : width) * ratio);
+    canvas.height = Math.round((sideways ? width : height) * ratio);
+    const context = canvas.getContext("2d");
+    context?.translate(canvas.width / 2, canvas.height / 2);
+    context?.rotate((angle * Math.PI) / 180);
+    context?.drawImage(
+      source,
+      (-width * ratio) / 2,
+      (-height * ratio) / 2,
+      width * ratio,
+      height * ratio,
+    );
     return { url: canvas.toDataURL("image/png"), rect };
   } catch {
     // A tainted or not-yet-decoded surface: the caller falls back.
