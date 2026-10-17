@@ -1,13 +1,20 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { fitDeviceFrame } from "../client/utils/frame-geometry";
 
 // roundToDevicePixel reads window.devicePixelRatio. Pin dpr=1 so the rounding
 // is a deterministic Math.round(value) and these expectations are exact.
+const savedWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 beforeAll(() => {
   (globalThis as { window?: unknown; devicePixelRatio?: number }).window = {
     devicePixelRatio: 1,
   };
   (globalThis as { devicePixelRatio?: number }).devicePixelRatio = 1;
+});
+// Restore: later files render components that subscribe to window events.
+afterAll(() => {
+  if (savedWindow) Object.defineProperty(globalThis, "window", savedWindow);
+  else Reflect.deleteProperty(globalThis, "window");
+  Reflect.deleteProperty(globalThis, "devicePixelRatio");
 });
 
 // Shared defaults mirroring client.tsx's layout constants.

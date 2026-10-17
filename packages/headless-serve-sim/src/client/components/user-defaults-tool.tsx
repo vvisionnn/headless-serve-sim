@@ -1,7 +1,12 @@
+import { AnimatePresence, motion } from "motion/react";
+import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Chevron, ReloadIcon } from "../icons";
-import { Select } from "./select";
-import { SwitchControl } from "./setting-switch";
+import { spring } from "../lib/motion";
+import { Button, IconButton } from "../ui/button";
+import { TextField } from "../ui/field";
+import { Section } from "../ui/group";
+import { Select } from "../ui/select";
+import { Switch } from "../ui/switch";
 import { execOnHost, shellEscape } from "../utils/exec";
 
 // Drives the `headless-serve-sim defaults` passthrough: Load runs `defaults read`
@@ -11,7 +16,13 @@ import { execOnHost, shellEscape } from "../utils/exec";
 // hint. Nested dict/array values are rendered read-only as compact JSON.
 
 type DefaultsType = "string" | "int" | "float" | "bool";
-const SCALAR_TYPES: DefaultsType[] = ["string", "int", "float", "bool"];
+
+const TYPE_OPTIONS: { value: DefaultsType; label: string }[] = [
+  { value: "string", label: "String" },
+  { value: "int", label: "Integer" },
+  { value: "float", label: "Float" },
+  { value: "bool", label: "Boolean" },
+];
 
 interface Row {
   key: string;
@@ -20,24 +31,6 @@ interface Row {
   /** String form of a scalar value, or compact JSON for a nested value. */
   value: string;
 }
-
-// Inline hover styles — :hover/:focus/:disabled can't live in inline `style`,
-// so emit a small sheet keyed off the shared lem-* classnames. Mirrors
-// status-bar-tool.tsx so the look stays consistent.
-const HOVER_CSS = `
-.lem-toggle:hover { color: var(--color-accent); }
-.lem-toggle:hover .lem-chevron { color: var(--color-accent) !important; }
-.lem-select:hover { background: var(--color-hover); border-color: var(--color-divider); }
-.lem-select:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); }
-.lem-input:hover { background: var(--color-hover); }
-.lem-input:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); border-color: var(--color-accent-solid); }
-.lem-primary:hover:not(:disabled) { filter: brightness(1.05); }
-.lem-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.lem-ghost:hover:not(:disabled) { background: var(--color-hover); }
-.lem-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
-.lem-trash:hover:not(:disabled) { color: var(--color-danger); background: var(--color-hover); }
-.lem-trash:disabled { opacity: 0.4; cursor: not-allowed; }
-`;
 
 // Classify a parsed JSON value into an editable scalar row or a read-only one.
 function rowsFromJson(parsed: unknown): Row[] {
@@ -62,7 +55,6 @@ function rowsFromJson(parsed: unknown): Row[] {
 }
 
 export function UserDefaultsTool({ udid, bundleId }: { udid: string; bundleId: string | null }) {
-  const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [domain, setDomain] = useState(bundleId ?? "");
@@ -192,140 +184,120 @@ export function UserDefaultsTool({ udid, bundleId }: { udid: string; bundleId: s
 
   if (!bundleId) {
     return (
-      <div className="bg-panel-deep border border-divider rounded-card px-3 py-2.5 text-fg-3 text-value text-center">
-        User Defaults appear once an app is in the foreground.
-      </div>
+      <Section title="User defaults">
+        <div className="row px-3 py-3 text-center text-footnote text-label-3">
+          User defaults appear once an app is in the foreground.
+        </div>
+      </Section>
     );
   }
 
   return (
-    <div className="border-t border-divider bg-panel overflow-hidden">
-      <style>{HOVER_CSS}</style>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="lem-toggle flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full bg-transparent border-none text-left cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
-        aria-expanded={open}
-      >
-        <span className="mr-auto text-body font-semibold text-fg">User Defaults</span>
-        <Chevron open={open} />
-      </button>
+    <Section title="User defaults" footer="Changes may need a relaunch to take effect.">
+      <div className="row flex gap-1.5 px-3 py-2.5">
+        <TextField
+          mono
+          value={domain}
+          onChange={(e) => {
+            // Editing the domain orphans the loaded rows — they belong to
+            // the previous domain, but write/delete read the live domain.
+            // Clear them so a stale row can't mutate the wrong domain.
+            setDomain(e.target.value);
+            setRows(null);
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void load();
+          }}
+          placeholder="com.example.app"
+          spellCheck={false}
+          aria-label="Defaults domain"
+          className="flex-1"
+        />
+        <Button
+          variant="secondary"
+          disabled={pending !== null}
+          onClick={load}
+          title="Read this domain's defaults"
+        >
+          {pending === "__load__" ? "Loading…" : "Load"}
+        </Button>
+      </div>
 
-      {open && (
-        <div className="px-5 pb-4 pt-1 flex flex-col gap-3">
-          <p className="m-0 text-value leading-[1.5] text-fg-3">
-            Changes may require relaunching the app to take effect.
-          </p>
-
-          <div className="flex items-end gap-2">
-            <label className="flex flex-col gap-1 min-w-0 flex-1">
-              <span className="text-value text-fg-3">Domain</span>
-              <input
-                type="text"
-                value={domain}
-                onChange={(e) => {
-                  // Editing the domain orphans the loaded rows — they belong to
-                  // the previous domain, but write/delete read the live domain.
-                  // Clear them so a stale row can't mutate the wrong domain.
-                  setDomain((e.target as HTMLInputElement).value);
-                  setRows(null);
-                  setError(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void load();
-                }}
-                placeholder="com.example.app"
-                spellCheck={false}
-                className="lem-input appearance-none bg-surface-3 border border-divider rounded-card text-fg text-value font-mono py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
-                aria-label="Defaults domain"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={load}
-              disabled={pending !== null}
-              className="lem-ghost inline-flex items-center gap-1.5 py-2 px-3.5 border border-divider rounded-card text-value font-medium bg-transparent text-fg cursor-pointer font-[inherit] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
-              title="Read this domain's defaults"
-            >
-              <ReloadIcon size={14} strokeWidth={2.4} />
-              {pending === "__load__" ? "…" : "Load"}
-            </button>
-          </div>
-
-          {rows !== null && (
-            <div className="flex flex-col gap-1 max-h-[260px] overflow-y-auto [scrollbar-width:thin] py-0.5">
-              {rows.length === 0 && (
-                <p className="m-0 text-value text-fg-3 px-0.5 py-1">
-                  No preferences set for this domain.
-                </p>
-              )}
-              {rows.map((row) => (
-                <DefaultsRow
-                  key={row.key}
-                  row={row}
-                  pending={pending}
-                  onCommit={commit}
-                  onRemove={remove}
-                />
-              ))}
-            </div>
-          )}
-
-          {rows !== null && (
-            <div className="flex items-end gap-2 border-t border-divider pt-2.5">
-              <label className="flex flex-col gap-1 min-w-0 flex-1">
-                <span className="text-value text-fg-3">Key</span>
-                <input
-                  type="text"
-                  value={newKey}
-                  onChange={(e) => setNewKey((e.target as HTMLInputElement).value)}
-                  placeholder="NewKey"
-                  spellCheck={false}
-                  className="lem-input appearance-none bg-surface-3 border border-divider rounded-card text-fg text-value font-mono py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
-                  aria-label="New key name"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-value text-fg-3">Type</span>
-                <TypeSelect value={newType} onChange={setNewType} />
-              </label>
-              <label className="flex flex-col gap-1 min-w-0 flex-1">
-                <span className="text-value text-fg-3">Value</span>
-                <input
-                  type="text"
-                  value={newValue}
-                  onChange={(e) => setNewValue((e.target as HTMLInputElement).value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void add();
-                  }}
-                  placeholder={newType === "bool" ? "true / false" : "value"}
-                  spellCheck={false}
-                  className="lem-input appearance-none bg-surface-3 border border-divider rounded-card text-fg text-value font-mono py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
-                  aria-label="New value"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={add}
-                disabled={pending !== null || !newKey.trim()}
-                className="lem-primary inline-flex items-center justify-center py-2 px-4 border-none rounded-card text-value font-semibold cursor-pointer font-[inherit] bg-accent-solid text-on-accent [transition:filter_0.3s_cubic-bezier(0.4,0,0.6,1)]"
-              >
-                {pending === "__add__" ? "…" : "Add"}
-              </button>
-            </div>
-          )}
-
-          {error && (
-            <div
-              className="bg-surface-2 border border-divider rounded-card text-danger text-value px-2.5 py-2 break-words"
-              role="alert"
-            >
-              {error}
-            </div>
-          )}
+      {rows !== null && rows.length === 0 && (
+        <div className="row px-3 py-2.5 text-footnote text-label-3">
+          No preferences set for this domain.
         </div>
       )}
-    </div>
+
+      <AnimatePresence initial={false}>
+        {rows?.map((row) => (
+          <motion.div
+            key={row.key}
+            layout
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={spring.ui}
+            className="row group overflow-hidden"
+          >
+            <DefaultsRow row={row} pending={pending} onCommit={commit} onRemove={remove} />
+          </motion.div>
+        ))}
+      </AnimatePresence>
+
+      {rows !== null && (
+        <div className="row flex flex-col gap-1.5 px-3 py-2.5">
+          <span className="text-caption font-semibold text-label-3">Add key</span>
+          <div className="flex gap-1.5">
+            <TextField
+              mono
+              value={newKey}
+              onChange={(e) => setNewKey(e.target.value)}
+              placeholder="NewKey"
+              spellCheck={false}
+              aria-label="New key name"
+              className="flex-1"
+            />
+            <Select
+              label="New value type"
+              value={newType}
+              onChange={setNewType}
+              options={TYPE_OPTIONS}
+              className="w-[104px] min-w-0"
+            />
+          </div>
+          <div className="flex gap-1.5">
+            <TextField
+              mono
+              value={newValue}
+              onChange={(e) => setNewValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void add();
+              }}
+              placeholder={newType === "bool" ? "true / false" : "Value"}
+              spellCheck={false}
+              aria-label="New value"
+              className="flex-1"
+            />
+            <Button
+              variant="secondary"
+              icon={<Plus />}
+              disabled={pending !== null || !newKey.trim()}
+              onClick={add}
+            >
+              {pending === "__add__" ? "Adding…" : "Add"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="row px-3 py-2 text-footnote text-red [overflow-wrap:anywhere]" role="alert">
+          {error}
+        </div>
+      )}
+    </Section>
   );
 }
 
@@ -351,98 +323,59 @@ function DefaultsRow({
   const dirty = draft !== row.value;
 
   return (
-    <div className="flex items-center gap-2 bg-surface-2 border border-divider rounded-card px-2.5 py-2">
-      <span className="shrink-0 text-micro tracking-[0.04em] uppercase text-fg-2 bg-panel border border-divider rounded-card px-[8px] py-[2px] font-mono">
+    <div className="flex min-h-10 items-center gap-2 px-3 py-1.5">
+      <span className="w-9 shrink-0 rounded-[5px] bg-fill-2 py-px text-center font-mono text-caption2 font-semibold text-label-2">
         {row.type ?? "json"}
       </span>
       <span
-        className="shrink-0 max-w-[110px] truncate text-value text-fg-3 font-mono"
+        className="w-[86px] shrink-0 truncate font-mono text-caption text-label"
         title={row.key}
       >
         {row.key}
       </span>
-      <div className="flex-1 min-w-0">
+      <span className="flex min-w-0 flex-1 justify-end">
         {row.type === null ? (
-          <code className="block truncate text-value text-fg font-mono" title={row.value}>
+          <span
+            className="line-clamp-2 font-mono text-caption2 text-label-2 [overflow-wrap:anywhere]"
+            title={row.value}
+          >
             {row.value}
-          </code>
+          </span>
         ) : row.type === "bool" ? (
-          <BoolToggle
-            value={draft === "true"}
+          <Switch
+            label={`Value for ${row.key}`}
+            checked={draft === "true"}
             disabled={busy}
             onChange={(v) => onCommit(row.key, "bool", v ? "true" : "false")}
           />
         ) : (
-          <input
-            type="text"
+          <TextField
+            mono
             value={draft}
-            onChange={(e) => setDraft((e.target as HTMLInputElement).value)}
+            onChange={(e) => setDraft(e.target.value)}
             onBlur={() => {
               if (dirty) onCommit(row.key, row.type as DefaultsType, draft);
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              if (e.key === "Enter") e.currentTarget.blur();
             }}
             disabled={busy}
             spellCheck={false}
-            className="lem-input appearance-none bg-panel border border-divider rounded-sm text-fg text-value font-mono py-1.5 px-2 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
             aria-label={`Value for ${row.key}`}
+            className="h-6 text-caption"
           />
         )}
-      </div>
-      <button
-        type="button"
-        onClick={() => onRemove(row.key)}
-        disabled={busy}
-        aria-label={`Delete ${row.key}`}
+      </span>
+      <IconButton
+        label={`Delete ${row.key}`}
         title="Delete key"
-        className="lem-trash shrink-0 flex items-center justify-center w-7 h-7 border-none rounded-sm p-0 bg-transparent text-fg-2 cursor-pointer [transition:color_0.3s_cubic-bezier(0.4,0,0.6,1),background_0.3s_cubic-bezier(0.4,0,0.6,1)]"
+        size="sm"
+        disabled={busy}
+        className="text-label-3 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red focus-visible:opacity-100"
+        onClick={() => onRemove(row.key)}
       >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="3"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <polyline points="3 6 5 6 21 6" />
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-        </svg>
-      </button>
+        <Trash2 />
+      </IconButton>
     </div>
-  );
-}
-
-function BoolToggle({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: boolean;
-  disabled: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return <SwitchControl label="Value" checked={value} disabled={disabled} onChange={onChange} />;
-}
-
-function TypeSelect({
-  value,
-  onChange,
-}: {
-  value: DefaultsType;
-  onChange: (v: DefaultsType) => void;
-}) {
-  return (
-    <Select
-      label="New value type"
-      value={value}
-      options={SCALAR_TYPES.map((t) => ({ value: t, label: t }))}
-      onChange={(v) => onChange(v as DefaultsType)}
-      className="lem-select bg-surface-3 border border-divider rounded-card text-fg text-value py-2 px-2.5 [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
-    />
   );
 }

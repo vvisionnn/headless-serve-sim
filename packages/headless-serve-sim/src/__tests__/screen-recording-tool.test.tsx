@@ -7,6 +7,16 @@ import {
   recordingFrameDescription,
   recordingFormatSupport,
 } from "../client/components/screen-recording-tool";
+import {
+  recordingCaptureMeta,
+  recordingNotice,
+  recordingStatus,
+  useScreenRecording,
+  type ScreenRecordingOptions,
+} from "../client/hooks/use-screen-recording";
+import { CaptureTab } from "../client/inspector/capture-tab";
+import type { InspectorProps } from "../client/inspector/types";
+import { ShellContext, type Shell } from "../client/shell/shell-context";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createSimMiddleware } from "../middleware";
@@ -143,9 +153,19 @@ test.each(["ready", "cancel", "device", "stream", "unmount", "source", "failure"
           moduleRequested();
         },
         started: () => started++,
+        artifact: {
+          blob: new Blob(["mp4"], { type: "video/mp4" }),
+          url: "blob:recording",
+          filename: "simulator-recording.mp4",
+          mimeType: "video/mp4",
+          durationSeconds: 12.4,
+          bytes: 4.2 * 1024 * 1024,
+          width: 1206,
+          height: 2622,
+        },
       },
     });
-    const code = `const fixture=globalThis[${JSON.stringify(key)}]; fixture.requested(); await fixture.barrier; ${scenario === "failure" ? 'throw new Error("module unavailable");' : ""} export class NativeStreamRecorder { start(){fixture.started()} cancel(){} } //`;
+    const code = `const fixture=globalThis[${JSON.stringify(key)}]; fixture.requested(); await fixture.barrier; ${scenario === "failure" ? 'throw new Error("module unavailable");' : ""} export class NativeStreamRecorder { start(){fixture.started()} cancel(){} async stop(){return fixture.artifact} } //`;
     const globals = Object.getOwnPropertyDescriptor(globalThis, "window");
     const handlers = new Map<string, () => void>();
     Object.defineProperty(globalThis, "window", {
@@ -181,42 +201,42 @@ test.each(["ready", "cancel", "device", "stream", "unmount", "source", "failure"
       }),
       spyOn(React, "useCallback").mockImplementation((callback) => callback),
     ];
+    const finished: { blob: Blob; filename: string; meta: string }[] = [];
     const sourceRef = { current: { snapshot: () => null, subscribeEncoded: () => () => {} } };
-    const props = {
+    const options = {
       sourceRef,
+      deviceFrameSpec: null,
       deviceKey: "DUO",
       streaming: true,
-      streamMode: "quality" as const,
-      streamModeAvailable: false,
-      onStreamModeChange() {},
       touchMarkersAvailable: false,
-      initiallyOpen: true,
+      onFinished: (file: { blob: Blob; filename: string; meta: string }) => finished.push(file),
     };
+    // Effects in registration order: 0 mount/pagehide, 1 device change,
+    // 2 frame artwork, 3 stream end.
     const render = () => {
       refIndex = stateIndex = 0;
       effects = [];
-      return ScreenRecordingTool(props);
+      return useScreenRecording(options as ScreenRecordingOptions);
     };
     let cleanup: ReturnType<React.EffectCallback> = undefined;
     try {
       const view = render();
       cleanup = effects[0]!();
-      view.props.children[1].props.children[5].props.onClick();
-      view.props.children[1].props.children[5].props.onClick();
+      view.start();
+      view.start();
       await moduleRequest;
       expect(requested).toBe(1);
       expect(started).toBe(0);
       const loadingView = render();
-      expect(states[4]).toBe("starting");
-      if (scenario === "cancel")
-        loadingView.props.children[1].props.children[5].props.children[1].props.onClick();
+      expect(loadingView.status).toBe("preparing");
+      if (scenario === "cancel") loadingView.stop();
       if (scenario === "device") {
-        props.deviceKey = "OTHER";
+        options.deviceKey = "OTHER";
         render();
         effects[1]!();
       }
       if (scenario === "stream") {
-        props.streaming = false;
+        options.streaming = false;
         render();
         effects[3]!();
       }
@@ -225,9 +245,24 @@ test.each(["ready", "cancel", "device", "stream", "unmount", "source", "failure"
       release();
       await Bun.sleep(0);
       expect(started).toBe(scenario === "ready" ? 1 : 0);
+      const settled = render();
       if (scenario !== "unmount")
-        expect(states[4]).toBe(scenario === "ready" ? "recording" : "idle");
-      if (scenario === "failure") expect(states[7]).toBe("module unavailable");
+        expect(settled.status).toBe(scenario === "ready" ? "recording" : "idle");
+      if (scenario === "failure") expect(settled.error).toBe("module unavailable");
+      if (scenario === "ready") {
+        expect(settled.startedAt).toBeNumber();
+        settled.stop();
+        await Bun.sleep(0);
+        const done = render();
+        expect(done.status).toBe("idle");
+        expect(done.startedAt).toBeNull();
+        expect(done.artifact?.filename).toBe("simulator-recording.mp4");
+        expect(finished).toHaveLength(1);
+        expect(finished[0]!.filename).toBe("simulator-recording.mp4");
+        expect(finished[0]!.meta).toBe("0:12 · 4.2 MB · MP4");
+      } else {
+        expect(finished).toHaveLength(0);
+      }
     } finally {
       release();
       if (typeof cleanup === "function") cleanup();
@@ -239,24 +274,53 @@ test.each(["ready", "cancel", "device", "stream", "unmount", "source", "failure"
   },
 );
 
+/** The hook is owned by client.tsx; for markup tests, own it here. */
+function Recorder({
+  stream,
+  ...options
+}: Omit<ScreenRecordingOptions, "deviceFrameSpec" | "touchMarkersAvailable"> & {
+  deviceFrameSpec?: ScreenRecordingOptions["deviceFrameSpec"];
+  touchMarkersAvailable?: boolean;
+  stream?: { mode: "perf" | "quality"; modeAvailable: boolean };
+}) {
+  const recording = useScreenRecording({
+    deviceFrameSpec: null,
+    touchMarkersAvailable: true,
+    ...options,
+  });
+  if (!stream) return <ScreenRecordingTool recording={recording} />;
+  const props = {
+    udid: "DEVICE-1",
+    foldable: false,
+    streaming: options.streaming,
+    recording,
+    stream: { ...stream, onModeChange() {} },
+  } as unknown as InspectorProps;
+  const shell = { captures: [], toast: () => 0, addCapture() {} } as unknown as Shell;
+  return (
+    <ShellContext.Provider value={shell}>
+      <CaptureTab {...props} />
+    </ShellContext.Provider>
+  );
+}
+
+/** The opening tag of the switch labelled `label`. */
+function switchTag(html: string, label: string): string {
+  return html.match(new RegExp(`<button[^>]*role="switch"[^>]*aria-label="${label}"[^>]*>`))![0];
+}
+
 test("native MP4 recording is available without a browser re-encoder", () => {
   const html = renderToStaticMarkup(
-    <ScreenRecordingTool
+    <Recorder
       sourceRef={{ current: { snapshot: () => null, subscribeEncoded: () => () => {} } }}
       deviceKey="DUO"
       streaming
-      streamMode="quality"
-      streamModeAvailable
-      onStreamModeChange={() => {}}
       touchMarkersAvailable={false}
-      initiallyOpen
     />,
   );
   expect(html).not.toContain("Screen recording is not supported in this browser.");
   expect(html).toContain("Start recording");
-  const frameStart = html.indexOf('data-setting-row="Device frame"');
-  const frameControl = html.slice(frameStart, html.indexOf("</button>", frameStart));
-  expect(frameControl).toContain('disabled=""');
+  expect(switchTag(html, "Device frame")).toContain('disabled=""');
 });
 
 describe("ScreenRecordingTool", () => {
@@ -286,43 +350,31 @@ describe("ScreenRecordingTool", () => {
 
   test("keeps a generic device frame available without DeviceKit metadata", () => {
     const html = renderToStaticMarkup(
-      <ScreenRecordingTool
+      <Recorder
         sourceRef={{ current: null }}
         deviceFrameSpec="iphone"
         deviceKey="DEVICE-1"
         streaming
-        streamMode="perf"
-        streamModeAvailable={false}
-        onStreamModeChange={() => {}}
-        initiallyOpen
       />,
     );
 
     expect(html).toContain("Generic iPhone frame");
-    // The row is a design-system switch now, not a bare checkbox — same intent:
-    // a generic frame stays selectable when DeviceKit ships no metadata.
-    const frameStart = html.indexOf('data-setting-row="Device frame"');
-    const frameControl = html.slice(frameStart, html.indexOf("</button>", frameStart));
-    expect(frameControl).toContain('role="switch"');
-    // The attribute, not the substring — `disabled:opacity-45` is a variant class.
-    expect(frameControl).not.toContain('disabled=""');
+    // A generic frame stays selectable when DeviceKit ships no metadata.
+    expect(switchTag(html, "Device frame")).not.toContain('disabled=""');
   });
 
   test("renders format, touch, frame, capture, and unsupported-browser states", () => {
     const html = renderToStaticMarkup(
-      <ScreenRecordingTool
+      <Recorder
         sourceRef={{ current: null }}
         deviceFrameSpec={frameSpec}
         deviceKey="DEVICE-1"
         streaming
-        streamMode="quality"
-        streamModeAvailable
-        onStreamModeChange={() => {}}
-        initiallyOpen
+        stream={{ mode: "quality", modeAvailable: true }}
       />,
     );
 
-    expect(html).toContain("Screen Recording");
+    expect(html).toContain("Screen recording");
     expect(html).toContain('aria-label="Recording format"');
     expect(html).toContain("Auto");
     expect(html).toContain("MP4");
@@ -333,41 +385,82 @@ describe("ScreenRecordingTool", () => {
     expect(html).toContain('aria-label="Stream quality"');
     expect(html).toContain("Start recording");
     expect(html).toContain("Screen recording is not supported in this browser.");
+    expect(html).toContain("Screenshots and recordings from this session appear here.");
   });
 
   test("disables touch markers for a rendered model without touch metadata", () => {
     const html = renderToStaticMarkup(
-      <ScreenRecordingTool
+      <Recorder
         sourceRef={{ current: null }}
         deviceKey="DEVICE-1"
         streaming
-        streamMode="perf"
-        streamModeAvailable={false}
-        onStreamModeChange={() => {}}
         touchMarkersAvailable={false}
-        initiallyOpen
       />,
     );
-    const start = html.indexOf('data-setting-row="Show touches"');
-    const control = html.slice(start, html.indexOf("</button>", start));
+    const control = switchTag(html, "Show touches");
     expect(control).toContain('disabled=""');
     expect(control).toContain('aria-checked="false"');
     expect(html).toContain("Touch markers are unavailable in the 3D view.");
   });
 
+  test("disables the stream mode while the simulator is disconnected", () => {
+    const html = renderToStaticMarkup(
+      <Recorder
+        sourceRef={{ current: null }}
+        deviceKey="DEVICE-1"
+        streaming={false}
+        stream={{ mode: "quality", modeAvailable: true }}
+      />,
+    );
+    expect(html).toContain('aria-label="Stream quality"');
+    expect(html).toMatch(/aria-checked="true"[^>]*disabled=""[^>]*><span[^>]*>Quality/);
+    expect(html).toMatch(/aria-checked="false"[^>]*disabled=""[^>]*><span[^>]*>Performance/);
+  });
+
   test("hides the native stream switch when recording from MJPEG", () => {
     const html = renderToStaticMarkup(
-      <ScreenRecordingTool
+      <Recorder
         sourceRef={{ current: null }}
         deviceFrameSpec={frameSpec}
         deviceKey="DEVICE-1"
         streaming
-        streamMode="perf"
-        streamModeAvailable={false}
-        onStreamModeChange={() => {}}
-        initiallyOpen
+        stream={{ mode: "perf", modeAvailable: false }}
       />,
     );
     expect(html).not.toContain('aria-label="Stream quality"');
+  });
+});
+
+describe("useScreenRecording state", () => {
+  test("maps recorder phases onto the shell's recording status", () => {
+    expect(recordingStatus("idle")).toBe("idle");
+    expect(recordingStatus("starting")).toBe("preparing");
+    expect(recordingStatus("recording")).toBe("recording");
+    expect(recordingStatus("stopping")).toBe("finishing");
+  });
+
+  test("explains why recording can't start: browser first, then stream", () => {
+    const none = { auto: false, mp4: false, webm: false };
+    const all = { auto: true, mp4: true, webm: true };
+    expect(recordingNotice(none, false)).toBe("Screen recording is not supported in this browser.");
+    expect(recordingNotice(all, false)).toBe("Waiting for the simulator stream.");
+    expect(recordingNotice(all, true)).toBeNull();
+  });
+
+  test("captions a finished recording with duration, size and container", () => {
+    expect(
+      recordingCaptureMeta({
+        durationSeconds: 12.9,
+        bytes: 4.2 * 1024 * 1024,
+        mimeType: "video/mp4",
+      }),
+    ).toBe("0:12 · 4.2 MB · MP4");
+    expect(
+      recordingCaptureMeta({
+        durationSeconds: 75,
+        bytes: 300 * 1024,
+        mimeType: "video/webm;codecs=vp9",
+      }),
+    ).toBe("1:15 · 300 KB · WebM");
   });
 });

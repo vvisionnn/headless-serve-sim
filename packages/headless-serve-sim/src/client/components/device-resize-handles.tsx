@@ -51,7 +51,7 @@ export function DeviceResizeHandles({
           key={handle}
           data-device-resize-handle={handle}
           data-device-resize-grabber={handle}
-          className={`device-resize-grabber pointer-events-auto absolute touch-none select-none rounded-sm bg-fg-2 ${
+          className={`device-resize-grabber pointer-events-auto absolute touch-none select-none rounded-sm bg-label-2 ${
             handle === "s"
               ? "left-1/2 -bottom-3 h-1 w-8 -translate-x-1/2 cursor-ns-resize"
               : "top-1/2 h-8 w-1 -translate-y-1/2 cursor-ew-resize" +

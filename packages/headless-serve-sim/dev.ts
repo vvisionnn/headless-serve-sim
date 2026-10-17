@@ -9,6 +9,7 @@ import { readdirSync, readFileSync, existsSync, unlinkSync, watch } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import tailwindPlugin from "bun-plugin-tailwind";
+import { THEME_BOOT_SCRIPT } from "./src/client/lib/theme";
 import { createAxStreamerCache } from "./src/ax";
 import { resolveInstalledDeviceMetadata } from "./src/device-metadata";
 import {
@@ -359,6 +360,7 @@ async function buildHtml(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>headless-serve-sim dev</title>
+<script>${THEME_BOOT_SCRIPT}</script>
 <style>*,*::before,*::after{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden}</style>
 <style>${tailwindCss}</style>
 </head><body>

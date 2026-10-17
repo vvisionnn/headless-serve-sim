@@ -1,91 +1,22 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import {
-  MAX_SAMPLES,
-  useAppMetrics,
-  type AppMetrics,
-  type AppMetricsStream,
-} from "../hooks/use-app-metrics";
+import { Cpu, MemoryStick } from "lucide-react";
+import type { ReactNode } from "react";
+import type { AppMetrics, AppMetricsStream } from "../hooks/use-app-metrics";
+import { AreaChart } from "../ui/area-chart";
+import { StatusDot } from "../ui/badge";
+import { Section } from "../ui/group";
+import { RollingNumber } from "../ui/rolling-number";
 import { formatGridBytes } from "../utils/grid";
-import { buildSparkline, cpuColor, memoryRange, splitValueUnit } from "../utils/metrics-chart";
-import { PanelToggleIcon, SectionGroup, SquareIconButton } from "./design-system";
-import { RailCard } from "./rail-card";
+import { cpuTone, memoryRange } from "../utils/metrics-chart";
 
-// The left Activity card. The two primary gauges chart the foreground app's
-// native CPU and physical footprint; compact rows expose every additional
+// The Activity tab's app half. The two gauges chart the foreground app's
+// native CPU and physical footprint; the counter grid exposes every additional
 // native counter without conflating app performance with stream telemetry.
 
-const CHART_H = 80;
+/** Two-column tile grid with hairlines between cells, none on the outer edge. */
+const grid =
+  "grid grid-cols-2 [&>*:nth-child(odd)]:shadow-[inset_-0.5px_0_0_var(--separator)] [&>*:nth-child(n+3)]:border-t-[0.5px] [&>*:nth-child(n+3)]:border-separator";
 
-function useElementWidth(): [React.RefObject<HTMLDivElement | null>, number] {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [width, setWidth] = useState(0);
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const observer = new ResizeObserver((entries) => {
-      const box = entries[0]?.contentRect;
-      if (box) setWidth(Math.round(box.width));
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-  return [ref, width];
-}
-
-export interface MetricsBarProps {
-  open: boolean;
-  onToggle: () => void;
-  collapsedWidth: number;
-  expandedWidth: number;
-  topBarHeight: number;
-  /** Full card height — the rail spans the canvas, not the device. */
-  height: number;
-  metricsEndpoint?: string;
-  enabled: boolean;
-}
-
-export function MetricsBar({
-  open,
-  onToggle,
-  collapsedWidth,
-  expandedWidth,
-  topBarHeight,
-  height,
-  metricsEndpoint,
-  enabled,
-}: MetricsBarProps) {
-  const stream = useAppMetrics(metricsEndpoint, enabled);
-  const alive = stream.latest?.alive === true;
-
-  return (
-    <RailCard
-      open={open}
-      collapsedWidth={collapsedWidth}
-      expandedWidth={expandedWidth}
-      height={height}
-      label="Activity"
-      from="left"
-      header={
-        <div className="flex shrink-0 items-center gap-2 px-[9px]" style={{ height: topBarHeight }}>
-          <SquareIconButton
-            onClick={onToggle}
-            label={open ? "Collapse activity" : "Expand activity"}
-            title="Activity"
-            expanded={open}
-          >
-            <PanelToggleIcon side="left" open={open} />
-          </SquareIconButton>
-          <span className="ml-1 truncate text-eyebrow uppercase text-fg">Activity</span>
-          {alive && (
-            <span className="hud-pulse ml-auto mr-2 size-1.5 rounded-full bg-success" aria-hidden />
-          )}
-        </div>
-      }
-    >
-      <MetricsDashboard stream={stream} />
-    </RailCard>
-  );
-}
+const CHART_H = 72;
 
 export function MetricsDashboard({ stream }: { stream: AppMetricsStream }) {
   const metrics = stream.latest;
@@ -96,38 +27,47 @@ export function MetricsDashboard({ stream }: { stream: AppMetricsStream }) {
     sample.cpuPercent === null ? [] : [sample.cpuPercent],
   );
   const memoryValues = stream.samples.map((sample) => sample.memoryFootprintBytes);
-  const cpuMax = Math.max(100, ...cpuValues);
   const { yMin: memoryMin, yMax: memoryMax } = memoryRange(memoryValues, footprint);
-  const [memoryNumber, memoryUnit] = alive ? splitValueUnit(formatGridBytes(footprint)) : ["—", ""];
+  // Scroll the trace once per sample, keyed on the sample time.
+  const tick = metrics?.sampledAtMs ?? 0;
 
   return (
     <>
       <AppIdentity metrics={metrics} error={stream.error} />
-      <SectionGroup label="Live">
-        <Gauge
-          kind="cpu"
-          label="CPU"
-          value={cpu === null ? "—" : cpu.toFixed(cpu >= 100 ? 0 : 1)}
-          unit={cpu === null ? "" : "%"}
-          color={cpuColor(cpu)}
-          values={alive ? cpuValues : null}
-          yMin={0}
-          yMax={cpuMax}
-        />
-        <Gauge
-          kind="mem"
-          label="Memory Footprint"
-          value={memoryNumber}
-          unit={memoryUnit}
-          color="var(--color-fg-3)"
-          values={alive ? memoryValues : null}
-          yMin={memoryMin}
-          yMax={memoryMax}
-        />
-      </SectionGroup>
-      <SectionGroup label="Counters">
+      <Gauge
+        icon={<Cpu />}
+        label="CPU"
+        tone={cpuTone(cpu)}
+        value={cpu === null ? "—" : `${cpu.toFixed(cpu >= 100 ? 0 : 1)}%`}
+      >
+        {alive && cpuValues.length >= 3 ? (
+          <AreaChart
+            data={cpuValues}
+            max={Math.max(100, ...cpuValues)}
+            tick={tick}
+            height={CHART_H}
+          />
+        ) : null}
+      </Gauge>
+      <Gauge
+        icon={<MemoryStick />}
+        label="Memory"
+        tone={alive ? "green" : "neutral"}
+        value={alive ? formatGridBytes(footprint) : "—"}
+      >
+        {alive && memoryValues.length >= 3 ? (
+          <AreaChart
+            data={memoryValues}
+            min={memoryMin}
+            max={memoryMax}
+            tick={tick}
+            height={CHART_H}
+          />
+        ) : null}
+      </Gauge>
+      <Section title="Counters">
         <MetricDetails metrics={alive ? metrics : null} />
-      </SectionGroup>
+      </Section>
     </>
   );
 }
@@ -152,66 +92,73 @@ function AppIdentity({ metrics, error }: { metrics: AppMetrics | null; error: st
       : noForegroundApp
         ? "Waiting"
         : "Connecting";
-  const statusColor = unavailable
-    ? "var(--color-danger)"
-    : alive
-      ? "var(--color-success)"
-      : "var(--color-fg-3)";
+  const tone = unavailable ? "red" : alive ? "green" : "neutral";
+  const statusColor = { red: "text-red", green: "text-green", neutral: "text-label-3" }[tone];
   const sampledAt = metrics ? new Date(metrics.sampledAtMs) : null;
 
   return (
-    <section className="px-5 py-4">
-      <div className="flex items-center justify-between gap-2" role="status">
-        <span className="min-w-0 truncate text-value font-semibold text-fg" title={label}>
+    <div className="group-box flex items-center gap-2.5 px-3 py-2.5">
+      {/* Announce identity and status only — the sample time changes every
+          second and would make screen readers chatter. */}
+      <span role="status" className="sr-only">
+        {label} · {status}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col" aria-hidden>
+        <span className="truncate text-body font-semibold text-label" title={label}>
           {label}
         </span>
-        <span
-          className="flex shrink-0 items-center gap-1.5 text-micro font-medium"
-          style={{ color: statusColor }}
-        >
-          <span className="size-1.5 rounded-full" style={{ background: statusColor }} aria-hidden />
-          {status}
+        <span className="font-mono text-caption text-label-3">
+          {alive ? `PID ${metrics.pid}` : "PID —"}
         </span>
-      </div>
-      <div className="mt-1.5 flex items-center justify-between gap-2 text-micro text-fg-3 tabular-nums">
-        <span>{alive ? `PID ${metrics.pid}` : "PID —"}</span>
+      </span>
+      <span className="flex shrink-0 flex-col items-end gap-0.5">
+        <span
+          aria-hidden
+          className={`flex items-center gap-1.5 text-footnote font-semibold ${statusColor}`}
+        >
+          <StatusDot tone={tone} live={alive} /> {status}
+        </span>
         {sampledAt && (
-          <span>
-            Updated <time dateTime={sampledAt.toISOString()}>{sampledAt.toLocaleTimeString()}</time>
+          <span className="font-mono text-caption2 text-label-3">
+            Updated{" "}
+            <time dateTime={sampledAt.toISOString()}>{sampledAt.toTimeString().slice(0, 8)}</time>
           </span>
         )}
-      </div>
-    </section>
+      </span>
+    </div>
   );
 }
 
 function MetricDetails({ metrics }: { metrics: AppMetrics | null }) {
   return (
-    <section className="grid grid-cols-2 border-t border-divider" aria-label="App metric details">
+    <div className={grid} role="group" aria-label="App metric details">
       <Detail label="User CPU" value={formatPercent(metrics?.cpuUserPercent ?? null)} />
       <Detail label="System CPU" value={formatPercent(metrics?.cpuSystemPercent ?? null)} />
       <Detail
-        label="Peak Footprint"
+        label="Peak footprint"
         value={formatBytes(metrics?.peakMemoryFootprintBytes ?? null)}
       />
-      <Detail label="Resident Memory" value={formatBytes(metrics?.residentBytes ?? null)} />
+      <Detail label="Resident memory" value={formatBytes(metrics?.residentBytes ?? null)} />
       <Detail label="Threads" value={formatInteger(metrics?.threadCount ?? null)} />
       <Detail label="Running" value={formatInteger(metrics?.runningThreadCount ?? null)} />
-      <Detail label="Disk Read" value={formatByteRate(metrics?.diskReadBytesPerSecond ?? null)} />
-      <Detail label="Disk Write" value={formatByteRate(metrics?.diskWriteBytesPerSecond ?? null)} />
+      <Detail label="Disk read" value={formatByteRate(metrics?.diskReadBytesPerSecond ?? null)} />
+      <Detail label="Disk write" value={formatByteRate(metrics?.diskWriteBytesPerSecond ?? null)} />
       <Detail label="Wakeups" value={formatCounterRate(metrics?.wakeupsPerSecond ?? null)} />
       <Detail label="Page-ins" value={formatCounterRate(metrics?.pageInsPerSecond ?? null)} />
-    </section>
+    </div>
   );
 }
 
 function Detail({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 border-b border-r border-divider px-3 py-2.5 even:border-r-0 [&:nth-last-child(-n+2)]:border-b-0">
-      <div className="text-micro text-fg-3">{label}</div>
-      <div className="mt-0.5 truncate text-value font-semibold text-fg tabular-nums" title={value}>
+    <div className="flex min-w-0 flex-col gap-0.5 px-3 py-2">
+      <span className="text-caption text-label-3">{label}</span>
+      <span
+        className="truncate font-mono text-footnote font-medium tabular text-label"
+        title={value}
+      >
         {value}
-      </div>
+      </span>
     </div>
   );
 }
@@ -242,125 +189,29 @@ function formatCounterRate(value: number | null): string {
 }
 
 function Gauge({
-  kind,
+  icon,
   label,
+  tone,
   value,
-  unit,
-  color,
-  values,
-  yMin,
-  yMax,
+  children,
 }: {
-  kind: "cpu" | "mem";
+  icon: ReactNode;
   label: string;
+  tone: "neutral" | "green" | "orange" | "red";
   value: string;
-  unit: string;
-  color: string;
-  values: number[] | null;
-  yMin: number;
-  yMax: number;
+  children: ReactNode;
 }) {
-  const [chartRef, width] = useElementWidth();
-  const fillId = `metric-fill-${kind}`;
-  const paths = values ? buildSparkline(values, yMin, yMax, width, CHART_H, MAX_SAMPLES) : null;
-
   return (
-    <div className="flex flex-col border-t border-divider px-5 py-4">
-      <div className="flex items-center gap-2">
-        <GlyphIcon kind={kind} color="var(--color-fg-3)" />
-        <span className="text-body font-semibold text-fg">{label}</span>
+    <div className="group-box flex flex-col gap-2 p-3">
+      <div className="flex items-center gap-1.5 text-label-2 [&_svg]:size-[14px] [&_svg]:stroke-[2]">
+        {icon}
+        <span className="text-headline text-label">{label}</span>
         {/* The threshold signal lives in a small dot — the number stays neutral,
             because a value is data and data has no colour in this system. */}
-        <span
-          className="ml-auto size-1.5 shrink-0 rounded-full"
-          style={{ background: color } as CSSProperties}
-          aria-hidden
-        />
+        <StatusDot tone={tone} className="ml-auto" />
       </div>
-      <div className="mt-2.5 flex items-baseline gap-1">
-        <span className="font-mono text-display leading-none tabular-nums text-fg">{value}</span>
-        {unit ? <span className="font-mono text-value text-fg-3">{unit}</span> : null}
-      </div>
-      <div ref={chartRef} className="mt-3" style={{ height: CHART_H }}>
-        {width > 0 ? (
-          <svg
-            width={width}
-            height={CHART_H}
-            viewBox={`0 0 ${width} ${CHART_H}`}
-            className="block"
-            aria-hidden
-          >
-            <defs>
-              <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--color-fg-3)" stopOpacity={0.22} />
-                <stop offset="100%" stopColor="var(--color-fg-3)" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-            <line
-              x1="0"
-              y1={CHART_H - 4}
-              x2={width}
-              y2={CHART_H - 4}
-              stroke="var(--color-divider)"
-              strokeWidth="1"
-            />
-            {paths ? (
-              <>
-                <path d={paths.area} fill={`url(#${fillId})`} stroke="none" />
-                <path
-                  d={paths.line}
-                  fill="none"
-                  stroke="var(--color-fg-2)"
-                  strokeWidth="2"
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-                <circle cx={paths.tip[0]} cy={paths.tip[1]} r="2.6" fill="var(--color-fg)" />
-                <circle
-                  cx={paths.tip[0]}
-                  cy={paths.tip[1]}
-                  r="2.6"
-                  fill="none"
-                  stroke="var(--color-fg)"
-                  strokeOpacity={0.22}
-                  strokeWidth="3.5"
-                />
-              </>
-            ) : null}
-          </svg>
-        ) : null}
-      </div>
+      <RollingNumber value={value} className="font-display text-numeral text-label" />
+      {children ?? <div style={{ height: CHART_H }} aria-hidden />}
     </div>
-  );
-}
-
-function GlyphIcon({ kind, color }: { kind: "cpu" | "mem"; color: string }) {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="shrink-0"
-      aria-hidden
-    >
-      {kind === "cpu" ? (
-        <>
-          <rect x="6" y="6" width="12" height="12" rx="2" />
-          <rect x="10" y="10" width="4" height="4" rx="1" />
-          <path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" />
-        </>
-      ) : (
-        <>
-          <rect x="3" y="6.5" width="18" height="4.5" rx="1.25" />
-          <rect x="3" y="13" width="18" height="4.5" rx="1.25" />
-          <path d="M7 9.5v0M7 16v0" />
-        </>
-      )}
-    </svg>
   );
 }

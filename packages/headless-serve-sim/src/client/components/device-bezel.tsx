@@ -26,7 +26,8 @@ import type { BezelGeometry } from "../utils/bezel-geometry";
 
 const dataUrls = new Map<string, string>();
 
-const SHADOW = "drop-shadow(0 2px 6px rgba(0,0,0,0.10)) drop-shadow(0 14px 40px rgba(0,0,0,0.18))";
+// Theme-aware: deeper on the dark stage, softer on the light one.
+const SHADOW = "var(--device-shadow)";
 
 function artworkKey(spec: DeviceFrameSpec): string {
   return `${spec.deviceTypeIdentifier}:${spec.chromeIdentifier}:${spec.artwork?.width}x${spec.artwork?.height}`;
@@ -166,7 +167,7 @@ export function DeviceBezel({
         className={
           showFrame
             ? "absolute overflow-hidden bg-black"
-            : "absolute overflow-hidden rounded-panel bg-black shadow-device"
+            : "absolute overflow-hidden rounded-[22px] bg-black [filter:var(--device-shadow)]"
         }
         style={{
           left: showFrame ? screen.x : 0,
@@ -304,7 +305,7 @@ function BezelControl({
       }}
       className={`absolute select-none outline-none ${
         pressable ? "pointer-events-auto cursor-pointer" : "pointer-events-none"
-      } [transition:transform_0.16s_cubic-bezier(0.4,0,0.6,1)] focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]`}
+      } [transition:transform_0.16s_cubic-bezier(0.4,0,0.6,1)] focus-visible:[box-shadow:0_0_0_2px_var(--focus)]`}
       style={{
         left: rest.x * scale,
         top: rest.y * scale,
@@ -332,7 +333,7 @@ export function BareScreen({
   return (
     <div
       ref={screenRef}
-      className="relative shrink-0 overflow-hidden rounded-panel bg-black shadow-device"
+      className="relative shrink-0 overflow-hidden rounded-[22px] bg-black [filter:var(--device-shadow)]"
       style={{ width, height } as CSSProperties}
       {...dropProps}
     >

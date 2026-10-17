@@ -11,7 +11,7 @@ test("Duo gestures use the same input history reporters as ordinary simulators",
 test("native composition is selected by helper capability, not device identity alone", async () => {
   const client = await source();
   expect(client).toContain("activeStreamConfig.deviceComposition === true");
-  expect(client).toContain("{nativeComposition ? (");
+  expect(client).toContain("const device = nativeComposition ? (");
 });
 
 test("Duo scale changes remain local and control reconnect replays pending view changes", async () => {
@@ -27,7 +27,9 @@ test("Duo scale changes remain local and control reconnect replays pending view 
 test("Duo uses stream error feedback rather than hiding all connection status", async () => {
   const client = await source();
   expect(client).toContain("onStreamError={setStreamError}");
-  expect(client).toContain('streamError ?? "Connecting..."');
+  expect(client).toContain("{streamError && <ScreenStatus");
+  // The same overlays sit over the Duo's composited screen, not only the bezel.
+  expect(client).toContain("{screenOverlays}");
 });
 
 test("screen clicks remove stale control focus without blurring controls being pressed", async () => {

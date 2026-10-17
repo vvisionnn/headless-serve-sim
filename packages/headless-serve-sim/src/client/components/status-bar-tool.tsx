@@ -1,6 +1,10 @@
+import { Signal } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
-import { Chevron } from "../icons";
-import { Select as SelectMenu } from "./select";
+import { Field, LiveSlider, Note } from "../inspector/device-rows";
+import { Button } from "../ui/button";
+import { Stepper, TextField, ValueChip } from "../ui/field";
+import { Disclosure } from "../ui/group";
+import { Select } from "../ui/select";
 import { execOnHost, shellEscape } from "../utils/exec";
 
 // Mirrors the simctl status_bar enum sets (see `xcrun simctl help status_bar`).
@@ -21,22 +25,43 @@ const WIFI_MODE = ["searching", "failed", "active"] as const;
 const CELLULAR_MODE = ["notSupported", "searching", "failed", "active"] as const;
 const BATTERY_STATE = ["charging", "charged", "discharging"] as const;
 
-// Inline hover styles — :hover/:focus/:disabled can't live in inline `style`,
-// so emit a small sheet keyed off the shared lem-* classnames. Mirrors
-// location-emulation-tool.tsx so the look stays consistent.
-const HOVER_CSS = `
-.lem-toggle:hover { color: var(--color-fg); }
-.lem-toggle:hover .lem-chevron { color: var(--color-fg) !important; }
-.lem-select:hover { background: var(--color-hover); border-color: var(--color-divider); }
-.lem-select:focus { outline: none; border-color: var(--color-accent-solid); box-shadow: 0 0 0 2px var(--color-accent-solid); }
-.lem-input:hover { background: var(--color-hover); border-color: var(--color-divider); }
-.lem-input:focus-visible { outline: none; border-color: var(--color-accent-solid); box-shadow: 0 0 0 2px var(--color-accent-solid); }
-.lem-primary:hover:not(:disabled) { filter: brightness(1.06); }
-.lem-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.lem-ghost:hover:not(:disabled) { background: var(--color-hover); border-color: var(--color-divider); color: var(--color-fg); }
-.lem-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
-.lem-primary:focus-visible, .lem-ghost:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); }
-`;
+// Display names for the simctl values; "" leaves the field un-overridden.
+const OPTION_LABELS: Record<string, string> = {
+  "": "Unchanged",
+  hide: "Hidden",
+  wifi: "Wi‑Fi",
+  "3g": "3G",
+  "4g": "4G",
+  lte: "LTE",
+  "lte-a": "LTE‑A",
+  "lte+": "LTE+",
+  "5g": "5G",
+  "5g+": "5G+",
+  "5g-uwb": "5G UW",
+  "5g-uc": "5G UC",
+  searching: "Searching",
+  failed: "Failed",
+  active: "Active",
+  notSupported: "Not supported",
+  charging: "Charging",
+  charged: "Charged",
+  discharging: "Discharging",
+};
+
+/** Menu options for a simctl enum, led by "Unchanged" (no override). */
+export function statusBarOptions(values: readonly string[]) {
+  return ["", ...values].map((value) => ({ value, label: OPTION_LABELS[value] ?? value }));
+}
+
+/**
+ * The number a stepper or slider shows for a field. Unset fields show the
+ * stock full-strength value, which is what the device shows without an
+ * override; they still aren't sent until the user changes them.
+ */
+export function statusBarNumber(value: string, fallback: number): number {
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
 
 interface Fields {
   time: string;
@@ -75,8 +100,7 @@ const FLAG_BY_FIELD: ReadonlyArray<[keyof Fields, string]> = [
   ["batteryLevel", "--battery-level"],
 ];
 
-export function StatusBarTool({ udid }: { udid: string }) {
-  const [open, setOpen] = useState(false);
+export function StatusBarTool({ udid, defaultOpen }: { udid: string; defaultOpen?: boolean }) {
   const [pending, setPending] = useState<"override" | "clear" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState<Fields>(EMPTY);
@@ -84,7 +108,8 @@ export function StatusBarTool({ udid }: { udid: string }) {
   // Resolve the in-page CLI runner the same way app-permissions-tool does, so
   // the card drives the `status-bar` passthrough rather than simctl directly.
   const cliPrefix = useMemo(() => {
-    const bin = window.__SIM_PREVIEW__?.serveSimBin;
+    // No window while server-rendering (tests); fall back to the PATH binary.
+    const bin = typeof window === "undefined" ? undefined : window.__SIM_PREVIEW__?.serveSimBin;
     if (!bin) return "headless-serve-sim";
     if (/\.ts$/.test(bin)) return `bun ${shellEscape(bin)}`;
     if (/\.js$/.test(bin)) return `node ${shellEscape(bin)}`;
@@ -149,217 +174,120 @@ export function StatusBarTool({ udid }: { udid: string }) {
   }, [cliPrefix, udid]);
 
   return (
-    <div className="border-t border-divider bg-panel overflow-hidden">
-      <style>{HOVER_CSS}</style>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="lem-toggle flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full bg-transparent border-none text-left cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
-        aria-expanded={open}
-      >
-        <span className="mr-auto text-body font-semibold text-fg">Status Bar</span>
-        <Chevron open={open} />
-      </button>
-
-      {open && (
-        <div className="px-5 pb-4 pt-1 flex flex-col gap-3">
-          <p className="m-0 text-value leading-[1.5] text-fg-3">
-            Overrides only affect apps using the standard status bar and reset on reboot.
-          </p>
-
-          <div className="flex flex-col gap-2.5">
-            <Field label="Time">
-              <input
-                type="text"
-                inputMode="numeric"
-                value={fields.time}
-                onChange={(e) => set("time", e.target.value)}
-                placeholder="9:41"
-                className="lem-input appearance-none bg-surface-3 rounded-card border border-divider text-fg text-value font-mono py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
-                aria-label="Time"
-              />
-            </Field>
-
-            <Field label="Data network">
-              <Select
-                value={fields.dataNetwork}
-                onChange={(v) => set("dataNetwork", v)}
-                options={DATA_NETWORK}
-                ariaLabel="Data network"
-              />
-            </Field>
-
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Cellular bars">
-                <NumberInput
-                  value={fields.cellularBars}
-                  onChange={(v) => set("cellularBars", v)}
-                  min={0}
-                  max={4}
-                  ariaLabel="Cellular bars"
-                />
-              </Field>
-              <Field label="Cellular mode">
-                <Select
-                  value={fields.cellularMode}
-                  onChange={(v) => set("cellularMode", v)}
-                  options={CELLULAR_MODE}
-                  ariaLabel="Cellular mode"
-                />
-              </Field>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="WiFi bars">
-                <NumberInput
-                  value={fields.wifiBars}
-                  onChange={(v) => set("wifiBars", v)}
-                  min={0}
-                  max={3}
-                  ariaLabel="WiFi bars"
-                />
-              </Field>
-              <Field label="WiFi mode">
-                <Select
-                  value={fields.wifiMode}
-                  onChange={(v) => set("wifiMode", v)}
-                  options={WIFI_MODE}
-                  ariaLabel="WiFi mode"
-                />
-              </Field>
-            </div>
-
-            <Field label="Operator name">
-              <input
-                type="text"
-                value={fields.operatorName}
-                onChange={(e) => set("operatorName", e.target.value)}
-                placeholder="Carrier"
-                maxLength={32}
-                className="lem-input appearance-none bg-surface-3 rounded-card border border-divider text-fg text-value py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
-                aria-label="Operator name"
-              />
-            </Field>
-
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Battery state">
-                <Select
-                  value={fields.batteryState}
-                  onChange={(v) => set("batteryState", v)}
-                  options={BATTERY_STATE}
-                  ariaLabel="Battery state"
-                />
-              </Field>
-              <Field label="Battery level">
-                <NumberInput
-                  value={fields.batteryLevel}
-                  onChange={(v) => set("batteryLevel", v)}
-                  min={0}
-                  max={100}
-                  ariaLabel="Battery level"
-                />
-              </Field>
-            </div>
-          </div>
-
-          <div className="flex">
-            <button
-              type="button"
-              onClick={applyPreset}
-              className="lem-ghost rounded-chip bg-transparent border border-divider text-fg-2 text-value px-3 py-1 cursor-pointer [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
-              title="Fill the form with the 9:41 keynote preset"
-            >
-              9:41 keynote
-            </button>
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={apply}
-              disabled={pending !== null}
-              className="lem-primary rounded-card flex-1 flex items-center justify-center py-2 px-4 border-none text-value font-semibold cursor-pointer font-[inherit] bg-accent-solid text-on-accent [transition:filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
-            >
-              {pending === "override" ? "…" : "Apply"}
-            </button>
-            <button
-              type="button"
-              onClick={reset}
-              disabled={pending !== null}
-              className="lem-ghost rounded-card flex items-center justify-center py-2 px-4 border border-divider text-value font-medium bg-transparent text-fg cursor-pointer font-[inherit] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
-              title="Clear all status bar overrides"
-            >
-              {pending === "clear" ? "…" : "Reset"}
-            </button>
-          </div>
-
-          {error && (
-            <div className="bg-surface-3 rounded-card border border-divider text-danger text-value leading-[1.45] px-3 py-2">
-              {error}
-            </div>
-          )}
-        </div>
+    <Disclosure title="Status bar" icon={<Signal />} defaultOpen={defaultOpen}>
+      <Note>Overrides apply to apps using the standard status bar and reset on reboot.</Note>
+      <Field label="Time">
+        <TextField
+          mono
+          inputMode="numeric"
+          placeholder="9:41"
+          aria-label="Time"
+          value={fields.time}
+          onChange={(e) => set("time", e.target.value)}
+          className="w-[132px]"
+        />
+      </Field>
+      <Field label="Network">
+        <Select
+          label="Data network"
+          value={fields.dataNetwork}
+          onChange={(v) => set("dataNetwork", v)}
+          options={statusBarOptions(DATA_NETWORK)}
+        />
+      </Field>
+      <Field label="Cellular bars">
+        <Stepper
+          label="Cellular bars"
+          value={statusBarNumber(fields.cellularBars, 4)}
+          min={0}
+          max={4}
+          onChange={(v) => set("cellularBars", String(v))}
+        />
+      </Field>
+      <Field label="Cellular mode">
+        <Select
+          label="Cellular mode"
+          value={fields.cellularMode}
+          onChange={(v) => set("cellularMode", v)}
+          options={statusBarOptions(CELLULAR_MODE)}
+        />
+      </Field>
+      <Field label="Wi‑Fi bars">
+        <Stepper
+          label="Wi‑Fi bars"
+          value={statusBarNumber(fields.wifiBars, 3)}
+          min={0}
+          max={3}
+          onChange={(v) => set("wifiBars", String(v))}
+        />
+      </Field>
+      <Field label="Wi‑Fi mode">
+        <Select
+          label="Wi‑Fi mode"
+          value={fields.wifiMode}
+          onChange={(v) => set("wifiMode", v)}
+          options={statusBarOptions(WIFI_MODE)}
+        />
+      </Field>
+      <Field label="Operator">
+        <TextField
+          placeholder="Carrier"
+          maxLength={32}
+          aria-label="Operator name"
+          value={fields.operatorName}
+          onChange={(e) => set("operatorName", e.target.value)}
+          className="w-[132px]"
+        />
+      </Field>
+      <Field label="Battery">
+        <Select
+          label="Battery state"
+          value={fields.batteryState}
+          onChange={(v) => set("batteryState", v)}
+          options={statusBarOptions(BATTERY_STATE)}
+        />
+      </Field>
+      <div className="flex flex-col gap-1.5">
+        <Field label="Battery level">
+          <ValueChip>{statusBarNumber(fields.batteryLevel, 100)}%</ValueChip>
+        </Field>
+        <LiveSlider
+          label="Battery level"
+          value={statusBarNumber(fields.batteryLevel, 100)}
+          min={0}
+          max={100}
+          step={1}
+          onChange={(v) => set("batteryLevel", String(Math.round(v)))}
+        />
+      </div>
+      <div className="flex items-center gap-1.5 pt-1">
+        <Button
+          variant="secondary"
+          size="md"
+          onClick={applyPreset}
+          title="Fill the form with the 9:41 keynote preset"
+        >
+          9:41 Keynote
+        </Button>
+        <span className="flex-1" />
+        <Button
+          variant="plain"
+          size="md"
+          onClick={reset}
+          disabled={pending !== null}
+          title="Clear all status bar overrides"
+        >
+          {pending === "clear" ? "Resetting…" : "Reset"}
+        </Button>
+        <Button variant="primary" size="md" onClick={apply} disabled={pending !== null}>
+          {pending === "override" ? "Applying…" : "Apply"}
+        </Button>
+      </div>
+      {error && (
+        <p role="alert" className="m-0 text-footnote break-words text-red">
+          {error}
+        </p>
       )}
-    </div>
-  );
-}
-
-// ─── Sub-components ───
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1.5 min-w-0">
-      <span className="text-value text-fg-3">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function Select({
-  value,
-  onChange,
-  options,
-  ariaLabel,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: readonly string[];
-  ariaLabel: string;
-}) {
-  return (
-    <SelectMenu
-      label={ariaLabel}
-      value={value}
-      options={[{ value: "", label: "unset" }, ...options.map((o) => ({ value: o, label: o }))]}
-      onChange={onChange}
-      className="lem-select bg-surface-3 rounded-card border border-divider text-fg text-value py-2 px-2.5 w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1)]"
-    />
-  );
-}
-
-function NumberInput({
-  value,
-  onChange,
-  min,
-  max,
-  ariaLabel,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  min: number;
-  max: number;
-  ariaLabel: string;
-}) {
-  return (
-    <input
-      type="number"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      min={min}
-      max={max}
-      placeholder={`${min}–${max}`}
-      className="lem-input appearance-none bg-surface-3 rounded-card border border-divider text-fg text-value font-mono py-2 px-2.5 font-[inherit] w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
-      aria-label={ariaLabel}
-    />
+    </Disclosure>
   );
 }

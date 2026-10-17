@@ -41,23 +41,23 @@ describe("MetricsDashboard", () => {
       "Live",
       "CPU",
       "37.5",
-      "Memory Footprint",
+      "Memory",
       "200",
       "User CPU",
       "25.0%",
       "System CPU",
       "12.5%",
-      "Peak Footprint",
+      "Peak footprint",
       "240 MB",
-      "Resident Memory",
+      "Resident memory",
       "180 MB",
       "Threads",
       "12",
       "Running",
       "2",
-      "Disk Read",
+      "Disk read",
       "8.0 KB/s",
-      "Disk Write",
+      "Disk write",
       "4.0 KB/s",
       "Wakeups",
       "3.0/s",
@@ -91,7 +91,7 @@ describe("MetricsDashboard", () => {
       );
     const liveRegion = (html: string) =>
       html.match(
-        /<(div|section)[^>]*(?:aria-live="(?:polite|assertive)"|role="(?:status|alert|log)")[^>]*>[\s\S]*?<\/\1>/,
+        /<(div|section|span)[^>]*(?:aria-live="(?:polite|assertive)"|role="(?:status|alert|log)")[^>]*>[\s\S]*?<\/\1>/,
       )?.[0];
 
     const first = liveRegion(renderAt(Date.UTC(2026, 6, 10, 15, 30, 0)));

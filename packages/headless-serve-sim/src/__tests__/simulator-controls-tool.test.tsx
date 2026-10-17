@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { SimulatorControlsTool } from "../client/components/simulator-controls-tool";
 import type { SimulatorControlState } from "../simulator-controls";
 import * as exec from "../client/utils/exec";
-import * as select from "../client/components/select";
+import * as select from "../client/ui/select";
 
 function renderWithState(state: SimulatorControlState) {
   const useState = React.useState;
@@ -17,14 +17,14 @@ function renderWithState(state: SimulatorControlState) {
     return useState(initial);
   }) as typeof React.useState);
   try {
-    return renderToStaticMarkup(<SimulatorControlsTool udid="DUO" />);
+    return renderToStaticMarkup(<SimulatorControlsTool udid="DUO" defaultOpen />);
   } finally {
     spy.mockRestore();
   }
 }
 
 test("disabled selector icons remain fully opaque", () => {
-  const html = renderToStaticMarkup(<SimulatorControlsTool udid="DUO" />);
+  const html = renderToStaticMarkup(<SimulatorControlsTool udid="DUO" defaultOpen />);
   const trigger = html.match(/<button[^>]*aria-label="Physical Orientation"[^>]*>/)?.[0];
   expect(trigger).toBeDefined();
   expect(trigger).not.toContain("disabled:opacity-");
@@ -51,10 +51,11 @@ test("allows one bounded read stage for refresh and two for mutation with fresh 
     }),
     spyOn(exec, "hostSimulatorControlRequest").mockResolvedValue(state),
     spyOn(exec, "hostDeviceMotionRequest").mockResolvedValue(null),
-    spyOn(select, "Select").mockImplementation((props) => {
-      if (props.label === "Physical Orientation") changeOrientation = props.onChange;
+    spyOn(select, "Select").mockImplementation(((props: Parameters<typeof Select>[0]) => {
+      if (props.label === "Physical Orientation")
+        changeOrientation = props.onChange as (value: string) => void;
       return Select(props);
-    }),
+    }) as typeof Select),
   ];
   try {
     renderWithState(state);
@@ -118,42 +119,38 @@ test("renders an unknown input attachment query separately from ownership warnin
 });
 
 test("renders native Sound, biometrics and six-orientation controls disabled until state loads", () => {
-  const html = renderToStaticMarkup(<SimulatorControlsTool udid="DUO" />);
+  const html = renderToStaticMarkup(<SimulatorControlsTool udid="DUO" defaultOpen />);
   expect(html).toContain("Sound");
-  expect(html).toContain('aria-label="Volume"');
-  expect(html).toContain('min="0"');
-  expect(html).toContain('max="1"');
-  expect(html).toContain('step="0.01"');
+  expect(html).toMatch(
+    /aria-disabled="true"[^>]*><div[^>]*><div role="slider" aria-label="Volume" aria-valuemin="0" aria-valuemax="1"/,
+  );
   expect(html).toContain('aria-label="Input Device"');
   expect(html).toContain('aria-label="Output Device"');
   expect(html).toContain('aria-label="Biometrics Enrolled"');
   expect(html).toContain("Matching Touch");
   expect(html).toContain("Non-matching Touch");
   expect(html).toContain('aria-label="Physical Orientation"');
-  expect(html).toContain('aria-label="Action Button" disabled=""');
+  expect(html).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Action Button"/);
   expect(html).not.toContain('role="switch" aria-checked="false" aria-label="Action Button"');
   expect(html).toContain("Not supported by this device");
-  expect(html.match(/disabled=""/g)?.length).toBeGreaterThanOrEqual(8);
+  expect(html.match(/disabled=""|aria-disabled="true"/g)?.length).toBeGreaterThanOrEqual(8);
 });
 
 test("renders continuous Liquid Glass opacity disabled until native state loads", () => {
-  const html = renderToStaticMarkup(<SimulatorControlsTool udid="DUO" />);
-  const input = html.match(/<input[^>]*aria-label="Liquid Glass opacity"[^>]*>/)?.[0];
-  expect(input).toBeDefined();
-  expect(input).toContain('min="0"');
-  expect(input).toContain('max="1"');
-  expect(input).toContain('step="0.01"');
-  expect(input).toContain('disabled=""');
+  const html = renderToStaticMarkup(<SimulatorControlsTool udid="DUO" defaultOpen />);
+  expect(html).toMatch(
+    /aria-disabled="true"[^>]*><div[^>]*><div role="slider" aria-label="Liquid Glass opacity" aria-valuemin="0" aria-valuemax="1"/,
+  );
 });
 
 test("clipboard controls begin disabled with sharing off and explain the host destination", () => {
-  const html = renderToStaticMarkup(<SimulatorControlsTool udid="DUO" />);
+  const html = renderToStaticMarkup(<SimulatorControlsTool udid="DUO" defaultOpen />);
   expect(html).toContain("Clipboard");
   expect(html).toContain(
     'role="switch" aria-checked="false" aria-label="Use Shared Clipboard" disabled=""',
   );
-  expect(html).toContain('aria-label="Send Clipboard" disabled=""');
-  expect(html).toContain('aria-label="Get Clipboard" disabled=""');
+  expect(html).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Send Clipboard"/);
+  expect(html).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Get Clipboard"/);
   expect(html).toContain("Mac host");
   expect(html).toContain("Sharing is off until you enable it");
 });

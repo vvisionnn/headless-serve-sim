@@ -4,11 +4,14 @@ import type {
   SimulatorControlState,
   DeviceOrientation,
 } from "../../simulator-controls";
+import { ClipboardCopy, Cpu, Droplets, FingerprintPattern, Volume2 } from "lucide-react";
+import { ErrorNote, Field, Hold, LiveSlider, Note } from "../inspector/device-rows";
+import { Button } from "../ui/button";
+import { ValueChip } from "../ui/field";
+import { Disclosure } from "../ui/group";
+import { Select } from "../ui/select";
+import { Switch } from "../ui/switch";
 import { hostSimulatorControlRequest, hostDeviceMotionRequest } from "../utils/exec";
-import { CollapsibleSection } from "./collapsible-section";
-import { Slider } from "./design-system";
-import { Select } from "./select";
-import { SettingSwitch } from "./setting-switch";
 
 type ScreenOrientation = "portrait" | "portrait_upside_down" | "landscape_left" | "landscape_right";
 const SCREEN_ORIENTATIONS: Partial<Record<DeviceOrientation, ScreenOrientation>> = {
@@ -26,10 +29,10 @@ const ORIENTATION_OPTIONS = [
   { value: "faceDown", label: "Face Down" },
 ];
 const DEFAULT_AUDIO_DEVICES = [{ value: "systemDefault", label: "System Default" }];
-const SELECT_CLASS =
-  "w-[168px] min-w-0 rounded-sm border border-control-border bg-panel px-3 py-2 text-value text-fg outline-none hover:border-fg-3 hover:bg-hover focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] disabled:text-fg-3";
-const BUTTON_CLASS =
-  "min-h-[38px] cursor-pointer rounded-card border border-control-border bg-panel-deep px-3 py-2 text-body text-fg hover:bg-hover disabled:cursor-default disabled:opacity-45 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]";
+
+function percent(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
 
 function DeviceSelect({
   label,
@@ -45,15 +48,48 @@ function DeviceSelect({
   onChange: (value: string) => void;
 }) {
   return (
-    <div className="flex min-h-[38px] items-center justify-between gap-3">
-      <span className="min-w-0 text-body text-fg">{label}</span>
-      <Select
+    <Field label={label.charAt(0) + label.slice(1).toLowerCase()}>
+      <Hold when={disabled}>
+        <Select
+          label={label}
+          value={value}
+          options={options}
+          onChange={onChange}
+          className={disabled ? "w-[148px] min-w-0 text-label-3" : "w-[148px] min-w-0"}
+        />
+      </Hold>
+    </Field>
+  );
+}
+
+/** A labelled 0–1 slider with its live percentage, committed on release. */
+function LevelField({
+  label,
+  value,
+  disabled,
+  onChange,
+  onCommit,
+}: {
+  label: string;
+  value: number;
+  disabled: boolean;
+  onChange: (value: number) => void;
+  onCommit: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Field label={label}>
+        <ValueChip>{percent(value)}</ValueChip>
+      </Field>
+      <LiveSlider
         label={label}
         value={value}
-        options={options}
+        min={0}
+        max={1}
+        step={0.01}
         disabled={disabled}
         onChange={onChange}
-        className={SELECT_CLASS}
+        onCommit={onCommit}
       />
     </div>
   );
@@ -63,16 +99,14 @@ export function SimulatorControlsTool({
   udid,
   execToken,
   onOrientationChange,
+  defaultOpen,
 }: {
   udid: string;
   execToken?: string;
   onOrientationChange?: (orientation: ScreenOrientation) => void;
+  /** Start every disclosure open (tests render static markup). */
+  defaultOpen?: boolean;
 }) {
-  const [soundOpen, setSoundOpen] = useState(false);
-  const [appearanceOpen, setAppearanceOpen] = useState(false);
-  const [hardwareOpen, setHardwareOpen] = useState(false);
-  const [biometricsOpen, setBiometricsOpen] = useState(false);
-  const [clipboardOpen, setClipboardOpen] = useState(false);
   const [state, setState] = useState<SimulatorControlState | null>(null);
   const [volume, setVolume] = useState<number | null>(null);
   const [opacity, setOpacity] = useState<number | null>(null);
@@ -152,50 +186,38 @@ export function SimulatorControlsTool({
   return (
     <>
       {state?.inputAttachment?.appleWindowActive && (
-        <div role="alert" className="flex flex-col gap-2 px-5 py-3 text-value text-fg">
-          <p className="m-0 break-words font-semibold">
+        <div role="alert" className="flex flex-col gap-1 px-2.5 text-footnote text-label">
+          <p className="m-0 font-semibold break-words text-orange">
             Simulator input is owned by Apple’s window.
           </p>
           <p className="m-0 break-words">
             Headless touches, buttons, and keyboard input may be dropped even when delivery
             succeeds.
           </p>
-          <p className="m-0 break-words text-fg-2">
+          <p className="m-0 break-words text-label-2">
             Reclaiming input requires restarting SpringBoard and closes running simulator apps. No
             automatic repair is performed.
           </p>
         </div>
       )}
       {state?.errors.inputAttachment && (
-        <p className="m-0 break-words px-5 py-3 text-value text-fg-2">
-          Input ownership unavailable: {state.errors.inputAttachment}
-        </p>
+        <Note className="px-2.5">Input ownership unavailable: {state.errors.inputAttachment}</Note>
       )}
       {error && (
-        <div
-          role="alert"
-          className="flex items-center justify-between gap-3 px-5 py-3 text-value text-danger"
-        >
-          <span className="min-w-0 break-words">{error}</span>
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            disabled={pending}
-            className={BUTTON_CLASS}
-          >
-            Retry
-          </button>
-        </div>
+        <ErrorNote
+          message={error}
+          action={
+            <Button variant="plain" size="sm" disabled={pending} onClick={() => void refresh()}>
+              Retry
+            </Button>
+          }
+        />
       )}
-      <CollapsibleSection open={soundOpen} onOpenChange={setSoundOpen} summary="Sound">
-        <Slider
+      <Disclosure title="Sound" icon={<Volume2 />} defaultOpen={defaultOpen}>
+        <LevelField
           label="Volume"
           value={volume ?? audio?.volume ?? 0.6}
-          min={0}
-          max={1}
-          step={0.01}
           disabled={audioDisabled}
-          format={(value) => `${Math.round(value * 100)}%`}
           onChange={setVolume}
           onCommit={() => {
             if (volume !== null && !audioDisabled) void apply("volume", volume);
@@ -215,69 +237,53 @@ export function SimulatorControlsTool({
           disabled={audioDisabled}
           onChange={(value) => void apply("audio-output", value)}
         />
-        {state?.errors.audio && (
-          <p className="m-0 break-words text-value text-fg-2">{state.errors.audio}</p>
-        )}
-      </CollapsibleSection>
-      <CollapsibleSection
-        open={appearanceOpen}
-        onOpenChange={setAppearanceOpen}
-        summary="Liquid Glass"
-      >
-        <Slider
+        {state?.errors.audio && <Note>{state.errors.audio}</Note>}
+      </Disclosure>
+      <Disclosure title="Liquid Glass" icon={<Droplets />} defaultOpen={defaultOpen}>
+        <LevelField
           label="Liquid Glass opacity"
           value={opacity ?? state?.appearance?.liquidGlassOpacity ?? 0.5}
-          min={0}
-          max={1}
-          step={0.01}
           disabled={opacityDisabled}
-          format={(value) => `${Math.round(value * 100)}%`}
           onChange={setOpacity}
           onCommit={() => {
             if (opacity !== null && !opacityDisabled) void apply("liquid-glass-opacity", opacity);
           }}
         />
-        {state?.errors.appearance && (
-          <p className="m-0 break-words text-value text-fg-2">{state.errors.appearance}</p>
-        )}
-      </CollapsibleSection>
-      <CollapsibleSection
-        open={biometricsOpen}
-        onOpenChange={setBiometricsOpen}
-        summary={biometricLabel}
-      >
-        <SettingSwitch
-          label={`${biometricLabel} Enrolled`}
-          checked={biometric?.enabled ?? false}
-          disabled={biometricsDisabled}
-          onChange={(value) => void apply("biometrics-enrolled", value)}
-        />
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
+        {state?.errors.appearance && <Note>{state.errors.appearance}</Note>}
+      </Disclosure>
+      <Disclosure title={biometricLabel} icon={<FingerprintPattern />} defaultOpen={defaultOpen}>
+        <Field label={`${biometricLabel} enrolled`}>
+          <Switch
+            label={`${biometricLabel} Enrolled`}
+            checked={biometric?.enabled ?? false}
+            disabled={biometricsDisabled}
+            onChange={(value) => void apply("biometrics-enrolled", value)}
+          />
+        </Field>
+        <div className="grid grid-cols-2 gap-1.5">
+          <Button
+            variant="secondary"
+            size="md"
             disabled={biometricsDisabled || !biometric?.enabled}
-            className={BUTTON_CLASS}
             onClick={() => void apply("biometric-match", true)}
           >
             {touch ? "Matching Touch" : "Matching Biometric"}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="secondary"
+            size="md"
             disabled={biometricsDisabled || !biometric?.enabled}
-            className={BUTTON_CLASS}
             onClick={() => void apply("biometric-match", false)}
           >
             {touch ? "Non-matching Touch" : "Non-matching Biometric"}
-          </button>
+          </Button>
         </div>
-        {state?.errors.biometrics && (
-          <p className="m-0 break-words text-value text-fg-2">{state.errors.biometrics}</p>
-        )}
+        {state?.errors.biometrics && <Note>{state.errors.biometrics}</Note>}
         {state?.biometrics?.length === 0 && (
-          <p className="m-0 text-value text-fg-2">Biometrics are not supported by this device</p>
+          <Note>Biometrics are not supported by this device</Note>
         )}
-      </CollapsibleSection>
-      <CollapsibleSection open={hardwareOpen} onOpenChange={setHardwareOpen} summary="Hardware">
+      </Disclosure>
+      <Disclosure title="Hardware" icon={<Cpu />} defaultOpen={defaultOpen}>
         <DeviceSelect
           label="Physical Orientation"
           value={state?.orientation ?? "portrait"}
@@ -285,49 +291,49 @@ export function SimulatorControlsTool({
           disabled={!state?.orientation || pending}
           onChange={(value) => void apply("orientation", value)}
         />
-        {state?.errors.orientation && (
-          <p className="m-0 break-words text-value text-fg-2">{state.errors.orientation}</p>
-        )}
-        <button type="button" aria-label="Action Button" disabled className={BUTTON_CLASS}>
-          Action Button
-        </button>
-        <p className="m-0 text-value text-fg-2">Not supported by this device</p>
-      </CollapsibleSection>
-      <CollapsibleSection open={clipboardOpen} onOpenChange={setClipboardOpen} summary="Clipboard">
-        <SettingSwitch
-          label="Use Shared Clipboard"
-          checked={state?.sharedClipboard ?? false}
-          disabled={clipboardDisabled}
-          onChange={(value) => void apply("shared-clipboard", value)}
-        />
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
+        {state?.errors.orientation && <Note>{state.errors.orientation}</Note>}
+        <Field label="Action button">
+          <Button variant="secondary" size="sm" aria-label="Action Button" disabled>
+            Press
+          </Button>
+        </Field>
+        <Note>Not supported by this device</Note>
+      </Disclosure>
+      <Disclosure title="Clipboard" icon={<ClipboardCopy />} defaultOpen={defaultOpen}>
+        <Field label="Use shared clipboard">
+          <Switch
+            label="Use Shared Clipboard"
+            checked={state?.sharedClipboard ?? false}
+            disabled={clipboardDisabled}
+            onChange={(value) => void apply("shared-clipboard", value)}
+          />
+        </Field>
+        <div className="grid grid-cols-2 gap-1.5">
+          <Button
+            variant="secondary"
+            size="md"
             aria-label="Send Clipboard"
             disabled={clipboardDisabled}
-            className={BUTTON_CLASS}
             onClick={() => void apply("clipboard-send", undefined)}
           >
-            Send Clipboard
-          </button>
-          <button
-            type="button"
+            Send to device
+          </Button>
+          <Button
+            variant="secondary"
+            size="md"
             aria-label="Get Clipboard"
             disabled={clipboardDisabled}
-            className={BUTTON_CLASS}
             onClick={() => void apply("clipboard-get", undefined)}
           >
-            Get Clipboard
-          </button>
+            Get from device
+          </Button>
         </div>
-        <p className="m-0 text-value text-fg-2">
+        <Note>
           Send copies the Mac host clipboard to this device. Get replaces the Mac host clipboard
           with this device’s clipboard.
-        </p>
-        <p className="m-0 text-value text-fg-2">
-          Sharing is off until you enable it, and stops when the preview server closes.
-        </p>
-      </CollapsibleSection>
+        </Note>
+        <Note>Sharing is off until you enable it, and stops when the preview server closes.</Note>
+      </Disclosure>
     </>
   );
 }

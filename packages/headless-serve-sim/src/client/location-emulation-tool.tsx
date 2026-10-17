@@ -7,7 +7,20 @@
 // (extruded ribbon + ground plane shadow) but flat-shaded so we don't pull
 // in WebGL or a 3D library.
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  Activity,
+  ArrowDown,
+  ArrowUp,
+  Bike,
+  Car,
+  Footprints,
+  MapPin,
+  Pause,
+  Play,
+  Square,
+} from "lucide-react";
+import { motion } from "motion/react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_TRAILS,
   defaultSpeed,
@@ -18,44 +31,15 @@ import {
   type Trail,
   type TrailMode,
 } from "./trails";
-import {
-  ArrowGlyph,
-  Chevron,
-  CycleGlyph,
-  DriveGlyph,
-  FastForwardGlyph,
-  PauseGlyph,
-  PlayGlyph,
-  RunGlyph,
-  StopGlyph,
-  WalkGlyph,
-} from "./icons";
-import { Select } from "./components/select";
+import { Note } from "./inspector/device-rows";
+import { spring } from "./lib/motion";
+import { Button } from "./ui/button";
+import { ValueChip } from "./ui/field";
+import { Disclosure } from "./ui/group";
+import { Segmented } from "./ui/segmented";
+import { Select } from "./ui/select";
 
 const TRAIL_MORPH_MS = 650;
-
-// Inline hover styles — inline `style` objects can't express :hover, so we
-// emit a small style sheet keyed off classnames the components apply.
-// TODO: Convert to Tailwind
-const HOVER_CSS = `
-.lem-toggle:hover { color: var(--color-fg); }
-.lem-toggle:hover .lem-chevron { color: var(--color-fg) !important; }
-.lem-select:hover { background: var(--color-hover); border-color: var(--color-divider); }
-.lem-select:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); }
-.lem-primary:hover:not(:disabled) { filter: brightness(1.04); }
-.lem-primary-on:hover:not(:disabled) { background: var(--color-hover) !important; filter: none; }
-.lem-ghost:hover:not(:disabled) { background: var(--color-hover); border-color: var(--color-divider); color: var(--color-fg); }
-.lem-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
-.lem-seg:hover:not([aria-pressed="true"]) { color: var(--color-fg); background: var(--color-hover) !important; }
-.lem-speed:hover { background: var(--color-hover); border-color: var(--color-divider); color: var(--color-fg); }
-.lem-speed-on:hover { filter: brightness(1.04); }
-.lem-speed:active { transform: scale(0.97); }
-.lem-toggle:focus-visible,
-.lem-primary:focus-visible,
-.lem-ghost:focus-visible,
-.lem-seg:focus-visible,
-.lem-speed:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-accent-solid); }
-`;
 
 interface ExecResult {
   stdout: string;
@@ -82,8 +66,15 @@ const INITIAL_PLAYBACK: PlaybackState = { status: "idle", arc: 0, elapsedMs: 0 }
 
 // ─── Tool component ────────────────────────────────────────────────────────
 
-export function LocationEmulationTool({ udid, exec }: { udid: string; exec: ExecFn }) {
-  const [open, setOpen] = useState(false);
+export function LocationEmulationTool({
+  udid,
+  exec,
+  defaultOpen,
+}: {
+  udid: string;
+  exec: ExecFn;
+  defaultOpen?: boolean;
+}) {
   const [trailId, setTrailId] = useState<string>(DEFAULT_TRAILS[0]!.id);
   const [mode, setMode] = useState<TrailMode>(DEFAULT_TRAILS[0]!.mode);
   const [multiplier, setMultiplier] = useState<SpeedMultiplier>(1);
@@ -326,121 +317,104 @@ export function LocationEmulationTool({ udid, exec }: { udid: string; exec: Exec
     ? `${formatDistance(playback.arc)} · ${formatDuration(playback.elapsedMs)}`
     : `${formatDistance(prepared.totalDistance)} total`;
 
+  const finished = !prepared.trail.loop && playback.arc >= prepared.totalDistance;
+  const playLabel = playing
+    ? "Pause"
+    : playback.status === "paused" && !finished
+      ? "Resume"
+      : "Play route";
+
   return (
-    <div className="bg-panel rounded-card border border-divider overflow-hidden font-system">
-      <style>{HOVER_CSS}</style>
-      <button
-        type="button"
-        onClick={() => setOpen((v: boolean) => !v)}
-        className="lem-toggle flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full cursor-pointer select-none bg-transparent border-none text-fg text-left [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
-        aria-expanded={open}
-      >
-        <span className="mr-auto text-body font-semibold text-fg">Location</span>
-        <span className="flex items-center gap-2.5 ml-auto">
-          <span className="text-micro text-fg-3 font-mono inline-flex items-center gap-1.5 leading-none">
-            <span
-              className="size-1.5 rounded-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1)]"
-              style={{
-                background: playing
-                  ? "var(--color-success)"
-                  : prepared.totalDistance > 0
-                    ? "var(--color-fg-3)"
-                    : "transparent",
-              }}
-            />
-            {headerStatus}
-          </span>
+    <Disclosure
+      title="Location"
+      icon={<MapPin />}
+      defaultOpen={defaultOpen}
+      status={
+        <span className="flex items-center gap-1.5">
+          {playing && <span className="live-dot size-1.5 rounded-full bg-green text-green" />}
+          <ValueChip>{headerStatus}</ValueChip>
         </span>
-        <Chevron open={open} />
-      </button>
+      }
+    >
+      <Select
+        label="Trail"
+        value={trailId}
+        options={DEFAULT_TRAILS.map((t) => ({ value: t.id, label: t.name, hint: t.description }))}
+        onChange={onTrailChange}
+        className="w-full"
+      />
 
-      {open && (
-        <div className="px-5 pb-4 pt-1 flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Select
-              label="Trail"
-              value={trailId}
-              options={DEFAULT_TRAILS.map((t) => ({ value: t.id, label: t.name }))}
-              onChange={onTrailChange}
-              className="lem-select bg-surface-3 rounded-card border border-divider text-fg text-value py-2 px-2.5 w-full [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
-            />
-            <div className="text-micro text-fg-3">{trail.description}</div>
-          </div>
+      <div className="relative h-[150px] overflow-hidden rounded-[12px] shadow-[inset_0_0_0_0.5px_var(--separator)]">
+        <canvas ref={canvasRef} className="block h-full w-full" />
+        <ElevationBadges prepared={prepared} />
+      </div>
 
-          <div className="relative w-full overflow-hidden bg-page rounded-card border border-divider [aspect-ratio:16/11]">
-            <canvas ref={canvasRef} className="w-full h-full block" />
-            <ElevationBadges prepared={prepared} />
-          </div>
+      <div className="grid grid-cols-3 gap-1.5">
+        <Stat label="Distance" value={formatDistance(playback.arc)} />
+        <Stat label="Pace" value={formatPace(displaySpeed)} />
+        <Stat label="Elapsed" value={formatDuration(playback.elapsedMs)} />
+      </div>
 
-          <div className="grid [grid-template-columns:1fr_1fr_1fr] gap-1.5">
-            <Stat label="Distance" value={formatDistance(playback.arc)} />
-            <Stat label="Pace" value={formatPace(displaySpeed)} />
-            <Stat label="Elapsed" value={formatDuration(playback.elapsedMs)} />
-          </div>
+      <div className="flex items-center gap-1.5">
+        <Segmented
+          aria-label="Transport mode"
+          size="sm"
+          className="flex-1"
+          value={mode}
+          onChange={setMode}
+          items={[
+            { value: "walk", icon: <Footprints />, title: "Walk" },
+            { value: "run", icon: <Activity />, title: "Run" },
+            { value: "cycle", icon: <Bike />, title: "Cycle" },
+            { value: "drive", icon: <Car />, title: "Drive" },
+          ]}
+        />
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.92 }}
+          transition={spring.snappy}
+          onClick={() => {
+            const idx = SPEED_MULTIPLIERS.indexOf(multiplier);
+            setMultiplier(SPEED_MULTIPLIERS[(idx + 1) % SPEED_MULTIPLIERS.length]!);
+          }}
+          aria-label={`Speed ${multiplier}× — tap to cycle`}
+          title={`Speed ${multiplier}× — tap to cycle`}
+          className="h-6 min-w-10 rounded-[7px] bg-fill-2 px-2 font-mono text-caption font-semibold tabular text-label hover:bg-fill"
+        >
+          {multiplier}×
+        </motion.button>
+      </div>
 
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onPlayPause}
-              className={`lem-primary flex-1 flex items-center justify-center gap-1.5 py-2 px-4 rounded-card border-none text-value font-semibold cursor-pointer font-[inherit] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)] ${playing ? "lem-primary-on bg-surface-2 text-fg" : "bg-accent-solid text-on-accent"}`}
-              aria-pressed={playing}
-              title={playing ? "Pause" : "Play"}
-            >
-              {playing ? <PauseGlyph /> : <PlayGlyph />}
-              <span>{playing ? "Pause" : "Play"}</span>
-            </button>
-            <button
-              type="button"
-              onClick={onStop}
-              className="lem-ghost flex items-center justify-center gap-1.5 py-2 px-4 rounded-card border border-divider text-value font-medium bg-transparent text-fg cursor-pointer font-[inherit] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)]"
-              disabled={playback.status === "idle" && playback.arc === 0}
-              title="Stop and clear simulated location"
-            >
-              <StopGlyph />
-              <span>Stop</span>
-            </button>
-          </div>
+      <div className="flex gap-1.5">
+        <Button
+          variant="primary"
+          size="md"
+          className="flex-1"
+          icon={playing ? <Pause /> : <Play />}
+          onClick={onPlayPause}
+          aria-pressed={playing}
+        >
+          {playLabel}
+        </Button>
+        <Button
+          variant="secondary"
+          size="md"
+          icon={<Square />}
+          disabled={playback.status === "idle" && playback.arc === 0}
+          onClick={onStop}
+          title="Stop and clear simulated location"
+        >
+          Stop
+        </Button>
+      </div>
 
-          <div className="flex flex-row items-stretch gap-1.5">
-            <div className="flex-1 min-w-0">
-              <Segmented
-                ariaLabel="Transport mode"
-                value={mode}
-                onChange={(v) => setMode(v as TrailMode)}
-                options={[
-                  { value: "walk", label: "Walk", icon: <WalkGlyph /> },
-                  { value: "run", label: "Run", icon: <RunGlyph /> },
-                  { value: "cycle", label: "Cycle", icon: <CycleGlyph /> },
-                  { value: "drive", label: "Drive", icon: <DriveGlyph /> },
-                ]}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                const idx = SPEED_MULTIPLIERS.indexOf(multiplier);
-                const next = SPEED_MULTIPLIERS[(idx + 1) % SPEED_MULTIPLIERS.length]!;
-                setMultiplier(next);
-              }}
-              className={`lem-speed flex items-center justify-center gap-1 px-3 rounded-card border cursor-pointer font-[inherit] text-value font-semibold min-w-[56px] min-h-[32px] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),border-color_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),filter_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1),transform_0.12s_cubic-bezier(0.4,0,0.6,1)] ${multiplier > 1 ? "lem-speed-on bg-accent-solid border-accent text-on-accent" : "bg-panel border-divider text-fg"}`}
-              aria-label={`Speed ${multiplier}× — tap to cycle`}
-              title={`Speed ${multiplier}× — tap to cycle`}
-            >
-              <FastForwardGlyph />
-              {multiplier > 1 && (
-                <span className="font-mono [font-variant-numeric:tabular-nums]">{multiplier}×</span>
-              )}
-            </button>
-          </div>
-
-          {error && (
-            <div className="bg-page rounded-card border border-divider text-danger text-micro px-2.5 py-2">
-              {error}
-            </div>
-          )}
-        </div>
+      {error && (
+        <p role="alert" className="m-0 text-footnote break-words text-red">
+          {error}
+        </p>
       )}
-    </div>
+      {!error && <Note>{trail.description}</Note>}
+    </Disclosure>
   );
 }
 
@@ -448,62 +422,25 @@ export function LocationEmulationTool({ udid, exec }: { udid: string; exec: Exec
 
 const Stat = memo(function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-col gap-0.5 bg-surface-2 rounded-sm border border-divider py-1.5 px-2 min-w-0">
-      <div className="text-micro text-fg-3">{label}</div>
-      <div className="text-value font-mono text-fg overflow-hidden text-ellipsis whitespace-nowrap">
-        {value}
-      </div>
+    <div className="flex min-w-0 flex-col gap-0.5 rounded-[10px] bg-fill-3 px-2.5 py-2">
+      <span className="text-caption text-label-3">{label}</span>
+      <span className="truncate font-mono text-footnote font-semibold text-label">{value}</span>
     </div>
   );
 });
 
-function Segmented<T extends string>({
-  value,
-  onChange,
-  options,
-  ariaLabel,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: { value: T; label: string; icon?: ReactNode }[];
-  ariaLabel: string;
-}) {
-  return (
-    <div
-      role="group"
-      aria-label={ariaLabel}
-      className="flex bg-panel rounded-card border border-divider p-0.5 gap-0.5"
-    >
-      {options.map((o) => {
-        const active = o.value === value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            onClick={() => onChange(o.value)}
-            className={`lem-seg flex-1 flex items-center justify-center border-none py-1.5 px-2 rounded-card text-micro font-medium cursor-pointer font-[inherit] [transition:background_0.3s_cubic-bezier(0.4,0,0.6,1),color_0.3s_cubic-bezier(0.4,0,0.6,1),box-shadow_0.24s_cubic-bezier(0.4,0,0.6,1)] min-h-[28px] ${active ? "lem-seg-active bg-hover text-fg" : "bg-transparent text-fg-2"}`}
-            aria-pressed={active}
-            aria-label={o.icon ? o.label : undefined}
-            title={o.icon ? o.label : undefined}
-          >
-            {o.icon ?? o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function ElevationBadges({ prepared }: { prepared: PreparedTrail }) {
   if (prepared.rawMaxAlt - prepared.rawMinAlt < 5) return null;
+  const badge =
+    "absolute top-2 flex items-center gap-0.5 rounded-full bg-black/55 px-2 py-0.5 font-mono text-caption2 font-semibold text-white backdrop-blur [&_svg]:size-2.5";
   return (
     <>
-      <div className="absolute top-2 left-2.5 bg-panel-overlay rounded-chip text-fg text-micro font-mono px-2 py-0.5 flex items-center gap-0.5 border border-divider">
-        <ArrowGlyph dir="up" /> {formatElevation(prepared.rawMaxAlt)}
-      </div>
-      <div className="absolute top-2 right-2.5 bg-panel-overlay rounded-chip text-fg text-micro font-mono px-2 py-0.5 flex items-center gap-0.5 border border-divider">
-        <ArrowGlyph dir="down" /> {formatElevation(prepared.rawMinAlt)}
-      </div>
+      <span className={`${badge} left-2`}>
+        <ArrowUp strokeWidth={2.5} /> {formatElevation(prepared.rawMaxAlt)}
+      </span>
+      <span className={`${badge} right-2`}>
+        <ArrowDown strokeWidth={2.5} /> {formatElevation(prepared.rawMinAlt)}
+      </span>
     </>
   );
 }

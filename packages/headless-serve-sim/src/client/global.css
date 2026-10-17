@@ -2,163 +2,429 @@
 
 @source "./";
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   serve-sim · Stage design system
+
+   The interface has no colour of its own. Chrome is neutral Liquid Glass that
+   floats over a quiet stage; the only hue comes from the simulator itself (its
+   screen lights the room) and from small status marks.
+
+   Themes: `auto` follows prefers-color-scheme; `light` / `dark` force it via
+   [data-theme] on <html>. Every value below is a CSS variable so a theme switch
+   is one attribute flip, animated by the stage cross-fade.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 @theme {
-  /* Surfaces — panels FLOAT as white cards on a dotted gray canvas. Depth comes
-     from the canvas/card contrast plus one soft shadow, never from borders. */
-  --color-page: #f0f0f0; /* the dotted canvas everything floats on */
-  --color-canvas-dot: #d7d7d7; /* the grid dot itself */
-  --color-panel: #ffffff; /* every floating card */
-  --color-panel-bg: #ffffff;
-  --color-panel-overlay: rgba(255, 255, 255, 0.92);
-  --color-scrim: rgba(0, 0, 0, 0.2);
-  --color-panel-deep: #f7f7f7; /* unselected segment / recessed control fill */
-  --color-surface-2: #f7f7f7;
-  --color-surface-3: #fbfbfb; /* inputs */
-  --color-hover: #f0f0f0;
-  --color-divider: #ededed; /* EVERY hairline — inside cards only */
-  --color-control-border: #e6e6e6; /* control outlines: chips, icon buttons */
-  --color-inset: #ffffff; /* card body: sections separate by rule, not gutter */
-  --color-track: #efefef; /* slider track, unfilled */
-  --color-track-fill: #d9d9d9; /* slider track, filled */
-  --color-thumb: #ffffff; /* slider knob */
+  --font-sans:
+    "SF Pro Text", "SF Pro", -apple-system, BlinkMacSystemFont, system-ui, "Inter",
+    "Helvetica Neue", sans-serif;
+  --font-display:
+    "SF Pro Display", "SF Pro", -apple-system, BlinkMacSystemFont, system-ui, "Inter", sans-serif;
+  --font-rounded: "SF Pro Rounded", ui-rounded, -apple-system, system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
 
-  /* Text — three ranks by weight and size; color never carries meaning */
-  --color-fg: #1a1a1a;
-  --color-fg-2: #6e6e6e;
-  --color-fg-3: #9a9a9a;
+  /* Colour — semantic names only; values live on :root below. */
+  --color-stage: var(--stage);
+  --color-label: var(--label);
+  --color-label-2: var(--label-2);
+  --color-label-3: var(--label-3);
+  --color-label-4: var(--label-4);
+  --color-separator: var(--separator);
+  --color-fill: var(--fill);
+  --color-fill-2: var(--fill-2);
+  --color-fill-3: var(--fill-3);
+  --color-group: var(--group);
+  --color-control: var(--control);
+  --color-ink: var(--ink);
+  --color-on-ink: var(--on-ink);
+  --color-green: var(--green);
+  --color-orange: var(--orange);
+  --color-red: var(--red);
+  --color-blue: var(--blue);
 
-  /* No hue anywhere. Selection and emphasis are near-black on white. */
-  --color-accent: #1a1a1a; /* interactive text */
-  --color-accent-solid: #1c1c1c; /* selected fill + focus ring */
-  --color-on-accent: #ffffff; /* label ON an accent fill — flips in dark */
-  --color-accent-tint: rgba(0, 0, 0, 0.05);
+  /* Radius — continuous-feeling, scaled by surface size. Capsules are allowed:
+     Apple's own buttons, switches and the title capsule are capsules. */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-2xl: 26px;
 
-  /* Status — small dots and badges only, never a large fill */
-  --color-success: #178a3f;
-  --color-success-emerald: #178a3f;
-  --color-danger: #cf3b30;
-  --color-danger-soft: #cf3b30;
-  --color-warning: #c26a1a;
-  --color-warning-soft: #c26a1a;
+  /* Type scale — macOS metrics. Tracking is size-specific (Apple's tracking
+     table), never one value for every size. */
+  --text-caption2: 10px;
+  --text-caption2--line-height: 13px;
+  --text-caption2--letter-spacing: 0.01em;
+  --text-caption: 11px;
+  --text-caption--line-height: 14px;
+  --text-caption--letter-spacing: 0.006em;
+  --text-footnote: 12px;
+  --text-footnote--line-height: 16px;
+  --text-footnote--letter-spacing: 0;
+  --text-body: 13px;
+  --text-body--line-height: 18px;
+  --text-body--letter-spacing: -0.006em;
+  --text-headline: 13px;
+  --text-headline--line-height: 18px;
+  --text-headline--letter-spacing: -0.006em;
+  --text-headline--font-weight: 600;
+  --text-title3: 15px;
+  --text-title3--line-height: 20px;
+  --text-title3--letter-spacing: -0.012em;
+  --text-title3--font-weight: 600;
+  --text-title2: 17px;
+  --text-title2--line-height: 22px;
+  --text-title2--letter-spacing: -0.022em;
+  --text-title2--font-weight: 650;
+  --text-title1: 22px;
+  --text-title1--line-height: 28px;
+  --text-title1--letter-spacing: -0.026em;
+  --text-title1--font-weight: 700;
+  --text-large: 34px;
+  --text-large--line-height: 40px;
+  --text-large--letter-spacing: -0.03em;
+  --text-large--font-weight: 700;
+  --text-numeral: 30px;
+  --text-numeral--line-height: 1;
+  --text-numeral--letter-spacing: -0.02em;
+  --text-numeral--font-weight: 600;
 
-  /* Radius — every control is a soft-cornered rectangle. There are no stadium
-     shapes in this system; radius scales with the control's height. */
-  --radius-panel: 18px; /* floating cards */
-  --radius-card: 12px; /* segments, blocks, inputs, sliders, buttons */
-  --radius-sm: 8px; /* compact controls, rows */
-  --radius-chip: 7px; /* numeric value chips, small badges */
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
 
-  /* Elevation — only floating things cast one */
-  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.07);
-  --shadow-device: 0 2px 6px rgba(0, 0, 0, 0.08), 0 14px 40px rgba(0, 0, 0, 0.16);
-  --shadow-overlay: 0 12px 40px rgba(0, 0, 0, 0.14);
-
-  /* ── Type scale ──────────────────────────────────────────────────────
-     Six levels, each a clear step from the next. Sizes live here as tokens
-     (`text-body`, `text-value`, …) rather than as `text-[15px]` at call sites,
-     because a scale that isn't named doesn't survive contact with editing:
-     this tree had drifted to FOURTEEN sizes, five of them inside a 4px band,
-     which is noise rather than hierarchy.
-
-     WEIGHT is the primary lever, not size. A 15px/400 label on white reads
-     thin and unresolved; 14px/500 reads solid at a smaller size. And a section
-     title must out-rank the rows beneath it: it does that with CAPS + 700
-     weight + TIGHT 0.06em tracking, which packs the letters into a block. Wide
-     tracking (this was 0.18em) disperses a title and makes it read weaker than
-     the body it introduces — the exact inversion to avoid. */
-  --text-eyebrow: 12px; /* SECTION / CARD TITLES — uppercase, tight, heavy */
-  --text-eyebrow--line-height: 1;
-  --text-eyebrow--letter-spacing: 0.06em;
-  --text-eyebrow--font-weight: 700;
-
-  --text-micro: 11px; /* stat rows, tick captions, the smallest asides */
-  --text-micro--line-height: 1.4;
-  --text-micro--font-weight: 500;
-
-  --text-value: 13px; /* every number and mono readout, secondary text */
-  --text-value--line-height: 1.3;
-  --text-value--font-weight: 500;
-
-  --text-body: 14px; /* field labels, list rows, segment and button labels */
-  --text-body--line-height: 1.4;
-  --text-body--letter-spacing: -0.003em;
-  --text-body--font-weight: 500;
-
-  --text-heading: 18px; /* empty-state and disconnected titles */
-  --text-heading--line-height: 1.25;
-  --text-heading--letter-spacing: -0.012em;
-  --text-heading--font-weight: 650;
-
-  --text-display: 28px; /* the one big number on a gauge */
-  --text-display--line-height: 1;
-  --text-display--letter-spacing: -0.02em;
-  --text-display--font-weight: 600;
-
-  /* Type. `system-ui` FIRST and by name: "SF Pro Text" is not a resolvable
-     family in a browser, so naming it first silently dropped the whole UI to
-     Arial. `system-ui` is what actually gets San Francisco on macOS — measured,
-     not assumed (Arial 312px vs system-ui 300px for the same string). */
-  --font-system: system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
-  --font-display: system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "SF Mono", Menlo, ui-monospace, SFMono-Regular, monospace;
+  --ease-fluid: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/* Dark — the same roles inverted. The accent flips to near-white, so
-   `text-on-accent` (not `text-white`) is what keeps a selected segment legible.
-   Tailwind v4 utilities read these vars, so overriding them here re-themes the
-   whole tree without touching a single utility class. */
-@media (prefers-color-scheme: dark) {
+/* ── Light ───────────────────────────────────────────────────────────────── */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --stage: #e9e9ec;
+  --stage-floor: #dfdfe3;
+  --stage-vignette: rgba(0, 0, 0, 0.06);
+
+  --label: #1d1d1f;
+  --label-2: rgba(60, 60, 67, 0.72);
+  --label-3: rgba(60, 60, 67, 0.46);
+  --label-4: rgba(60, 60, 67, 0.22);
+  --separator: rgba(60, 60, 67, 0.12);
+  --fill: rgba(120, 120, 128, 0.16);
+  --fill-2: rgba(120, 120, 128, 0.1);
+  --fill-3: rgba(120, 120, 128, 0.06);
+  --group: rgba(255, 255, 255, 0.78);
+  --control: #ffffff;
+
+  /* Graphite accent — ink on paper. */
+  --ink: #1d1d1f;
+  --on-ink: #ffffff;
+
+  --green: #28a745;
+  --orange: #f08a00;
+  --red: #ff3b30;
+  --blue: #0a84ff;
+
+  /* Liquid Glass */
+  --glass: rgba(246, 246, 248, 0.74);
+  --glass-strong: rgba(250, 250, 251, 0.86);
+  --glass-edge: rgba(0, 0, 0, 0.07);
+  --glass-rim: rgba(255, 255, 255, 0.9);
+  --glass-blur: 28px;
+  --glass-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 1px 1px rgba(0, 0, 0, 0.03),
+    0 8px 24px -6px rgba(0, 0, 0, 0.12), 0 24px 60px -18px rgba(0, 0, 0, 0.16);
+  --glass-shadow-sm:
+    0 0 0 0.5px rgba(0, 0, 0, 0.07), 0 1px 2px rgba(0, 0, 0, 0.05),
+    0 6px 16px -6px rgba(0, 0, 0, 0.16);
+  --pop-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 12px 32px -8px rgba(0, 0, 0, 0.22),
+    0 32px 80px -24px rgba(0, 0, 0, 0.26);
+
+  --device-shadow: drop-shadow(0 30px 40px rgba(0, 0, 0, 0.18))
+    drop-shadow(0 6px 10px rgba(0, 0, 0, 0.1));
+  --glow-strength: 0.75;
+  --glow-blend: multiply;
+  --scrim: rgba(236, 236, 238, 0.5);
+  --focus: rgba(29, 29, 31, 0.9);
+}
+
+/* ── Dark ────────────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --stage: #0c0c0e;
+  --stage-floor: #121215;
+  --stage-vignette: rgba(0, 0, 0, 0.5);
+
+  --label: #f5f5f7;
+  --label-2: rgba(235, 235, 245, 0.68);
+  --label-3: rgba(235, 235, 245, 0.42);
+  --label-4: rgba(235, 235, 245, 0.18);
+  --separator: rgba(255, 255, 255, 0.08);
+  --fill: rgba(120, 120, 128, 0.32);
+  --fill-2: rgba(120, 120, 128, 0.22);
+  --fill-3: rgba(120, 120, 128, 0.12);
+  --group: rgba(255, 255, 255, 0.045);
+  --control: rgba(255, 255, 255, 0.1);
+
+  --ink: #f5f5f7;
+  --on-ink: #111113;
+
+  --green: #30d158;
+  --orange: #ff9f0a;
+  --red: #ff453a;
+  --blue: #0a84ff;
+
+  --glass: rgba(28, 28, 32, 0.58);
+  --glass-strong: rgba(30, 30, 34, 0.8);
+  --glass-edge: rgba(255, 255, 255, 0.07);
+  --glass-rim: rgba(255, 255, 255, 0.12);
+  --glass-blur: 32px;
+  --glass-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 1px 1px rgba(0, 0, 0, 0.3),
+    0 10px 30px -8px rgba(0, 0, 0, 0.6), 0 30px 80px -20px rgba(0, 0, 0, 0.7);
+  --glass-shadow-sm:
+    0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 20px -8px rgba(0, 0, 0, 0.6);
+  --pop-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.7), 0 16px 40px -10px rgba(0, 0, 0, 0.7),
+    0 40px 100px -30px rgba(0, 0, 0, 0.8);
+
+  --device-shadow: drop-shadow(0 30px 50px rgba(0, 0, 0, 0.6))
+    drop-shadow(0 6px 12px rgba(0, 0, 0, 0.4));
+  --glow-strength: 0.6;
+  --glow-blend: screen;
+  --scrim: rgba(8, 8, 10, 0.55);
+  --focus: rgba(245, 245, 247, 0.9);
+}
+
+/* Auto is resolved in JS (useTheme): it writes the effective light/dark
+   into [data-theme], so the token sets above are the only source of truth. */
+
+@media (prefers-contrast: more) {
   :root {
-    --color-page: #141414;
-    --color-canvas-dot: #262626;
-    --color-panel: #1c1c1c;
-    --color-panel-bg: #1c1c1c;
-    --color-panel-overlay: rgba(28, 28, 28, 0.92);
-    --color-scrim: rgba(0, 0, 0, 0.55);
-    --color-panel-deep: #242424;
-    --color-surface-2: #242424;
-    --color-surface-3: #1f1f1f;
-    --color-hover: #2a2a2a;
-    --color-divider: #2c2c2c;
-    --color-control-border: #333333;
-    --color-inset: #1c1c1c;
-    --color-track: #2a2a2a;
-    --color-track-fill: #4a4a4a;
-    --color-thumb: #e0e0e0;
-    --color-fg: #f2f2f2;
-    --color-fg-2: #a0a0a0;
-    --color-fg-3: #7a7a7a;
-    --color-accent: #f2f2f2;
-    --color-accent-solid: #f2f2f2;
-    --color-on-accent: #141414;
-    --color-accent-tint: rgba(255, 255, 255, 0.08);
-    --color-success: #3ecf6a;
-    --color-success-emerald: #3ecf6a;
-    --color-danger: #ff6961;
-    --color-danger-soft: #ff6961;
-    --color-warning: #e8973a;
-    --color-warning-soft: #e8973a;
-    --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.45);
-    --shadow-device: 0 2px 6px rgba(0, 0, 0, 0.4), 0 14px 40px rgba(0, 0, 0, 0.6);
-    --shadow-overlay: 0 12px 40px rgba(0, 0, 0, 0.55);
+    --glass: var(--glass-strong);
+    --glass-edge: var(--label-3);
+    --separator: var(--label-4);
   }
 }
 
-/* The canvas: a light field with a regular dot grid. Every floating card sits
-   on this; nothing else in the tree paints a page background. */
-.ds-canvas {
-  background-color: var(--color-page);
-  background-image: radial-gradient(circle, var(--color-canvas-dot) 1px, transparent 1px);
-  background-size: 16px 16px;
-  background-position: -1px -1px;
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass: var(--glass-strong);
+    --glass-blur: 0px;
+  }
 }
 
+@layer base {
+  /* ── Base ───────────────────────────────────────────────────────────────── */
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--stage);
+    color: var(--label);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 18px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv11", "ss01";
+    overflow: hidden;
+    transition:
+      background-color 0.5s var(--ease-fluid),
+      color 0.5s var(--ease-fluid);
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--ink) 18%, transparent);
+  }
+  button {
+    font: inherit;
+    color: inherit;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* ── Materials ──────────────────────────────────────────────────────────── */
+  /* Liquid Glass: a tinted, blurred layer with a bright rim where light catches
+   the top edge, and a hairline that keeps it legible over busy content. */
+  .glass {
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    box-shadow:
+      inset 0 0.5px 0 var(--glass-rim),
+      inset 0 0 0 0.5px var(--glass-edge),
+      var(--glass-shadow);
+  }
+  .glass-sm {
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    box-shadow:
+      inset 0 0.5px 0 var(--glass-rim),
+      inset 0 0 0 0.5px var(--glass-edge),
+      var(--glass-shadow-sm);
+  }
+  .glass-pop {
+    background: var(--glass-strong);
+    -webkit-backdrop-filter: blur(40px) saturate(190%);
+    backdrop-filter: blur(40px) saturate(190%);
+    box-shadow:
+      inset 0 0.5px 0 var(--glass-rim),
+      inset 0 0 0 0.5px var(--glass-edge),
+      var(--pop-shadow);
+  }
+
+  /* Inset grouped list (System Settings): a soft group box, rows divided by an
+   inset hairline that starts at the label, not the box edge. */
+  .group-box {
+    background: var(--group);
+    border-radius: var(--radius-lg);
+    box-shadow: inset 0 0 0 0.5px var(--separator);
+  }
+  .group-box > .row + .row {
+    box-shadow: inset 0 0.5px 0 var(--separator);
+  }
+
+  /* Scroll edges fade under floating chrome instead of drawing a hard rule. */
+  .scroll-fade {
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 18px,
+      #000 calc(100% - 22px),
+      transparent 100%
+    );
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .thin-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--fill) transparent;
+  }
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The stage — no grid, no texture: a soft floor that falls into a vignette,
+   so the device reads as an object sitting in a room. */
+.stage-bg {
+  background:
+    radial-gradient(120% 90% at 50% 38%, transparent 40%, var(--stage-vignette) 100%),
+    linear-gradient(to bottom, var(--stage) 0%, var(--stage) 55%, var(--stage-floor) 100%);
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -20% 0;
+  }
+}
+.shimmer-text {
+  background: linear-gradient(
+      100deg,
+      var(--label-3) 0%,
+      var(--label-3) 40%,
+      var(--label) 50%,
+      var(--label-3) 60%,
+      var(--label-3) 100%
+    )
+    0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.2s linear infinite;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, currentColor 0%, transparent);
+  }
+}
+.live-dot {
+  animation: pulse-dot 2s var(--ease-out-quint) infinite;
+}
+
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* Menus and popovers materialize from their trigger (Base UI sets
+   --transform-origin to the anchor), and leave the way they came. */
+.menu-pop {
+  transition:
+    opacity 0.18s var(--ease-out-quint),
+    transform 0.28s var(--ease-fluid),
+    filter 0.22s var(--ease-out-quint);
+}
+.menu-pop[data-starting-style],
+.menu-pop[data-ending-style] {
+  opacity: 0;
+  transform: scale(0.94);
+  filter: blur(4px);
+}
+.menu-pop[data-ending-style] {
+  transition-duration: 0.14s;
+}
+
+@keyframes route-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Theme switch: the new theme sweeps out from the pointer. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+/* ── Device affordances ─────────────────────────────────────────────────── */
+/* Duo hardware buttons and the stage's resize grabbers stay invisible until
+   the pointer is near — the device itself is the interface. */
 .duo-hardware-button {
   width: 40px;
   height: 40px;
   transform: translate(-50%, -50%);
   z-index: 10;
-  color: var(--color-fg-3);
+  color: var(--label-2);
 }
 .duo-hardware-icon {
   display: grid;
@@ -173,7 +439,7 @@
   opacity: 0;
   pointer-events: none;
   transform: translate(var(--duo-button-x), var(--duo-button-y));
-  transition: opacity var(--duration-quick) var(--ease-out);
+  transition: opacity 0.18s var(--ease-out-quint);
 }
 .duo-hardware-button:hover .duo-hardware-icon,
 .duo-hardware-button:focus-visible .duo-hardware-icon,
@@ -194,13 +460,13 @@
   pointer-events: auto;
 }
 .duo-hardware-button:active {
-  color: var(--color-accent);
+  color: var(--label);
 }
 
 .device-resize-grabber {
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--duration-quick) var(--ease-out);
+  transition: opacity 0.18s var(--ease-out-quint);
 }
 [data-near="w"] > [data-device-resize-grabber="w"],
 [data-near="e"] > [data-device-resize-grabber="e"],
@@ -214,445 +480,5 @@
   .device-resize-grabber,
   .duo-hardware-icon {
     transition: none;
-  }
-}
-
-/* Slider — a tall rounded track that reads as a control in its own right, with
-   the filled portion a shade darker than the rest and a circular knob riding
-   inside it. `--ds-slider-fill` is a percentage the caller sets from value. */
-.ds-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 40px;
-  background: transparent;
-  outline: none;
-  cursor: pointer;
-}
-.ds-slider:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-.ds-slider::-webkit-slider-runnable-track {
-  height: 40px;
-  border-radius: var(--radius-card);
-  background: linear-gradient(
-    to right,
-    var(--color-track-fill) var(--ds-slider-fill, 0%),
-    var(--color-track) var(--ds-slider-fill, 0%)
-  );
-}
-.ds-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 28px;
-  height: 28px;
-  margin-top: 6px;
-  border-radius: 50%;
-  background: var(--color-thumb);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-}
-.ds-slider::-moz-range-track {
-  height: 40px;
-  border-radius: var(--radius-card);
-  background: var(--color-track);
-}
-.ds-slider::-moz-range-progress {
-  height: 40px;
-  border-radius: var(--radius-card) 0 0 var(--radius-card);
-  background: var(--color-track-fill);
-}
-.ds-slider::-moz-range-thumb {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--color-thumb);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-}
-.ds-slider:focus-visible {
-  outline: 2px solid var(--color-accent-solid);
-  outline-offset: 2px;
-}
-
-.duo-pose-button[data-selected="true"] button {
-  background: var(--color-accent-tint);
-  border-color: var(--color-control-border);
-  color: var(--color-fg);
-}
-.duo-pose-button button:disabled {
-  opacity: 1;
-  color: var(--color-fg-3);
-}
-.duo-hinge-slider {
-  appearance: none;
-  -webkit-appearance: none;
-  height: 28px;
-  background: transparent;
-  cursor: ew-resize;
-}
-.duo-hinge-slider::-webkit-slider-runnable-track {
-  height: 3px;
-  border-radius: 2px;
-  background: var(--color-track-fill);
-}
-.duo-hinge-slider::-webkit-slider-thumb {
-  appearance: none;
-  -webkit-appearance: none;
-  height: 14px;
-  width: 14px;
-  margin-top: -5.5px;
-  border-radius: 4px;
-  background: var(--color-thumb);
-  border: 1px solid var(--color-control-border);
-  box-shadow: 0 1px 2px var(--color-scrim);
-}
-.duo-hinge-slider::-moz-range-track {
-  height: 3px;
-  border-radius: 2px;
-  background: var(--color-track-fill);
-}
-.duo-hinge-slider::-moz-range-thumb {
-  height: 14px;
-  width: 14px;
-  border-radius: 4px;
-  background: var(--color-thumb);
-  border: 1px solid var(--color-control-border);
-}
-.duo-hinge-slider:focus-visible {
-  outline: 2px solid var(--color-accent-solid);
-  outline-offset: 2px;
-  border-radius: var(--radius-sm);
-}
-
-/* Scrollbars inside cards: a thin dark thumb on no track, so a long panel
-   reports its length without drawing a second border down its edge. */
-.bg-inset::-webkit-scrollbar,
-.overflow-y-auto::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-.bg-inset::-webkit-scrollbar-track,
-.overflow-y-auto::-webkit-scrollbar-track {
-  background: transparent;
-}
-.bg-inset::-webkit-scrollbar-thumb,
-.overflow-y-auto::-webkit-scrollbar-thumb {
-  background: var(--color-fg-3);
-  border-radius: 980px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-.bg-inset::-webkit-scrollbar-thumb:hover,
-.overflow-y-auto::-webkit-scrollbar-thumb:hover {
-  background: var(--color-fg-2);
-  background-clip: content-box;
-}
-
-/* Follow the OS scheme: light default, Apple-dark when the OS is dark. UA-rendered
-   chrome (select popups, scrollbars) tracks this too. */
-:root {
-  color-scheme: light dark;
-  font-family: var(--font-system);
-  /* Motion tokens — surfaces use open/close asymmetry; no springs. */
-  --duration-stagger: 40ms;
-  --duration-micro: 80ms;
-  --duration-quick: 150ms;
-  --duration-fast: 250ms;
-  --duration-medium: 350ms;
-  --duration-slow: 400ms;
-  --duration-very-slow: 500ms;
-  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-in-out: ease-in-out;
-  --ease-out: ease-out;
-  --ease-linear: linear;
-  --distance-base: 8px;
-  --blur-small: 2px;
-  --scale-medium: 0.97;
-  --panel-open-dur: 400ms;
-  --panel-close-dur: 350ms;
-  --panel-blur: 2px;
-  --panel-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --resize-dur: 300ms;
-  --resize-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --acc-expand: 250ms;
-  --acc-collapse: 250ms;
-  --acc-chevron: 250ms;
-  --acc-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --ds-rail-from: 8px;
-  /* San Francisco is drawn for antialiased rendering; on `auto` macOS
-     subpixel-smooths it and the whole interface reads heavy and muddy. */
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  font-synthesis: none;
-  font-optical-sizing: auto;
-  text-rendering: optimizeLegibility;
-}
-
-/* Line height is part of the scale, not a leftover. Structure titles sit on
-   their own baseline (1), body labels get room to breathe (1.35), and every
-   number is tabular so columns of values don't shift as they tick. */
-body {
-  font-family: var(--font-system);
-  line-height: 1.35;
-}
-
-.font-mono,
-[class*="font-mono"] {
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
-}
-
-/* Keyboard focus ring for the inline-styled top-bar icon buttons (the toolbar
-   lib uses CSS-in-JS, so :focus-visible can't be expressed inline). Apple's
-   focus is a crisp ring, not a glow. */
-[data-simulator-toolbar] button:focus-visible {
-  outline: 2px solid var(--color-accent-solid);
-  outline-offset: 1px;
-}
-
-/* Collapsible tool sections (<details>) animate open/close height with a
-   CSS-only ::details-content transition. interpolate-size lets `height: auto`
-   participate; allow-discrete swaps content-visibility at the keyframe
-   boundaries so collapsed content stays out of the a11y tree. Apple easing. */
-@supports (interpolate-size: allow-keywords) {
-  :root {
-    interpolate-size: allow-keywords;
-  }
-}
-
-details.lem-section::details-content {
-  height: 0;
-  overflow: clip;
-  transition:
-    height var(--acc-collapse) var(--acc-ease),
-    content-visibility var(--acc-collapse) allow-discrete;
-}
-
-details.lem-section[open]::details-content {
-  height: auto;
-  transition:
-    height var(--acc-expand) var(--acc-ease),
-    content-visibility var(--acc-expand) allow-discrete;
-}
-
-.t-acc-panel {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows var(--acc-collapse) var(--acc-ease);
-}
-.t-acc[data-open="true"] .t-acc-panel,
-details.lem-section[open] .t-acc-panel {
-  grid-template-rows: 1fr;
-  transition: grid-template-rows var(--acc-expand) var(--acc-ease);
-}
-.t-acc-panel-inner {
-  overflow: hidden;
-  min-height: 0;
-  opacity: 0;
-  filter: blur(var(--blur-small));
-  transition:
-    opacity var(--acc-collapse) var(--acc-ease),
-    filter var(--acc-collapse) var(--acc-ease);
-}
-.t-acc[data-open="true"] .t-acc-panel-inner,
-details.lem-section[open] .t-acc-panel-inner {
-  opacity: 1;
-  filter: blur(0);
-  transition:
-    opacity var(--acc-expand) var(--acc-ease),
-    filter var(--acc-expand) var(--acc-ease);
-}
-.t-acc-chevron {
-  display: inline-flex;
-  transform: rotate(-90deg);
-  transform-origin: center;
-  transition: transform var(--acc-chevron) var(--acc-ease);
-}
-.t-acc[data-open="true"] .t-acc-chevron,
-.t-acc-chevron.is-open {
-  transform: rotate(0deg);
-}
-
-.t-resize {
-  transition:
-    width var(--resize-dur) var(--resize-ease),
-    height var(--resize-dur) var(--resize-ease);
-}
-
-.ds-rail {
-  transition: width var(--panel-close-dur) var(--panel-ease);
-  will-change: width;
-}
-.ds-rail[data-open="true"] {
-  transition-duration: var(--panel-open-dur);
-}
-.ds-rail-body {
-  opacity: 0;
-  filter: blur(var(--blur-small));
-  transform: translateX(var(--ds-rail-from));
-  pointer-events: none;
-  transition:
-    transform var(--panel-close-dur) var(--panel-ease),
-    opacity var(--panel-close-dur) var(--panel-ease),
-    filter var(--panel-close-dur) var(--panel-ease);
-  will-change: transform, opacity, filter;
-}
-.ds-rail[data-open="true"] .ds-rail-body {
-  opacity: 1;
-  filter: blur(0);
-  transform: translateX(0);
-  pointer-events: auto;
-  transition:
-    transform var(--panel-open-dur) var(--panel-ease),
-    opacity var(--panel-open-dur) var(--panel-ease),
-    filter var(--panel-open-dur) var(--panel-ease);
-}
-.ds-rail-from-left {
-  --ds-rail-from: -8px;
-}
-.ds-rail-from-right {
-  --ds-rail-from: 8px;
-}
-
-.ds-overlay-panel {
-  transform: translateX(calc(100% + 24px));
-  opacity: 0;
-  filter: blur(var(--panel-blur));
-  pointer-events: none;
-  transition:
-    transform var(--panel-close-dur) var(--panel-ease),
-    opacity var(--panel-close-dur) var(--panel-ease),
-    filter var(--panel-close-dur) var(--panel-ease);
-  will-change: transform, opacity, filter;
-}
-.ds-overlay-panel[data-open="true"] {
-  transform: translateX(0);
-  opacity: 1;
-  filter: blur(0);
-  pointer-events: auto;
-  transition:
-    transform var(--panel-open-dur) var(--panel-ease),
-    opacity var(--panel-open-dur) var(--panel-ease),
-    filter var(--panel-open-dur) var(--panel-ease);
-}
-
-.ds-toolbar-card {
-  transition: width var(--panel-open-dur) var(--panel-ease);
-}
-
-.hud-pulse {
-  animation: hud-pulse 1.8s var(--ease-in-out) infinite;
-}
-
-/* The Chevron is the disclosure affordance; drop the native marker. */
-details.lem-section > summary {
-  list-style: none;
-}
-details.lem-section > summary::-webkit-details-marker {
-  display: none;
-}
-
-@keyframes grid-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes headless-serve-sim-toast-indeterminate {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(250%);
-  }
-}
-.headless-serve-sim-toast-indeterminate {
-  animation: headless-serve-sim-toast-indeterminate 1.1s ease-in-out infinite;
-}
-
-@keyframes doc-row-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.doc-row-in {
-  animation: doc-row-in 0.18s cubic-bezier(0.4, 0, 0.6, 1) both;
-}
-
-@keyframes hud-pulse {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.4;
-    transform: scale(0.8);
-  }
-}
-@keyframes hud-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.hud-in {
-  animation: hud-in 0.28s cubic-bezier(0.4, 0, 0.6, 1) both;
-}
-
-.grid-shutdown-btn {
-  opacity: 0;
-  transition:
-    opacity 0.3s cubic-bezier(0.4, 0, 0.6, 1),
-    background 0.3s cubic-bezier(0.4, 0, 0.6, 1),
-    color 0.3s cubic-bezier(0.4, 0, 0.6, 1);
-}
-.grid-tile:hover .grid-shutdown-btn,
-.grid-shutdown-btn:focus-visible {
-  opacity: 1;
-}
-.grid-shutdown-btn:hover:not(:disabled) {
-  background: var(--color-accent-tint);
-  color: var(--color-danger);
-  border-color: var(--color-danger);
-}
-.grid-tile:hover {
-  border-color: var(--color-divider) !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ds-rail,
-  .ds-rail-body,
-  .ds-overlay-panel,
-  .ds-toolbar-card,
-  .t-resize,
-  .t-acc-panel,
-  .t-acc-panel-inner,
-  .t-acc-chevron,
-  details.lem-section::details-content {
-    transition: none !important;
-  }
-  .ds-rail-body,
-  .ds-overlay-panel,
-  .t-acc-panel-inner {
-    filter: none !important;
-    transform: none !important;
-  }
-  .hud-pulse,
-  .hud-in,
-  .doc-row-in,
-  .headless-serve-sim-toast-indeterminate {
-    animation: none !important;
   }
 }

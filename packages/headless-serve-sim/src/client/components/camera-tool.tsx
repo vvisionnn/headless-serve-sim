@@ -1,14 +1,24 @@
 import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type DragEvent,
-} from "react";
-import { createPortal } from "react-dom";
-import { Chevron, PlayGlyph, StopGlyph, ReloadIcon } from "../icons";
+  Camera,
+  Film,
+  Image as ImageIcon,
+  ImagePlus,
+  Play,
+  RefreshCw,
+  Square,
+  Webcam,
+  X,
+} from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { Field, Note } from "../inspector/device-rows";
+import { cn } from "../lib/cn";
+import { spring } from "../lib/motion";
+import { Badge } from "../ui/badge";
+import { Button, IconButton } from "../ui/button";
+import { Disclosure } from "../ui/group";
+import { Select } from "../ui/select";
+import { Switch } from "../ui/switch";
 import { execOnHost, shellEscape } from "../utils/exec";
 import { fileExtension, uploadFileToTmp } from "../utils/drop";
 import { simEndpoint } from "../utils/sim-endpoint";
@@ -119,28 +129,27 @@ export function cameraSourceErrorMessage({
 }
 
 export function CameraStatusPill({ state }: { state: CameraPillState }) {
-  const label = state === "active" ? "Active" : state === "disconnected" ? "Disconnected" : "Ready";
-  const dotClass =
-    state === "active"
-      ? "size-1.5 rounded-full bg-success"
-      : state === "disconnected"
-        ? "size-1.5 rounded-full bg-danger"
-        : null;
   return (
-    <span
-      className="text-micro text-fg-3 inline-flex items-center gap-1.5 leading-none"
-      data-camera-pill-state={state}
-    >
-      {dotClass && <span className={dotClass} />}
-      {label}
+    <span className="flex" data-camera-pill-state={state}>
+      {state === "active" ? (
+        <Badge tone="green" dot>
+          Active
+        </Badge>
+      ) : state === "disconnected" ? (
+        <Badge tone="red" dot>
+          Disconnected
+        </Badge>
+      ) : (
+        <Badge>Ready</Badge>
+      )}
     </span>
   );
 }
 
 export function CameraTestPatternHint() {
   return (
-    <p className="m-0 text-center text-value leading-[1.5] text-fg-3" data-camera-test-pattern-hint>
-      Test-pattern feed
+    <p className="m-0 text-center text-caption text-label-3" data-camera-test-pattern-hint>
+      Test-pattern feed until you pick media
     </p>
   );
 }
@@ -152,6 +161,7 @@ interface CameraMediaPreviewProps {
   sourceKind: CamSource;
 }
 
+/** What the media tile shows for the chosen source. */
 export function CameraMediaPreview({
   mode,
   fileName,
@@ -159,33 +169,30 @@ export function CameraMediaPreview({
   sourceKind,
 }: CameraMediaPreviewProps) {
   if (mode === "uploading") {
-    return <span className="text-micro text-fg-2">Uploading…</span>;
+    return <span className="text-footnote font-medium text-label-2">Uploading…</span>;
   }
-  if (mode === "file") {
+  if (mode === "file" || mode === "webcam") {
+    const kind = mode === "webcam" ? "Webcam" : sourceKind === "video" ? "Video" : "Image";
     return (
       <>
-        <div className="shrink-0 text-micro tracking-[0.06em] uppercase text-fg-2 bg-panel border border-divider rounded-card px-2 py-[3px]">
-          {sourceKind === "video" ? "Video" : "Image"}
-        </div>
-        <span className="flex-1 min-w-0 truncate text-value text-fg font-mono">
-          {fileName ?? ""}
+        <span className="flex h-10 w-14 shrink-0 items-center justify-center rounded-[7px] bg-fill-2 text-label [&_svg]:size-[18px]">
+          {mode === "webcam" ? <Webcam /> : sourceKind === "video" ? <Film /> : <ImageIcon />}
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col text-left">
+          <span className="truncate text-body font-medium text-label">
+            {(mode === "webcam" ? webcamName : fileName) ?? ""}
+          </span>
+          <span className="font-mono text-caption2 text-label-3 uppercase">{kind}</span>
         </span>
       </>
     );
   }
-  if (mode === "webcam") {
-    return (
-      <>
-        <div className="shrink-0 text-micro tracking-[0.06em] uppercase text-fg-2 bg-panel border border-divider rounded-card px-2 py-[3px]">
-          Webcam
-        </div>
-        <span className="flex-1 min-w-0 truncate text-value text-fg font-mono">
-          {webcamName ?? ""}
-        </span>
-      </>
-    );
-  }
-  return <span className="text-value text-fg font-medium">Select or drop media</span>;
+  return (
+    <>
+      <ImagePlus className="size-[18px]" strokeWidth={1.75} />
+      <span className="text-footnote font-medium">Choose or drop media</span>
+    </>
+  );
 }
 
 export function CameraInlineBanner({
@@ -195,35 +202,56 @@ export function CameraInlineBanner({
   kind: "error" | "warning";
   message: string;
 }) {
-  const classes =
-    kind === "warning"
-      ? "bg-surface-2 border border-divider rounded-card text-warning text-value px-2.5 py-2 break-words"
-      : "bg-surface-2 border border-divider rounded-card text-danger text-value px-2.5 py-2 break-words";
   return (
-    <div
-      className={classes}
+    <p
+      className={cn(
+        "m-0 text-footnote break-words",
+        kind === "warning" ? "text-orange" : "text-red",
+      )}
       data-camera-banner-kind={kind}
       role={kind === "error" ? "alert" : "status"}
     >
       {message}
-    </div>
+    </p>
   );
+}
+
+/** Reports whether the disclosure body is mounted, i.e. the panel is open. */
+function OpenSignal({ onChange }: { onChange: (open: boolean) => void }) {
+  useEffect(() => {
+    onChange(true);
+    return () => onChange(false);
+  }, [onChange]);
+  return null;
+}
+
+/** Select value for the current source; webcams carry their device id. */
+export function cameraSourceValue(source: CamSource, webcamId: string): string {
+  if (source === "webcam") return `webcam:${webcamId}`;
+  if (source === "image" || source === "video") return "file";
+  return "placeholder";
 }
 
 // ─── Main component ────────────────────────────────────────────────────────
 
-export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string | null }) {
-  const [open, setOpen] = useState(false);
+export function CameraTool({
+  udid,
+  bundleId,
+  defaultOpen,
+}: {
+  udid: string;
+  bundleId: string | null;
+  defaultOpen?: boolean;
+}) {
+  // The disclosure owns its open state; bumping the key remounts it open.
+  const [openKey, setOpenKey] = useState(0);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [source, setSource] = useState<CamSource>("placeholder");
   const [filePath, setFilePath] = useState<string>("");
   const [droppedFileName, setDroppedFileName] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCountRef = useRef(0);
   const [uploading, setUploading] = useState(false);
-  const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
-  const sourceMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const sourceMenuRef = useRef<HTMLDivElement | null>(null);
-  const [sourceMenuPos, setSourceMenuPos] = useState<{ top: number; left: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [webcams, setWebcams] = useState<CamWebcam[]>([]);
   const [webcamLoading, setWebcamLoading] = useState(false);
@@ -246,7 +274,8 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
   const autoOpenedForInjectionRef = useRef(false);
 
   const cliPrefix = useMemo(() => {
-    const bin = window.__SIM_PREVIEW__?.serveSimBin;
+    // No window while server-rendering (tests); fall back to the PATH binary.
+    const bin = typeof window === "undefined" ? undefined : window.__SIM_PREVIEW__?.serveSimBin;
     if (!bin) return "headless-serve-sim";
     if (/\.ts$/.test(bin)) return `bun ${shellEscape(bin)}`;
     if (/\.js$/.test(bin)) return `node ${shellEscape(bin)}`;
@@ -422,10 +451,10 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
   }, [refreshWebcams]);
 
   useEffect(() => {
-    if (sourceMenuOpen && webcams.length === 0 && !webcamLoading) {
+    if (panelOpen && webcams.length === 0 && !webcamLoading) {
       void refreshWebcams();
     }
-  }, [sourceMenuOpen, webcams.length, webcamLoading, refreshWebcams]);
+  }, [panelOpen, webcams.length, webcamLoading, refreshWebcams]);
 
   const reportSourceError = useCallback(
     (rawMessage: string) => {
@@ -538,7 +567,7 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
     }
     if (autoOpenedForInjectionRef.current) return;
     autoOpenedForInjectionRef.current = true;
-    setOpen(true);
+    setOpenKey((k) => k + 1);
   }, [foregroundIsStreaming]);
 
   useEffect(() => {
@@ -688,53 +717,6 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
     [handleSourceFile],
   );
 
-  // Anchor the portaled menu to its trigger; keep it pinned while open. The
-  // menu portals to <body> so it escapes the card's `overflow-hidden` and the
-  // inspector body's `overflow-x-hidden`/scroll (otherwise it's clipped to the
-  // ~360px panel and the webcam list scrolls out of view).
-  useLayoutEffect(() => {
-    if (!sourceMenuOpen) return;
-    const place = () => {
-      const r = sourceMenuTriggerRef.current?.getBoundingClientRect();
-      if (r) setSourceMenuPos({ top: Math.round(r.bottom + 6), left: Math.round(r.left) });
-    };
-    place();
-    window.addEventListener("resize", place);
-    window.addEventListener("scroll", place, true);
-    return () => {
-      window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", place, true);
-    };
-  }, [sourceMenuOpen]);
-
-  // Second pass once the menu has a width: keep it inside the viewport. The
-  // trigger sits near the inspector's right edge, so a left-anchored 200px menu
-  // can overhang the right edge.
-  useLayoutEffect(() => {
-    if (!sourceMenuOpen || !sourceMenuPos) return;
-    const menu = sourceMenuRef.current;
-    if (!menu) return;
-    const margin = 8;
-    const maxLeft = window.innerWidth - menu.offsetWidth - margin;
-    if (sourceMenuPos.left > maxLeft) {
-      setSourceMenuPos({ ...sourceMenuPos, left: Math.max(margin, Math.round(maxLeft)) });
-    }
-  }, [sourceMenuOpen, sourceMenuPos]);
-
-  // Outside-click closes — the menu is portaled, so check BOTH the trigger and
-  // the menu (a `closest("[data-camera-source-menu]")` check would miss the
-  // portaled menu and close it on its own click).
-  useEffect(() => {
-    if (!sourceMenuOpen) return;
-    const onDocDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (sourceMenuTriggerRef.current?.contains(t) || sourceMenuRef.current?.contains(t)) return;
-      setSourceMenuOpen(false);
-    };
-    window.addEventListener("mousedown", onDocDown);
-    return () => window.removeEventListener("mousedown", onDocDown);
-  }, [sourceMenuOpen]);
-
   const selectWebcam = useCallback(
     (webcam: CamWebcam) => {
       setWebcamId(webcam.id);
@@ -742,7 +724,6 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
       setDroppedFileName(null);
       setError(null);
       lastFileIsHeicRef.current = false;
-      setSourceMenuOpen(false);
       if (bundleId) setWebcamAutoInjectRequest(webcam.id);
     },
     [bundleId],
@@ -811,271 +792,168 @@ export function CameraTool({ udid, bundleId }: { udid: string; bundleId: string 
         ? "webcam"
         : "placeholder";
 
+  const sourceOptions = [
+    { value: "placeholder", label: "Test pattern" },
+    ...webcams.map((w) => ({ value: `webcam:${w.id}`, label: w.name })),
+    ...(showWebcam && webcamId && !webcams.some((w) => w.id === webcamId)
+      ? [{ value: `webcam:${webcamId}`, label: activeWebcamName ?? webcamId }]
+      : []),
+    { value: "file", label: "Image or video…" },
+  ];
+  const onSourceChange = (value: string) => {
+    if (value === "placeholder") clearMedia();
+    else if (value === "file") openFilePicker();
+    else {
+      const id = value.slice("webcam:".length);
+      selectWebcam(webcams.find((w) => w.id === id) ?? { id, name: id });
+    }
+  };
+
   return (
-    <div className="border-t border-divider bg-panel overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="lem-toggle flex items-center justify-between gap-2.5 px-5 min-h-[56px] w-full bg-transparent border-none text-left cursor-pointer select-none [transition:background_0.2s_cubic-bezier(0.4,0,0.6,1)] hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
-        aria-expanded={open}
+    <Disclosure
+      key={openKey}
+      title="Camera"
+      icon={<Camera />}
+      defaultOpen={defaultOpen || openKey > 0}
+      status={<CameraStatusPill state={pillState} />}
+    >
+      <OpenSignal onChange={setPanelOpen} />
+      <div
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        className="flex flex-col gap-3"
       >
-        <span className="mr-auto text-body font-semibold text-fg">Camera</span>
-        <CameraStatusPill state={pillState} />
-        <Chevron open={open} />
-      </button>
+        <Note>
+          Feeds an image, video or webcam into the foreground app's camera. Injecting a dylib
+          relaunches the app.
+        </Note>
 
-      {open && (
-        <div
-          onDragEnter={onDragEnter}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
-          className="px-5 pb-4 pt-1 flex flex-col gap-3"
-        >
-          <p className="m-0 text-value leading-[1.5] text-fg-3">
-            Replaces the simulator's camera feed by injecting a dylib at app launch and streaming
-            frames into shared memory. Pick media or a webcam, then Play to inject into the
-            foreground app.
-          </p>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/*"
+          className="hidden"
+          onChange={onFilePicked as any}
+        />
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,video/*"
-            className="hidden"
-            onChange={onFilePicked as any}
-          />
-
-          <div
-            onClick={(e) => {
-              if (!isPlaceholder) return;
-              if ((e.target as HTMLElement).closest("[data-clear-media]")) return;
-              openFilePicker();
-            }}
-            title={
-              isPlaceholder
-                ? "No source selected — Play uses a test-pattern feed. Click to pick an image/video, or drop one here."
-                : showWebcam
-                  ? `Source: ${activeWebcamName}`
-                  : `Source: ${droppedFileName ?? source}`
-            }
-            className={[
-              "relative min-h-[44px] flex flex-row items-center justify-center gap-2 px-3 py-2.5 text-center rounded-card transition-[border-color,background] duration-300 ease-[cubic-bezier(0.4,0,0.6,1)]",
-              isPlaceholder
-                ? "bg-surface-3 border border-dashed border-divider"
-                : "bg-surface-3 border border-divider",
-              isDragOver ? "!bg-accent-tint !border-accent" : "",
-              uploading ? "cursor-progress" : isPlaceholder ? "cursor-pointer" : "cursor-default",
-            ].join(" ")}
-          >
-            <CameraMediaPreview
-              mode={tileMode}
-              fileName={droppedFileName}
-              webcamName={activeWebcamName}
-              sourceKind={source}
-            />
-
-            {!isPlaceholder && !uploading && (
-              <button
-                data-clear-media
-                onClick={(e) => {
-                  e.stopPropagation();
-                  clearMedia();
-                }}
-                className="shrink-0 w-6 h-6 flex items-center justify-center bg-transparent rounded-sm border-none text-fg-2 hover:text-fg hover:bg-hover cursor-pointer p-0 transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
-                aria-label="Clear source"
-                title="Clear → placeholder"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            )}
-          </div>
-
-          {isPlaceholder && !uploading && <CameraTestPatternHint />}
-
-          <div className="flex items-stretch gap-1.5">
-            <div className="relative" data-camera-source-menu>
-              <button
-                ref={sourceMenuTriggerRef}
-                type="button"
-                onClick={() => setSourceMenuOpen((o) => !o)}
-                className="lem-ghost h-full min-h-[36px] w-10 flex items-center justify-center bg-panel rounded-card border border-divider text-fg hover:bg-hover cursor-pointer p-0 transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
-                aria-haspopup="menu"
-                aria-expanded={sourceMenuOpen}
-                title={
-                  source === "webcam"
-                    ? `Source: webcam${webcamId ? ` (${webcams.find((w) => w.id === webcamId)?.name ?? webcamId})` : ""} — click to change`
-                    : `Source: ${source} — click to pick media or webcam`
-                }
-                aria-label="Choose camera source"
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="m22 11-1.296-1.296a2.4 2.4 0 0 0-3.408 0L11 16" />
-                  <path d="M4 8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2" />
-                  <circle cx="13" cy="7" r="1" fill="currentColor" />
-                  <rect x="8" y="2" width="14" height="14" rx="2" />
-                </svg>
-              </button>
-
-              {sourceMenuOpen &&
-                sourceMenuPos &&
-                createPortal(
-                  <div
-                    ref={sourceMenuRef}
-                    role="menu"
-                    style={{
-                      position: "fixed",
-                      top: sourceMenuPos.top,
-                      left: sourceMenuPos.left,
-                      zIndex: 1000,
-                    }}
-                    className="min-w-[200px] max-h-[min(70vh,420px)] overflow-y-auto flex flex-col gap-px p-1 bg-panel border border-divider rounded-card shadow-[0_4px_24px_rgba(0,0,0,0.12)]"
-                  >
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="text-left bg-transparent border-none text-fg text-value px-2.5 py-2 rounded-sm cursor-pointer hover:bg-hover transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)]"
-                      onClick={() => {
-                        setSourceMenuOpen(false);
-                        openFilePicker();
-                      }}
-                      title="Pick an image or video from disk"
-                    >
-                      Browse media…
-                    </button>
-                    <div className="h-px bg-divider my-1" />
-                    <div className="flex items-center justify-between pl-2.5 pr-2 pt-1 pb-[2px]">
-                      <span className="text-value text-fg-3">
-                        {webcamLoading
-                          ? "Cameras (loading…)"
-                          : webcams.length === 0
-                            ? "No cameras"
-                            : "Cameras"}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void refreshWebcams();
-                        }}
-                        disabled={webcamLoading}
-                        className="flex items-center justify-center w-6 h-6 bg-transparent rounded-sm border-none text-fg-2 hover:text-fg hover:bg-hover cursor-pointer p-0 disabled:opacity-50 transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)]"
-                        aria-label="Refresh cameras"
-                        title="Refresh cameras"
-                      >
-                        <ReloadIcon size={13} strokeWidth={2} />
-                      </button>
-                    </div>
-                    {webcams.map((w) => {
-                      const active = source === "webcam" && webcamId === w.id;
-                      return (
-                        <button
-                          key={w.id}
-                          type="button"
-                          role="menuitem"
-                          className={[
-                            "text-left bg-transparent border-none text-value px-2.5 py-2 rounded-sm cursor-pointer hover:bg-hover transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)]",
-                            active ? "!bg-accent-tint !text-accent" : "text-fg",
-                          ].join(" ")}
-                          onClick={() => selectWebcam(w)}
-                          title={w.name}
-                        >
-                          {w.name}
-                        </button>
-                      );
-                    })}
-                  </div>,
-                  document.body,
-                )}
-            </div>
-
-            <button
-              onClick={primary.onClick}
-              disabled={primaryDisabled}
-              className={[
-                "flex-1 flex items-center justify-center gap-1.5 py-2 px-4 text-value font-medium rounded-card cursor-pointer disabled:opacity-50 min-h-[36px] transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]",
-                primary.kind === "stop"
-                  ? "lem-primary lem-primary-on bg-panel border border-divider text-fg hover:bg-hover"
-                  : "lem-primary bg-accent-solid border border-accent-solid text-on-accent",
-              ].join(" ")}
-              title={
-                primary.kind === "stop"
-                  ? "Stop the camera helper and terminate injected apps"
-                  : primary.kind === "attach"
-                    ? `Inject ${bundleId} so it joins the camera feed`
-                    : !bundleId
-                      ? "Bring an app to the foreground first"
-                      : "Start: inject the dylib and launch the foreground app with the chosen source"
-              }
-              aria-pressed={primary.kind === "stop"}
-              aria-label={primaryText}
-            >
-              {primary.kind === "stop" ? <StopGlyph /> : <PlayGlyph />}
-              <span>{primaryText}</span>
-            </button>
-
-            <button
+        <AnimatePresence mode="popLayout" initial={false}>
+          {isPlaceholder && !uploading ? (
+            <motion.button
+              key="drop"
               type="button"
-              onClick={toggleMirror}
-              disabled={mirrorDisabled}
-              className={`flex items-center justify-center w-10 min-h-[36px] border rounded-card font-[inherit] disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.6,1)] focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)] ${
-                mirror === "on"
-                  ? "lem-speed lem-speed-on bg-accent-tint border-accent text-accent cursor-pointer"
-                  : "lem-speed bg-panel border-divider text-fg hover:bg-hover cursor-pointer"
-              }`}
-              aria-label={`Mirror: ${mirror} — tap to toggle`}
-              title={
-                mirrorDisabled
-                  ? "Mirror toggle available once a source is streaming"
-                  : `Mirror: ${mirror} — click to toggle`
-              }
-              aria-pressed={mirror === "on"}
+              onClick={openFilePicker}
+              initial={{ opacity: 0, scale: 0.97 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.97 }}
+              whileTap={{ scale: 0.98 }}
+              transition={spring.ui}
+              title="No source selected — Play uses a test-pattern feed. Click to pick an image/video, or drop one here."
+              className={cn(
+                "flex h-[72px] flex-col items-center justify-center gap-1 rounded-[12px] border border-dashed border-label-4 text-label-2 transition-colors hover:border-label-3 hover:bg-fill-3",
+                isDragOver && "border-label-3 bg-fill-2 text-label",
+              )}
             >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill={mirror === "on" ? "currentColor" : "none"}
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="m3 7 5 5-5 5V7" />
-                <path d="m21 7-5 5 5 5V7" />
-                <path d="M12 20v2" />
-                <path d="M12 14v2" />
-                <path d="M12 8v2" />
-                <path d="M12 2v2" />
-              </svg>
-            </button>
-          </div>
+              <CameraMediaPreview
+                mode="placeholder"
+                fileName={null}
+                webcamName={null}
+                sourceKind={source}
+              />
+            </motion.button>
+          ) : (
+            <motion.div
+              key="media"
+              initial={{ opacity: 0, scale: 0.97 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.97 }}
+              transition={spring.ui}
+              title={
+                showWebcam ? `Source: ${activeWebcamName}` : `Source: ${droppedFileName ?? source}`
+              }
+              className={cn(
+                "flex min-h-14 items-center gap-2.5 rounded-[12px] bg-fill-3 p-2 shadow-[inset_0_0_0_0.5px_var(--separator)] transition-colors",
+                isDragOver && "bg-fill-2",
+                uploading && "cursor-progress justify-center",
+              )}
+            >
+              <CameraMediaPreview
+                mode={tileMode}
+                fileName={droppedFileName}
+                webcamName={activeWebcamName}
+                sourceKind={source}
+              />
+              {!uploading && (
+                <button
+                  type="button"
+                  aria-label="Clear source"
+                  title="Clear → placeholder"
+                  onClick={clearMedia}
+                  className="flex size-6 shrink-0 items-center justify-center rounded-full text-label-2 hover:bg-fill-2 hover:text-label"
+                >
+                  <X className="size-3.5" strokeWidth={2.25} />
+                </button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-          {warning && <CameraInlineBanner kind="warning" message={warning} />}
-          {error && <CameraInlineBanner kind="error" message={error} />}
-        </div>
-      )}
-    </div>
+        {isPlaceholder && !uploading && <CameraTestPatternHint />}
+
+        <Field label="Source">
+          <span className="flex min-w-0 items-center gap-1">
+            <IconButton
+              label="Refresh cameras"
+              size="sm"
+              disabled={webcamLoading}
+              onClick={() => void refreshWebcams()}
+            >
+              <RefreshCw />
+            </IconButton>
+            <Select
+              label="Camera source"
+              value={cameraSourceValue(source, webcamId)}
+              onChange={onSourceChange}
+              options={sourceOptions}
+              className="w-[148px] min-w-0"
+            />
+          </span>
+        </Field>
+        <Field label="Mirror">
+          <Switch
+            label="Mirror"
+            checked={mirror === "on"}
+            disabled={mirrorDisabled}
+            onChange={toggleMirror}
+          />
+        </Field>
+
+        <Button
+          variant={primary.kind === "stop" ? "secondary" : "primary"}
+          size="md"
+          block
+          icon={primary.kind === "stop" ? <Square /> : <Play />}
+          onClick={primary.onClick}
+          disabled={primaryDisabled}
+          title={
+            primary.kind === "stop"
+              ? "Stop the camera helper and terminate injected apps"
+              : primary.kind === "attach"
+                ? `Inject ${bundleId} so it joins the camera feed`
+                : !bundleId
+                  ? "Bring an app to the foreground first"
+                  : "Start: inject the dylib and launch the foreground app with the chosen source"
+          }
+          aria-pressed={primary.kind === "stop"}
+          aria-label={primaryText}
+        >
+          {primaryText}
+        </Button>
+
+        {warning && <CameraInlineBanner kind="warning" message={warning} />}
+        {error && <CameraInlineBanner kind="error" message={error} />}
+      </div>
+    </Disclosure>
   );
 }

@@ -51,3 +51,8 @@ export function runtimeOrder(runtime: string): number {
   if (r.startsWith("visionos") || r.startsWith("xros")) return 3;
   return 4;
 }
+
+/** "iOS.27.0" (simctl's id, dots for dashes) → "iOS 27.0" for display. */
+export function runtimeLabel(runtime: string): string {
+  return runtime.replace(/^([A-Za-z]+)\.(?=\d)/, "$1 ");
+}

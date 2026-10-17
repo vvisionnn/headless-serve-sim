@@ -22,8 +22,3 @@ export function formatGridBytes(n: number): string {
   const mb = n / (1024 * 1024);
   return `${mb.toFixed(0)} MB`;
 }
-
-export function gridPreviewHref(previewEndpoint: string, udid: string): string {
-  const sep = previewEndpoint.includes("?") ? "&" : "?";
-  return `${previewEndpoint}${sep}device=${encodeURIComponent(udid)}`;
-}

@@ -49,12 +49,19 @@ export function clipboardShortcut(event: ShortcutModifiers): "copy" | "cut" | "p
 }
 
 /**
- * ⌘K — toggle the on-screen software keyboard, matching Simulator.app's
- * I/O → Keyboard → Toggle Software Keyboard. Exactly Command, so ⇧⌘K and ⌥⌘K
- * still reach whatever else wants them.
+ * ⌥⌘K — toggle the on-screen software keyboard (Simulator.app's I/O →
+ * Keyboard → Toggle Software Keyboard). Bare ⌘K belongs to the command
+ * palette, so this needs exactly Option+Command.
  */
 export function isSoftwareKeyboardShortcut(event: ShortcutModifiers): boolean {
   return (
-    event.code === "KeyK" && event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey
+    event.code === "KeyK" && event.metaKey && event.altKey && !event.shiftKey && !event.ctrlKey
+  );
+}
+
+/** ⌘K (Ctrl+K off the Mac) — toggle the command palette. */
+export function isCommandPaletteShortcut(event: ShortcutModifiers): boolean {
+  return (
+    event.code === "KeyK" && event.metaKey !== event.ctrlKey && !event.shiftKey && !event.altKey
   );
 }

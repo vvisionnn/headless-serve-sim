@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isCommandPaletteShortcut,
   isSoftwareKeyboardShortcut,
   clipboardShortcut,
   isTextEntryTarget,
@@ -19,24 +20,41 @@ function keyEvent(overrides: Partial<ShortcutModifiers> = {}): ShortcutModifiers
 }
 
 describe("isSoftwareKeyboardShortcut", () => {
-  test("matches a bare Cmd+K", () => {
-    expect(isSoftwareKeyboardShortcut(keyEvent())).toBe(true);
+  test("matches Option+Cmd+K", () => {
+    expect(isSoftwareKeyboardShortcut(keyEvent({ altKey: true }))).toBe(true);
+  });
+
+  test("leaves bare Cmd+K to the command palette", () => {
+    expect(isSoftwareKeyboardShortcut(keyEvent())).toBe(false);
   });
 
   test("ignores K without Command", () => {
-    expect(isSoftwareKeyboardShortcut(keyEvent({ metaKey: false }))).toBe(false);
+    expect(isSoftwareKeyboardShortcut(keyEvent({ altKey: true, metaKey: false }))).toBe(false);
   });
 
-  test("ignores another key with Command", () => {
-    expect(isSoftwareKeyboardShortcut(keyEvent({ code: "KeyJ" }))).toBe(false);
+  test("ignores another key with Option+Command", () => {
+    expect(isSoftwareKeyboardShortcut(keyEvent({ altKey: true, code: "KeyJ" }))).toBe(false);
   });
 
   // Checking metaKey alone would swallow every neighbouring combination, so
   // the guest and the browser would silently stop receiving them.
-  test("ignores Cmd+K with an extra modifier", () => {
-    expect(isSoftwareKeyboardShortcut(keyEvent({ shiftKey: true }))).toBe(false);
-    expect(isSoftwareKeyboardShortcut(keyEvent({ altKey: true }))).toBe(false);
-    expect(isSoftwareKeyboardShortcut(keyEvent({ ctrlKey: true }))).toBe(false);
+  test("ignores Option+Cmd+K with an extra modifier", () => {
+    expect(isSoftwareKeyboardShortcut(keyEvent({ altKey: true, shiftKey: true }))).toBe(false);
+    expect(isSoftwareKeyboardShortcut(keyEvent({ altKey: true, ctrlKey: true }))).toBe(false);
+  });
+});
+
+describe("isCommandPaletteShortcut", () => {
+  test("matches Cmd+K and Ctrl+K", () => {
+    expect(isCommandPaletteShortcut(keyEvent())).toBe(true);
+    expect(isCommandPaletteShortcut(keyEvent({ metaKey: false, ctrlKey: true }))).toBe(true);
+  });
+
+  test("ignores K alone, other keys and extra modifiers", () => {
+    expect(isCommandPaletteShortcut(keyEvent({ metaKey: false }))).toBe(false);
+    expect(isCommandPaletteShortcut(keyEvent({ code: "KeyJ" }))).toBe(false);
+    expect(isCommandPaletteShortcut(keyEvent({ altKey: true }))).toBe(false);
+    expect(isCommandPaletteShortcut(keyEvent({ shiftKey: true }))).toBe(false);
   });
 });
 

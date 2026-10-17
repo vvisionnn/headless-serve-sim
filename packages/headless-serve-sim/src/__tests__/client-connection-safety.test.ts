@@ -10,12 +10,13 @@ describe("selected simulator connection safety", () => {
 
   test("device start UI reuses the installed CLI instead of a registry package", async () => {
     const client = await Bun.file(new URL("../client/client.tsx", import.meta.url)).text();
-    const emptyState = await Bun.file(
-      new URL("../client/components/boot-empty-state.tsx", import.meta.url),
-    ).text();
 
     expect(client).not.toContain("bunx headless-serve-sim");
     expect(client).toContain("config.gridStartEndpoint");
-    expect(emptyState).not.toContain("bunx headless-serve-sim");
+    const emptyScene = await Bun.file(
+      new URL("../client/scenes/empty-scene.tsx", import.meta.url),
+    ).text();
+
+    expect(emptyScene).not.toContain("bunx headless-serve-sim");
   });
 });

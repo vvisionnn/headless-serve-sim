@@ -9,7 +9,9 @@ import {
   CAMERA_LARGE_VIDEO_BYTES,
   CAMERA_LARGE_VIDEO_WARNING,
   CAMERA_POLL_INTERVAL_MS,
+  CameraTool,
   cameraSourceErrorMessage,
+  cameraSourceValue,
   isHeicLikeFile,
   isOversizedCameraVideo,
   nextCameraPillState,
@@ -309,7 +311,7 @@ describe("CameraMediaPreview — source states", () => {
         sourceKind="placeholder"
       />,
     );
-    expect(html).toContain("Select or drop media");
+    expect(html).toContain("Choose or drop media");
   });
 
   test("image source shows the dropped file name and Image badge", () => {
@@ -346,7 +348,8 @@ describe("CameraInlineBanner — error / warning UI", () => {
   test("danger banner renders the message and uses the danger token", () => {
     const html = renderToStaticMarkup(<CameraInlineBanner kind="error" message="helper crashed" />);
     expect(html).toContain("helper crashed");
-    expect(html).toContain("danger");
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("text-red");
   });
 
   test("warning banner surfaces the large-video copy verbatim", () => {
@@ -362,5 +365,32 @@ describe("CameraInlineBanner — error / warning UI", () => {
     expect(CAMERA_HEIC_ERROR).toContain("HEIC decode failed");
     expect(CAMERA_HEIC_ERROR).toContain("JPEG");
     expect(CAMERA_HEIC_ERROR).toContain("PNG");
+  });
+});
+
+describe("cameraSourceValue", () => {
+  test("maps each source kind to its menu item", () => {
+    expect(cameraSourceValue("placeholder", "")).toBe("placeholder");
+    expect(cameraSourceValue("image", "")).toBe("file");
+    expect(cameraSourceValue("video", "cam-1")).toBe("file");
+    expect(cameraSourceValue("webcam", "cam-1")).toBe("webcam:cam-1");
+  });
+});
+
+describe("CameraTool", () => {
+  test("renders the camera disclosure with source, mirror and play controls", () => {
+    const html = renderToStaticMarkup(<CameraTool udid="U" bundleId="com.example" defaultOpen />);
+    expect(html).toContain("Camera");
+    expect(html).toContain('data-camera-pill-state="ready"');
+    expect(html).toContain("Choose or drop media");
+    expect(html).toContain('aria-label="Camera source"');
+    expect(html).toContain('role="switch" aria-checked="false" aria-label="Mirror" disabled=""');
+    expect(html).toContain('aria-label="Play"');
+  });
+
+  test("stays folded until opened", () => {
+    const html = renderToStaticMarkup(<CameraTool udid="U" bundleId={null} />);
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("Choose or drop media");
   });
 });

@@ -492,7 +492,7 @@ export function NativeDuoDevice(props: Props) {
           polygon.setAttribute("fill", selected ? "rgba(0,0,0,0.2)" : "rgba(0,0,0,0.06)");
           polygon.setAttribute(
             "stroke",
-            selected || highlighted ? "var(--color-accent-solid)" : "var(--color-fg-3)",
+            selected || highlighted ? "var(--label)" : "var(--label-2)",
           );
         }
       }

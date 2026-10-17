@@ -1,20 +1,29 @@
+import { animate, motion, useMotionValue } from "motion/react";
+import { Maximize2, Minimize2 } from "lucide-react";
 import { useEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
 import {
   streamDisplayGeometry,
   type SimulatorRecordingSnapshot,
   type SimulatorRecordingSource,
 } from "headless-serve-sim-client/simulator";
+import { project, spring } from "../lib/motion";
 
 const BUTTON_SIZE = 44;
 const VIEWPORT_MARGIN = 8;
 const DRAG_THRESHOLD = 4;
+/** Resting corners sit this far from the viewport edges. */
+const CORNER_INSET = 16;
+/** Only pointer samples this recent count toward the release velocity. */
+const VELOCITY_WINDOW_MS = 100;
 
 type Point = { x: number; y: number };
+type Sample = Point & { t: number };
 type DragState = Point & {
   pointerId: number;
   clientX: number;
   clientY: number;
   moved: boolean;
+  samples: Sample[];
 };
 
 type WebkitDocument = Document & {
@@ -61,6 +70,41 @@ export function clampPhoneFullscreenButton(
   };
 }
 
+/**
+ * Where a thrown button comes to rest: project the release velocity forward
+ * (Apple's momentum projection) and pick the corner nearest that landing spot,
+ * so a flick lands in the corner it was heading for, not the one it left from.
+ */
+export function phoneFullscreenCorner(
+  point: Point,
+  velocity: Point,
+  viewport: { width: number; height: number },
+): Point {
+  const landing = {
+    x: point.x + project(velocity.x, 0.99),
+    y: point.y + project(velocity.y, 0.99),
+  };
+  const left = CORNER_INSET;
+  const right = viewport.width - BUTTON_SIZE - CORNER_INSET;
+  const top = CORNER_INSET;
+  const bottom = viewport.height - BUTTON_SIZE - CORNER_INSET;
+  const corner = {
+    x: Math.abs(landing.x - left) <= Math.abs(landing.x - right) ? left : right,
+    y: Math.abs(landing.y - top) <= Math.abs(landing.y - bottom) ? top : bottom,
+  };
+  return clampPhoneFullscreenButton(corner, viewport);
+}
+
+/** Release velocity in px/s from the most recent pointer samples. */
+export function releaseVelocity(samples: Sample[]): Point {
+  const last = samples.at(-1);
+  if (!last) return { x: 0, y: 0 };
+  const first = samples.find((s) => last.t - s.t <= VELOCITY_WINDOW_MS) ?? last;
+  const dt = (last.t - first.t) / 1000;
+  if (dt <= 0) return { x: 0, y: 0 };
+  return { x: (last.x - first.x) / dt, y: (last.y - first.y) / dt };
+}
+
 export function fullscreenVideoGeometry(
   snapshot: Pick<
     SimulatorRecordingSnapshot,
@@ -103,7 +147,10 @@ export function PhoneFullscreenToggle({
   const videoFullscreenRef = useRef(false);
   const dragRef = useRef<DragState | null>(null);
   const suppressClickRef = useRef(false);
-  const [position, setPosition] = useState<Point | null>(null);
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const [placed, setPlaced] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [videoFallback, setVideoFallback] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
@@ -122,17 +169,17 @@ export function PhoneFullscreenToggle({
       videoFullscreenRef.current = false;
       setFullscreen(false);
     };
+    let first = true;
+    // Start in the bottom-right corner; on resize, keep to whichever corner
+    // the button is nearest.
     const place = () => {
       const viewport = currentPhoneViewport();
-      setPosition((current) =>
-        clampPhoneFullscreenButton(
-          current ?? {
-            x: viewport.width - BUTTON_SIZE - 12,
-            y: viewport.height - BUTTON_SIZE - 20,
-          },
-          viewport,
-        ),
-      );
+      const from = first ? { x: viewport.width, y: viewport.height } : { x: x.get(), y: y.get() };
+      const corner = phoneFullscreenCorner(from, { x: 0, y: 0 }, viewport);
+      x.jump(corner.x);
+      y.jump(corner.y);
+      first = false;
+      setPlaced(true);
     };
     sync();
     place();
@@ -150,7 +197,7 @@ export function PhoneFullscreenToggle({
       window.removeEventListener("resize", place);
       window.visualViewport?.removeEventListener("resize", place);
     };
-  }, [targetRef]);
+  }, [targetRef, x, y]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -276,14 +323,16 @@ export function PhoneFullscreenToggle({
     if (event.button !== 0) return;
     event.stopPropagation();
     suppressClickRef.current = false;
-    const rect = event.currentTarget.getBoundingClientRect();
+    x.stop();
+    y.stop();
     dragRef.current = {
       pointerId: event.pointerId,
       clientX: event.clientX,
       clientY: event.clientY,
-      x: rect.left,
-      y: rect.top,
+      x: x.get(),
+      y: y.get(),
       moved: false,
+      samples: [],
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -294,12 +343,18 @@ export function PhoneFullscreenToggle({
     const dx = event.clientX - drag.clientX;
     const dy = event.clientY - drag.clientY;
     if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    if (!drag.moved) setDragging(true);
     drag.moved = true;
     event.preventDefault();
     event.stopPropagation();
-    setPosition(
-      clampPhoneFullscreenButton({ x: drag.x + dx, y: drag.y + dy }, currentPhoneViewport()),
+    const next = clampPhoneFullscreenButton(
+      { x: drag.x + dx, y: drag.y + dy },
+      currentPhoneViewport(),
     );
+    x.set(next.x);
+    y.set(next.y);
+    drag.samples.push({ ...next, t: event.timeStamp });
+    if (drag.samples.length > 8) drag.samples.shift();
   };
 
   const finishDrag = (event: PointerEvent<HTMLButtonElement>) => {
@@ -307,6 +362,19 @@ export function PhoneFullscreenToggle({
     if (!drag || drag.pointerId !== event.pointerId) return;
     suppressClickRef.current = drag.moved;
     dragRef.current = null;
+    if (drag.moved) {
+      setDragging(false);
+      // Thrown: carry the flick's velocity into a spring toward the corner it
+      // was heading for.
+      const velocity = releaseVelocity(drag.samples);
+      const corner = phoneFullscreenCorner(
+        { x: x.get(), y: y.get() },
+        velocity,
+        currentPhoneViewport(),
+      );
+      animate(x, corner.x, { ...spring.momentum, velocity: velocity.x });
+      animate(y, corner.y, { ...spring.momentum, velocity: velocity.y });
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -334,18 +402,17 @@ export function PhoneFullscreenToggle({
         aria-hidden
         className="pointer-events-none fixed left-0 top-0 size-px object-cover opacity-0"
       />
-      <button
+      <motion.button
         type="button"
         data-phone-fullscreen-toggle
         aria-label={label}
         title={label}
         disabled={preparingVideo}
-        className="fixed z-50 flex size-11 cursor-grab items-center justify-center rounded-sm border border-control-border bg-surface-3 text-fg shadow-overlay hover:bg-hover active:cursor-grabbing disabled:cursor-wait disabled:text-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
-        style={
-          position
-            ? { left: position.x, top: position.y, touchAction: "none" }
-            : { right: 12, bottom: 20, touchAction: "none" }
-        }
+        className="fixed top-0 left-0 z-50 flex size-11 cursor-grab items-center justify-center rounded-full text-white outline-none active:cursor-grabbing disabled:cursor-wait focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        style={{ x, y, touchAction: "none", visibility: placed ? "visible" : "hidden" }}
+        animate={{ scale: dragging ? 1.08 : 1 }}
+        whileTap={{ scale: dragging ? 1.08 : 0.92 }}
+        transition={spring.snappy}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={finishDrag}
@@ -359,36 +426,14 @@ export function PhoneFullscreenToggle({
           void toggleFullscreen().catch(() => {});
         }}
       >
+        {/* Glass over a live stream: dark enough to read on any frame. */}
+        <span className="absolute inset-0 rounded-full bg-black/35 shadow-[inset_0_0.5px_0_rgba(255,255,255,0.35),0_4px_14px_rgba(0,0,0,0.3)] backdrop-blur-xl" />
         {fullscreen ? (
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6" />
-          </svg>
+          <Minimize2 className="relative size-[18px]" strokeWidth={2.2} aria-hidden />
         ) : (
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
-          </svg>
+          <Maximize2 className="relative size-[18px]" strokeWidth={2.2} aria-hidden />
         )}
-      </button>
+      </motion.button>
     </>
   );
 }

@@ -9,11 +9,12 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { animate, AnimatePresence, motion } from "motion/react";
+import { LoaderCircle, TriangleAlert } from "lucide-react";
 import {
   SimulatorView,
   displayStreamConfig,
   fallbackScreenSize,
-  SimulatorToolbar,
   getDeviceType,
   matchDeviceFrameSpec,
   parseServerStreamStats,
@@ -28,32 +29,49 @@ import {
   type SimulatorRecordingSource,
 } from "headless-serve-sim-client/simulator";
 
-import { AppearanceIcon, ReloadIcon } from "./icons";
 import { AxDomOverlay } from "./components/ax-dom-overlay";
 import { AxStateProvider } from "./components/ax-state-provider";
-import { AxToolbarButton } from "./components/ax-toolbar-button";
-import { BootEmptyState } from "./components/boot-empty-state";
-import { PanelCard } from "./components/design-system";
 import { BareScreen, DeviceBezel } from "./components/device-bezel";
 import { NativeDuoDevice } from "./components/native-duo-device";
 import { DeviceResizeHandles } from "./components/device-resize-handles";
 import { PhonePreview } from "./components/phone-preview";
-import { PhonePreviewLink } from "./components/phone-preview-link";
-import { SimulatorDisconnected } from "./components/simulator-disconnected";
-import { DevicePicker } from "./components/device-picker";
-import { GridPanel } from "./components/grid-panel";
-import { MetricsBar } from "./components/metrics-bar";
-import { ConnectionStatsPanel } from "./components/connection-stats-panel";
-import { ResizeHandle } from "./components/resize-handle";
-import { InspectorBar } from "./components/inspector-bar";
-import { LogsPanel } from "./components/logs-panel";
-import { WebKitDevtoolsPanel } from "./components/webkit-devtools-panel";
+import { ConsolePanel } from "./console/console-panel";
+import { Inspector } from "./inspector/inspector";
+import type { InspectorProps } from "./inspector/types";
+import { rubberband, spring } from "./lib/motion";
+import { useTheme } from "./lib/theme";
+import { DisconnectedScene } from "./scenes/disconnected-scene";
+import { EmptyScene } from "./scenes/empty-scene";
+import { WallScene } from "./scenes/wall-scene";
+import { CommandPalette } from "./shell/command-palette";
+import { DeviceDock } from "./shell/device-dock";
+import { Navigator } from "./shell/navigator";
+import { PhoneLinkButton } from "./shell/phone-link";
+import {
+  ShellContext,
+  type Capture,
+  type ConsoleTab,
+  type InspectorTab,
+  type Shell,
+  type ShellToast,
+} from "./shell/shell-context";
+import {
+  DropOverlay,
+  ScreenGlow,
+  ScreenshotFlight,
+  Shutter,
+  useScreenColors,
+  type Flight,
+} from "./shell/stage-effects";
+import { Toasts, type ToastItem } from "./shell/toasts";
+import { Toolbar } from "./shell/toolbar";
+import { TipProvider } from "./ui/tooltip";
 import { useEventLogReporter } from "./hooks/use-event-log-reporter";
 import { useMediaDrop } from "./hooks/use-media-drop";
 import { useMjpegStream } from "./hooks/use-mjpeg-stream";
 import { useAvccStream } from "./hooks/use-avcc-stream";
-import { useResizableWidth } from "./hooks/use-resizable-width";
-import { useUploadToasts } from "./hooks/use-upload-toasts";
+import { useScreenRecording } from "./hooks/use-screen-recording";
+import { useUploadToasts, type UploadToast } from "./hooks/use-upload-toasts";
 import { useWebKitDevtools } from "./hooks/use-webkit-devtools";
 import { avccFallbackReducer, initialAvccFallback, AVCC_FRAME_TIMEOUT_MS } from "./avcc-fallback";
 import { parseSimctlList, type SimDevice } from "./utils/devices";
@@ -77,13 +95,13 @@ import {
   isTextEntryTarget,
   isPreviewControlTarget,
 } from "./utils/shortcuts";
+import { rotateLeft } from "./utils/rotate";
 import {
-  CONNECTION_STATS_PANEL_WIDTH,
-  DEVTOOLS_PANEL_WIDTH,
-  GRID_PANEL_WIDTH,
-  LOGS_PANEL_WIDTH,
-} from "./utils/panel-widths";
-import { captureScreenshot, downloadScreenshot, screenshotFilename } from "./utils/screenshot";
+  b64ToBlob,
+  captureScreenshot,
+  downloadScreenshot,
+  screenshotFilename,
+} from "./utils/screenshot";
 import { simEndpoint } from "./utils/sim-endpoint";
 import { SIMULATOR_RESIZE_MAX_SCALE } from "./utils/simulator-resize";
 import { toggleSimulatorAppearance } from "./utils/simulator-appearance";
@@ -145,6 +163,7 @@ function usePersistedFlag(
 type PreviewConfig = NonNullable<Window["__SIM_PREVIEW__"]>;
 
 function App() {
+  const theme = useTheme();
   const [connection, setConnection] = useState<PreviewConnectionState<PreviewConfig>>(() => {
     const config = selectedPreviewConfig(window.__SIM_PREVIEW__);
     return { config, helperAvailable: config !== null };
@@ -162,14 +181,6 @@ function App() {
   const [stoppingUdids, setStoppingUdids] = useState<Set<string>>(new Set());
   const [switching, setSwitching] = useState(false);
   const [axOverlayEnabled, setAxOverlayEnabled] = useState(false);
-  // One-shot launch layout from `--panes` / `--fit`. Absent means "no launch
-  // preference"; an explicit empty pane list (`--panes none`) means "start with
-  // everything closed", so the two must not collapse together.
-  const initialState = window.__SIM_PREVIEW__?.initialState;
-  const [devtoolsOpen, setDevtoolsOpen] = useState(() =>
-    paneInitiallyOpen(initialState, "devtools", false),
-  );
-  const [gridOpen, setGridOpen] = useState(() => paneInitiallyOpen(initialState, "devices", false));
   const [selectedDevtoolsTargetId, setSelectedDevtoolsTargetId] = useState<string | null>(null);
 
   const [showPicker, setShowPicker] = useState(false);
@@ -181,6 +192,11 @@ function App() {
       liveDeviceName: p?.deviceName ?? null,
     });
   });
+  // The last device's frame, so a disconnected simulator keeps its shape on
+  // the stage while we wait for it to come back.
+  const [lastFrameSpec, setLastFrameSpec] = useState<DeviceFrameSpec | null>(
+    () => selectedPreviewConfig(window.__SIM_PREVIEW__)?.deviceFrameSpec ?? null,
+  );
   const eventsDevice = resolveEventsDevice({
     urlDevice: urlDeviceRef.current,
     initialDevice: lastDevice?.udid ?? null,
@@ -248,6 +264,7 @@ function App() {
   useEffect(() => {
     if (!config) return;
     setLastDevice({ udid: config.device, name: config.deviceName ?? null });
+    if (config.deviceFrameSpec) setLastFrameSpec(config.deviceFrameSpec);
     setShowPicker(false);
   }, [config]);
 
@@ -288,11 +305,15 @@ function App() {
       // name captured when we last had a config.
       const name = devices.find((d) => d.udid === lastDevice.udid)?.name ?? lastDevice.name;
       return (
-        <SimulatorDisconnected deviceName={name} onChooseAnother={() => setShowPicker(true)} />
+        <DisconnectedScene
+          deviceName={name}
+          frameSpec={lastFrameSpec}
+          onChooseAnother={() => setShowPicker(true)}
+        />
       );
     }
     return (
-      <BootEmptyState
+      <EmptyScene
         devices={devices}
         loading={devicesLoading}
         error={devicesError}
@@ -304,6 +325,7 @@ function App() {
   return (
     <AppWithConfig
       config={config}
+      theme={theme}
       devices={devices}
       devicesLoading={devicesLoading}
       devicesError={devicesError}
@@ -313,10 +335,6 @@ function App() {
       setSwitching={setSwitching}
       axOverlayEnabled={axOverlayEnabled}
       setAxOverlayEnabled={setAxOverlayEnabled}
-      devtoolsOpen={devtoolsOpen}
-      setDevtoolsOpen={setDevtoolsOpen}
-      gridOpen={gridOpen}
-      setGridOpen={setGridOpen}
       selectedDevtoolsTargetId={selectedDevtoolsTargetId}
       setSelectedDevtoolsTargetId={setSelectedDevtoolsTargetId}
       streaming={streaming}
@@ -328,6 +346,7 @@ function App() {
 
 interface AppWithConfigProps {
   config: PreviewConfig;
+  theme: Shell["theme"];
   devices: SimDevice[];
   devicesLoading: boolean;
   devicesError: string | null;
@@ -337,10 +356,6 @@ interface AppWithConfigProps {
   setSwitching: (v: boolean) => void;
   axOverlayEnabled: boolean;
   setAxOverlayEnabled: React.Dispatch<React.SetStateAction<boolean>>;
-  devtoolsOpen: boolean;
-  setDevtoolsOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  gridOpen: boolean;
-  setGridOpen: React.Dispatch<React.SetStateAction<boolean>>;
   selectedDevtoolsTargetId: string | null;
   setSelectedDevtoolsTargetId: React.Dispatch<React.SetStateAction<string | null>>;
   streaming: boolean;
@@ -348,8 +363,20 @@ interface AppWithConfigProps {
   fetchDevices: () => Promise<void>;
 }
 
+// Floating-panel geometry — the same numbers as the approved design.
+const NAV_W = 264;
+const INS_W = 328;
+const GAP = 10;
+const TOOLBAR_H = 52;
+const DOCK_SPACE = 84;
+const FOLD_SPACE = 58;
+const CONSOLE_MIN = 180;
+let toastSeq = 0;
+let captureSeq = 0;
+
 function AppWithConfig({
   config,
+  theme,
   devices,
   devicesLoading,
   devicesError,
@@ -359,10 +386,6 @@ function AppWithConfig({
   setSwitching,
   axOverlayEnabled,
   setAxOverlayEnabled,
-  devtoolsOpen,
-  setDevtoolsOpen,
-  gridOpen,
-  setGridOpen,
   selectedDevtoolsTargetId,
   setSelectedDevtoolsTargetId,
   streaming,
@@ -380,6 +403,82 @@ function AppWithConfig({
       ? `Simulator - ${selectedDevice.name}`
       : "Simulator Preview";
   }, [selectedDevice?.name]);
+
+  // ── Shell state ──────────────────────────────────────────────────────
+  // `--panes` seeds the first render; afterwards the user's toggles persist.
+  const launchState = window.__SIM_PREVIEW__?.initialState;
+  const launchPanes = launchState?.panes;
+  const [navigatorOpen, setNavigatorOpen] = usePersistedFlag(
+    "headless-serve-sim:navigator-open",
+    false,
+    launchPanes ? launchPanes.includes("devices") : undefined,
+  );
+  const [inspectorOpen, setInspectorOpen] = usePersistedFlag(
+    "headless-serve-sim:inspector-open",
+    true,
+    launchPanes ? launchPanes.includes("inspector") || launchPanes.includes("metrics") : undefined,
+  );
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>(() =>
+    paneInitiallyOpen(launchState, "metrics", false) &&
+    !paneInitiallyOpen(launchState, "inspector", false)
+      ? "activity"
+      : "device",
+  );
+  const [consoleOpen, setConsoleOpen] = useState(
+    () =>
+      paneInitiallyOpen(launchState, "logs", false) ||
+      paneInitiallyOpen(launchState, "devtools", false),
+  );
+  const [consoleTab, setConsoleTab] = useState<ConsoleTab>(() =>
+    paneInitiallyOpen(launchState, "devtools", false) &&
+    !paneInitiallyOpen(launchState, "logs", false)
+      ? "web"
+      : "logs",
+  );
+  const [wallOpen, setWallOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const devtoolsOpen = consoleOpen && consoleTab === "web";
+
+  const [toasts, setToasts] = useState<ShellToast[]>([]);
+  const dismissToast = useCallback((id: number) => {
+    setToasts((list) => list.filter((t) => t.id !== id));
+  }, []);
+  const settleToast = useCallback(
+    (t: Pick<ShellToast, "id" | "tone" | "progress">) => {
+      // Finished toasts leave on their own; running ones wait for an update.
+      if (t.progress == null && (t.tone === "success" || t.tone === "danger"))
+        setTimeout(() => dismissToast(t.id), t.tone === "danger" ? 6000 : 3500);
+    },
+    [dismissToast],
+  );
+  const toast = useCallback(
+    (t: Omit<ShellToast, "id">) => {
+      const id = ++toastSeq;
+      setToasts((list) => [...list, { ...t, id }]);
+      settleToast({ ...t, id });
+      return id;
+    },
+    [settleToast],
+  );
+  const updateToast = useCallback(
+    (id: number, patch: Partial<ShellToast>) => {
+      setToasts((list) => {
+        const next = list.map((t) => (t.id === id ? { ...t, ...patch } : t));
+        const t = next.find((x) => x.id === id);
+        if (t) settleToast(t);
+        return next;
+      });
+    },
+    [settleToast],
+  );
+
+  const [captures, setCaptures] = useState<Capture[]>([]);
+  const addCapture = useCallback((c: Omit<Capture, "id">) => {
+    setCaptures((list) => [{ ...c, id: ++captureSeq }, ...list].slice(0, 24));
+  }, []);
+  const [shutter, setShutter] = useState(0);
+  const [flight, setFlight] = useState<Flight | null>(null);
+  const endFlight = useCallback(() => setFlight(null), []);
 
   const foldable =
     config.deviceTypeIdentifier === "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo";
@@ -887,19 +986,38 @@ function AppWithConfig({
     void toggleSimulatorAppearance(config.device, execOnHost, refreshUiSettings).catch(() => {});
   }, [config.device]);
 
-  // Capture the simulator screen and download it immediately — shared by the
-  // ⌘S shortcut. No preview or panel: the PNG lands straight in the browser's
-  // downloads. Failures are non-fatal (the Screenshot card surfaces errors).
+  // Screenshot: flash, capture, then the thumbnail lifts off the screen into
+  // the corner and the file lands in Recent captures. ⌘S has always meant
+  // "download now", so the PNG still downloads straight away too.
   const captureAndDownloadScreenshot = useCallback(async () => {
+    setShutter((n) => n + 1);
+    const from = simContainerRef.current?.getBoundingClientRect() ?? null;
     try {
       const shot = await captureScreenshot(config.device, {
         display: activeStreamConfig.displayId ? `${activeStreamConfig.displayId}` : "",
       });
-      downloadScreenshot(shot, screenshotFilename(new Date()));
+      const filename = screenshotFilename(new Date());
+      const blob = b64ToBlob(shot.bytesB64, "image/png");
+      const url = URL.createObjectURL(blob);
+      const size = await pngSize(blob);
+      addCapture({
+        kind: "screenshot",
+        createdAt: Date.now(),
+        meta: size ? `${size.width} × ${size.height} · PNG` : "PNG",
+        url,
+        filename,
+        blob,
+      });
+      if (from) setFlight({ id: Date.now(), from, url });
+      downloadScreenshot(shot, filename);
     } catch (e) {
-      console.warn("Screenshot (⌘S) failed:", e);
+      toast({
+        title: "Screenshot failed",
+        detail: e instanceof Error ? e.message : String(e),
+        tone: "danger",
+      });
     }
-  }, [config.device, activeStreamConfig.displayId]);
+  }, [config.device, activeStreamConfig.displayId, addCapture, toast]);
 
   useEffect(() => {
     setLiveStreamConfig(null);
@@ -957,40 +1075,11 @@ function AppWithConfig({
   const goHome = useCallback(() => {
     goHomeAndSelectSpringBoard(config.device, () => onStreamButton("home"), setDetectedApp);
   }, [config.device, onStreamButton]);
-  const [statsOpen, setStatsOpen] = useState(false);
   const [uiSettingsRevision, refreshUiSettings] = useReducer((revision: number) => revision + 1, 0);
-  const [logsOpen, setLogsOpen] = useState(() =>
-    paneInitiallyOpen(window.__SIM_PREVIEW__?.initialState, "logs", false),
-  );
   useEffect(() => {
     pendingStreamModeRef.current = null;
     setStreamMode("perf");
   }, [config.device]);
-  const { width: devtoolsPanelWidth, onPointerDown: onDevtoolsResize } = useResizableWidth(
-    "headless-serve-sim:devtools-panel-width",
-    DEVTOOLS_PANEL_WIDTH,
-    420,
-    1400,
-  );
-  const { width: gridPanelWidth, onPointerDown: onGridResize } = useResizableWidth(
-    "headless-serve-sim:grid-panel-width",
-    GRID_PANEL_WIDTH,
-    360,
-    1400,
-  );
-  const { width: connectionStatsPanelWidth, onPointerDown: onConnectionStatsResize } =
-    useResizableWidth(
-      "headless-serve-sim:connection-stats-width",
-      CONNECTION_STATS_PANEL_WIDTH,
-      280,
-      560,
-    );
-  const { width: logsPanelWidth, onPointerDown: onLogsResize } = useResizableWidth(
-    "headless-serve-sim:logs-panel-width",
-    LOGS_PANEL_WIDTH,
-    420,
-    1400,
-  );
   // SimulatorView emits Connection Stats here; the panel registers its sink so
   // only the panel re-renders on the 1 Hz cadence, not this whole tree.
   const serverStatsRef = useRef<ServerStreamStats | null>(null);
@@ -998,7 +1087,10 @@ function AppWithConfig({
     serverStatsRef.current = null;
   }, [config.device, config.streamUrl]);
   const statsSinkRef = useRef<((snap: ConnectionStats) => void) | null>(null);
+  // The toolbar's fps readout subscribes the same way.
+  const fpsSinkRef = useRef<((fps: number) => void) | null>(null);
   const handleConnectionStats = useCallback((snap: ConnectionStats) => {
+    fpsSinkRef.current?.(snap.fps);
     // Merge server-pushed adaptive state (arrives on this WS, tag 0x83) into the
     // snapshot SimulatorView emits — in relay mode its own `server` is null.
     statsSinkRef.current?.({ ...snap, server: snap.server ?? serverStatsRef.current });
@@ -1123,9 +1215,8 @@ function AppWithConfig({
           return;
         }
       }
-      // ⌘K toggles the on-screen software keyboard, matching Simulator.app's
-      // I/O → Keyboard → Toggle Software Keyboard. Global like ⇧⌘A / ⌘S, and
-      // intercepting it stops the browser hijacking it (Safari focuses search).
+      // ⌥⌘K toggles the on-screen software keyboard (Simulator.app's I/O →
+      // Keyboard → Toggle Software Keyboard). ⌘K itself opens the palette.
       if (isSoftwareKeyboardShortcut(e) && !isTextEntryTarget(e.target)) {
         e.preventDefault();
         if (type === "down" && !e.repeat) toggleSoftwareKeyboard();
@@ -1245,64 +1336,42 @@ function AppWithConfig({
     [fetchDevices, setStoppingUdids],
   );
 
-  // ── Layout geometry ──────────────────────────────────────────────────
-  // Everything floats on the dotted canvas as its own card: the Activity rail,
-  // the device column (toolbar card above a bare device), and the inspector.
-  // The two side rails keep their collapsed/expanded geometry, default
-  // collapsed, and persist their state across reloads.
-  const launchState = window.__SIM_PREVIEW__?.initialState;
-  const [metricsOpen, setMetricsOpen] = usePersistedFlag(
-    "headless-serve-sim:metrics-open",
-    false,
-    launchState?.panes ? launchState.panes.includes("metrics") : undefined,
-  );
-  const [inspectorOpen, setInspectorOpen] = usePersistedFlag(
-    "headless-serve-sim:inspector-open",
-    false,
-    launchState?.panes ? launchState.panes.includes("inspector") : undefined,
-  );
-  const TOP_BAR_HEIGHT = 56;
-  const PANEL_HEADER_HEIGHT = 64;
-  const RAIL_COLLAPSED_WIDTH = 52;
-  const RAIL_EXPANDED_WIDTH = 380;
-  // The canvas margin around the whole assembly, the gutter between cards, and
-  // the smaller gutter between the toolbar card and the device it belongs to.
-  const PAGE_PAD = 24;
-  const CARD_GAP = 20;
-  const DEVICE_GAP = 14;
-  const inspectorWidth = Math.min(
-    inspectorOpen ? RAIL_EXPANDED_WIDTH : RAIL_COLLAPSED_WIDTH,
-    viewportWidth,
-  );
-  const metricsWidth = Math.min(
-    metricsOpen ? RAIL_EXPANDED_WIDTH : RAIL_COLLAPSED_WIDTH,
-    viewportWidth,
-  );
+  // ── Layout ───────────────────────────────────────────────────────────
+  // Navigator · Stage · Inspector, with the Console drawer under the stage.
+  // Panels are floating glass inset from the window; opening one re-fits the
+  // stage on a spring so the device glides rather than jumps. Narrow windows
+  // float the panels over the stage instead of squeezing it.
+  const overlayPanels = viewportWidth < 1080;
+  const stageLeft = navigatorOpen && !overlayPanels ? NAV_W + GAP * 2 : 0;
+  const stageRight = inspectorOpen && !overlayPanels ? INS_W + GAP * 2 : 0;
+  const [consoleHeight, setConsoleHeight] = useState(300);
+  const insetBottom = consoleOpen ? consoleHeight + GAP : 0;
 
-  // Cards fill the canvas height minus its margin; the device gets what's left
-  // of the width once both rails and the three gutters are reserved.
-  const cardHeight = Math.max(0, viewportHeight - 2 * PAGE_PAD);
-  const computedBayWidth = Math.max(
-    0,
-    viewportWidth - 2 * PAGE_PAD - metricsWidth - inspectorWidth - 2 * CARD_GAP,
-  );
-  // Measure the live centre column so the device scales with the rail width
-  // transition instead of jumping to the open/closed size on click.
-  const centerRef = useRef<HTMLDivElement>(null);
-  const [measuredBayWidth, setMeasuredBayWidth] = useState(0);
+  // The stage's live box — measured, so the device tracks the panels' springs.
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [stageBox, setStageBox] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
-    const el = centerRef.current;
+    const el = stageRef.current;
     if (!el) return;
-    const update = () => setMeasuredBayWidth(Math.round(el.getBoundingClientRect().width));
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setStageBox((prev) =>
+        Math.abs(prev.width - r.width) < 0.5 && Math.abs(prev.height - r.height) < 0.5
+          ? prev
+          : { width: r.width, height: r.height },
+      );
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  const deviceAvailWidth = measuredBayWidth > 0 ? measuredBayWidth : computedBayWidth;
+  const stageWidth = stageBox.width || viewportWidth - stageLeft - stageRight;
+  const stageHeight = stageBox.height || viewportHeight - TOOLBAR_H;
+  const deviceAvailWidth = Math.max(0, stageWidth - 64);
   const deviceAvailHeight = Math.max(
     0,
-    cardHeight - TOP_BAR_HEIGHT - DEVICE_GAP - (foldable ? 90 : 0),
+    stageHeight - insetBottom - DOCK_SPACE - 28 - (foldable ? FOLD_SPACE : 0),
   );
 
   // Which way the device is turned. Prefer the reported orientation; fall back
@@ -1385,11 +1454,6 @@ function AppWithConfig({
       frameAspectRatioValue,
     ],
   );
-  const deviceWidth = bezelGeom ? bezelGeom.width : frameGeom.width;
-  // A narrow device (watch, or a tall phone in a short window) would squeeze the
-  // toolbar's device name to nothing, so the card keeps its own floor and simply
-  // overhangs the device when it has to.
-  const toolbarWidth = Math.max(deviceWidth, Math.min(420, deviceAvailWidth));
   const attachScreen = useCallback((node: HTMLDivElement | null) => {
     simContainerRef.current = node;
   }, []);
@@ -1403,25 +1467,207 @@ function AppWithConfig({
     },
     [sendHardwareButton, logEvent],
   );
-  const mediaDropOverlay = mediaDrop.isDragOver && (
-    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[rgba(0,0,0,0.55)] text-white pointer-events-none">
-      <svg
-        width="32"
-        height="32"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-        <polyline points="17 8 12 3 7 8" />
-        <line x1="12" y1="3" x2="12" y2="15" />
-      </svg>
-      <span className="text-value font-medium">Drop media or .ipa</span>
-    </div>
+
+  // Where the device sits on the stage. Native Duo composition draws its own
+  // body inside the whole available box and reports where it landed.
+  const deviceBox = nativeComposition
+    ? { width: deviceAvailWidth, height: deviceAvailHeight }
+    : {
+        width: showBezels && bezelGeom ? bezelGeom.width : frameGeom.width,
+        height: showBezels && bezelGeom ? bezelGeom.height : frameGeom.height,
+      };
+  const deviceLeft = (stageWidth - deviceBox.width) / 2;
+  const deviceTop = 14 + Math.max(0, (deviceAvailHeight - deviceBox.height) / 2);
+  const visible = nativeComposition
+    ? duoBounds
+      ? { x: duoBounds.x, y: duoBounds.y, width: duoBounds.width, height: duoBounds.height }
+      : { x: 0, y: 0, width: deviceAvailWidth, height: deviceAvailHeight }
+    : { x: 0, y: 0, width: deviceBox.width, height: deviceBox.height };
+  const deviceBottom = deviceTop + visible.y + visible.height;
+  const glowColors = useScreenColors(simContainerRef, streaming && !wallOpen);
+
+  const recording = useScreenRecording({
+    sourceRef: nativeComposition ? duoRecordingSourceRef : recordingSourceRef,
+    deviceFrameSpec: foldable ? null : recordingDeviceFrameSpec,
+    deviceKey: config.device,
+    streaming,
+    touchMarkersAvailable: !foldable,
+    onFinished: ({ blob, filename, meta }) => {
+      addCapture({
+        kind: "recording",
+        createdAt: Date.now(),
+        meta,
+        url: URL.createObjectURL(blob),
+        filename,
+        blob,
+      });
+      toast({ title: "Recording saved", detail: meta, tone: "success" });
+    },
+  });
+
+  const toggleAxOverlay = useCallback(
+    () => setAxOverlayEnabled((enabled) => !enabled),
+    [setAxOverlayEnabled],
   );
+  const rotate = useCallback(
+    () => rotateDevice(rotateLeft(currentOrientation)),
+    [rotateDevice, currentOrientation],
+  );
+  const reloadBundle = useCallback(() => void sendReactNativeReload(), [sendReactNativeReload]);
+  const reloadReactNative = currentApp?.isReactNative ? reloadBundle : null;
+
+  // Shell shortcuts. Registered in the capture phase so they win over the
+  // keystroke forwarding below, which would otherwise send ⌘J into the guest.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isTextEntryTarget(e.target) || !e.metaKey || e.ctrlKey) return;
+      const run = (fn: () => void) => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (!e.repeat) fn();
+      };
+      if (e.code === "Digit0" && e.altKey) run(() => setInspectorOpen((o) => !o));
+      else if (e.code === "Digit0" && !e.shiftKey) run(() => setNavigatorOpen((o) => !o));
+      else if (e.code === "KeyJ" && !e.shiftKey && !e.altKey) run(() => setConsoleOpen((o) => !o));
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [setInspectorOpen, setNavigatorOpen]);
+
+  const shell = useMemo<Shell>(
+    () => ({
+      theme,
+      navigatorOpen,
+      setNavigatorOpen,
+      inspectorOpen,
+      setInspectorOpen,
+      inspectorTab,
+      setInspectorTab,
+      consoleOpen,
+      setConsoleOpen,
+      consoleTab,
+      setConsoleTab,
+      wallOpen,
+      setWallOpen,
+      paletteOpen,
+      setPaletteOpen,
+      device: {
+        udid: config.device,
+        name: resolvedDeviceName,
+        runtime: selectedDevice?.runtime ?? null,
+        type: deviceType,
+      },
+      streaming,
+      goHome,
+      rotate,
+      canRotate: deviceType !== "watch",
+      toggleAppearance,
+      screenshot: () => void captureAndDownloadScreenshot(),
+      toggleSoftwareKeyboard,
+      axOverlayEnabled,
+      toggleAxOverlay,
+      reloadReactNative,
+      recording,
+      captures,
+      addCapture,
+      toast,
+      updateToast,
+      dismissToast,
+    }),
+    [
+      theme,
+      navigatorOpen,
+      setNavigatorOpen,
+      inspectorOpen,
+      setInspectorOpen,
+      inspectorTab,
+      consoleOpen,
+      consoleTab,
+      wallOpen,
+      paletteOpen,
+      config.device,
+      resolvedDeviceName,
+      selectedDevice?.runtime,
+      deviceType,
+      streaming,
+      goHome,
+      rotate,
+      toggleAppearance,
+      captureAndDownloadScreenshot,
+      toggleSoftwareKeyboard,
+      axOverlayEnabled,
+      toggleAxOverlay,
+      reloadReactNative,
+      recording,
+      captures,
+      addCapture,
+      toast,
+      updateToast,
+      dismissToast,
+    ],
+  );
+
+  const inspectorProps: InspectorProps = {
+    udid: config.device,
+    execToken: config.execToken,
+    uiSettingsRevision,
+    currentApp,
+    foldable,
+    displayId: activeStreamConfig.displayId,
+    view: {
+      bezels: showBezels,
+      scale: deviceScale,
+      slowAnimations,
+      keyboardCapture,
+      onKeyboardCaptureChange: setKeyboardCapture,
+      onBezelsChange: changeBezels,
+      onScaleChange: setDeviceScale,
+      onSoftwareKeyboard: toggleSoftwareKeyboard,
+      onSlowAnimationsChange: (enabled) => {
+        setSlowAnimations(enabled);
+        sendWs(0x08, { option: "debug_slow_animations", enabled });
+      },
+    },
+    onOrientationChange: (orientation) => {
+      orientationEditRef.current++;
+      setDuoOrientation(orientation);
+    },
+    recording,
+    recordingSourceRef: nativeComposition ? duoRecordingSourceRef : recordingSourceRef,
+    deviceFrameSpec: foldable ? null : recordingDeviceFrameSpec,
+    streaming,
+    metricsEndpoint: config.metricsEndpoint ?? simEndpoint("api/metrics"),
+    stream: {
+      live: streaming,
+      codecMode: useAvccVideo ? "avcc" : "mjpeg",
+      streamConfig: activeStreamConfig,
+      sinkRef: statsSinkRef,
+      mode: streamMode,
+      modeAvailable: useAvccVideo,
+      onModeChange,
+    },
+  };
+
+  const uploadToasts = uploads.toasts.map(uploadToastItem);
+  const [hiddenUploads, setHiddenUploads] = useState<Set<string>>(new Set());
+  const toastItems: ToastItem[] = [
+    ...uploadToasts.filter((t) => !hiddenUploads.has(String(t.id))),
+    ...toasts,
+  ];
+  const toastRight = inspectorOpen && !overlayPanels ? INS_W + 30 : 20;
+  const bootedCount = devices.filter((d) => d.state === "Booted").length;
+
+  const screenOverlays = (
+    <>
+      <Shutter count={shutter} />
+      <AnimatePresence>
+        {!streaming && !streamError && <ScreenStatus key="connecting" />}
+        {streamError && <ScreenStatus key="error" error={streamError} />}
+      </AnimatePresence>
+      <AnimatePresence>{mediaDrop.isDragOver && <DropOverlay />}</AnimatePresence>
+    </>
+  );
+
   const screenContent = (
     <>
       <SimulatorView
@@ -1446,7 +1692,7 @@ function AppWithConfig({
         streamConfig={activeStreamConfig}
         enableDigitalCrown={deviceType === "watch"}
         onScreenConfigChange={onScreenConfigChange}
-        statsEnabled={statsOpen}
+        statsEnabled={streaming}
         onConnectionStats={handleConnectionStats}
         recordingSourceRef={recordingSourceRef}
         onDecoderError={onDecoderError}
@@ -1454,423 +1700,471 @@ function AppWithConfig({
         onStreamScroll={onStreamScroll}
       />
       {axOverlayEnabled && !nativeComposition && <AxDomOverlay />}
-      {!nativeComposition && mediaDrop.isDragOver && mediaDropOverlay}
+      {!nativeComposition && screenOverlays}
+    </>
+  );
+
+  const device = nativeComposition ? (
+    <div ref={attachScreen} className="relative size-full" {...mediaDrop.dropZoneProps}>
+      <div
+        aria-hidden
+        className="pointer-events-none absolute"
+        style={{ width: 1, height: 1, overflow: "hidden", visibility: "hidden" }}
+      >
+        {screenContent}
+      </div>
+      <NativeDuoDevice
+        sourceRef={recordingSourceRef}
+        recordingSourceRef={duoRecordingSourceRef}
+        width={deviceAvailWidth}
+        height={deviceAvailHeight}
+        onTouch={onStreamTouch}
+        onMultiTouch={onStreamMultiTouch}
+        onScroll={onStreamScroll}
+        onButton={onStreamButton}
+        axEnabled={axOverlayEnabled}
+        includeFrame={showBezels}
+        scale={deviceScale}
+        streaming={streaming}
+        onBoundsChange={updateDuoBounds}
+        onOutputSide={changeOutputSide}
+      />
+      <div
+        className="pointer-events-none absolute overflow-hidden"
+        style={{ left: visible.x, top: visible.y, width: visible.width, height: visible.height }}
+      >
+        {screenOverlays}
+      </div>
+      {duoBounds && (
+        <div
+          ref={duoResizeRef}
+          className="pointer-events-none absolute"
+          style={{
+            left: duoBounds.x,
+            top: duoBounds.y,
+            width: duoBounds.width,
+            height: duoBounds.height,
+          }}
+        >
+          <DeviceResizeHandles
+            fittedSize={{ width: duoBounds.fittedWidth, height: duoBounds.fittedHeight }}
+            availableSize={{ width: deviceAvailWidth - 24, height: deviceAvailHeight - 24 }}
+            scale={deviceScale}
+            maxScale={
+              Math.min(deviceAvailWidth - 24, deviceAvailHeight - 24) /
+              Math.min(
+                deviceAvailWidth,
+                deviceAvailHeight,
+                simulatorMaxWidth("iphone", { width: 2, height: 1 }),
+              )
+            }
+            onScaleChange={setDeviceScale}
+          />
+        </div>
+      )}
+    </div>
+  ) : (
+    <>
+      {bezelGeom && bezelSpec ? (
+        <DeviceBezel
+          spec={bezelSpec}
+          geometry={
+            showBezels
+              ? bezelGeom
+              : {
+                  ...bezelGeom,
+                  screen: {
+                    ...bezelGeom.screen,
+                    width: frameGeom.width,
+                    height: frameGeom.height,
+                  },
+                }
+          }
+          showFrame={showBezels}
+          screenRef={attachScreen}
+          onPressButton={pressHardwareButton}
+          {...mediaDrop.dropZoneProps}
+        >
+          {screenContent}
+        </DeviceBezel>
+      ) : (
+        <BareScreen
+          width={frameGeom.width}
+          height={frameGeom.height}
+          screenRef={attachScreen}
+          {...mediaDrop.dropZoneProps}
+        >
+          {screenContent}
+        </BareScreen>
+      )}
+      <DeviceResizeHandles
+        fittedSize={fittedDevice}
+        availableSize={{ width: deviceAvailWidth - 24, height: deviceAvailHeight - 24 }}
+        scale={deviceScale}
+        onScaleChange={setDeviceScale}
+      />
     </>
   );
 
   return (
-    <AxStateProvider endpoint={axOverlayEnabled ? config?.axEndpoint : undefined}>
-      <div
-        className="ds-canvas flex h-screen w-screen items-center justify-between overflow-hidden font-system"
-        style={{ padding: PAGE_PAD }}
-      >
-        {/* Left card — native foreground-app resource metrics. */}
-        <MetricsBar
-          open={metricsOpen}
-          onToggle={() => setMetricsOpen((o) => !o)}
-          collapsedWidth={RAIL_COLLAPSED_WIDTH}
-          expandedWidth={RAIL_EXPANDED_WIDTH}
-          topBarHeight={PANEL_HEADER_HEIGHT}
-          height={cardHeight}
-          metricsEndpoint={config.metricsEndpoint ?? simEndpoint("api/metrics")}
-          enabled={streaming}
-        />
-
-        {/* Centre — the toolbar card, then the device itself on the canvas. */}
-        <div
-          ref={centerRef}
-          className="relative flex min-w-0 flex-1 flex-col items-center justify-center"
-          style={{ gap: DEVICE_GAP, height: cardHeight }}
+    <ShellContext.Provider value={shell}>
+      <TipProvider delay={500}>
+        <AxStateProvider
+          endpoint={
+            axOverlayEnabled || (consoleOpen && consoleTab === "accessibility")
+              ? config?.axEndpoint
+              : undefined
+          }
         >
-          <PanelCard
-            className="ds-toolbar-card shrink-0"
-            style={{
-              width: toolbarWidth,
-              height: TOP_BAR_HEIGHT,
-            }}
-          >
-            <SimulatorToolbar
-              exec={execOnHost}
-              onRotate={rotateDevice}
-              orientation={currentOrientation}
-              deviceUdid={config.device}
-              deviceName={selectedDevice?.name ?? null}
-              deviceRuntime={selectedDevice?.runtime ?? null}
-              streaming={streaming}
-            >
-              <DevicePicker
-                devices={devices}
-                selectedUdid={config.device}
-                loading={devicesLoading}
-                error={devicesError}
-                stoppingUdids={stoppingUdids}
-                onRefresh={fetchDevices}
-                onSelect={switchToDevice}
-                onStop={stopDevice}
-                trigger={<SimulatorToolbar.Title />}
-              />
-              <SimulatorToolbar.Actions>
-                {config.phonePreviewUrl && <PhonePreviewLink url={config.phonePreviewUrl} />}
-                {currentApp?.isReactNative && (
-                  <SimulatorToolbar.Button
-                    aria-label="Reload React Native bundle"
-                    title="Reload (R)"
-                    onClick={() => void sendReactNativeReload()}
-                  >
-                    <ReloadIcon />
-                  </SimulatorToolbar.Button>
-                )}
-                <SimulatorToolbar.HomeButton
-                  onClick={(e) => {
-                    e.preventDefault();
-                    goHome();
-                  }}
-                />
-                <SimulatorToolbar.Button
-                  aria-label="Toggle light / dark appearance"
-                  title="Toggle light / dark (⇧⌘A)"
-                  onClick={() => toggleAppearance()}
+          <div className="stage-bg fixed inset-0 overflow-hidden">
+            <AnimatePresence>
+              {navigatorOpen && (
+                <motion.aside
+                  key="nav"
+                  className="glass absolute z-30 overflow-hidden rounded-[24px]"
+                  style={{ top: GAP, bottom: GAP, left: GAP, width: NAV_W }}
+                  initial={{ x: -NAV_W - GAP * 2, opacity: 0.4 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: -NAV_W - GAP * 2, opacity: 0.4 }}
+                  transition={spring.surface}
                 >
-                  <AppearanceIcon />
-                </SimulatorToolbar.Button>
-                <AxToolbarButton
-                  overlayEnabled={axOverlayEnabled}
-                  streaming={streaming}
-                  onToggleOverlay={() => setAxOverlayEnabled((enabled) => !enabled)}
-                />
-                <SimulatorToolbar.RotateButton title="Rotate device" />
-              </SimulatorToolbar.Actions>
-            </SimulatorToolbar>
-          </PanelCard>
+                  <Navigator
+                    devices={devices}
+                    loading={devicesLoading}
+                    error={devicesError}
+                    currentUdid={config.device}
+                    stoppingUdids={stoppingUdids}
+                    switching={switching}
+                    onRefresh={() => void fetchDevices()}
+                    onSelect={(d) => void switchToDevice(d)}
+                    onStop={(udid) => void stopDevice(udid)}
+                  />
+                </motion.aside>
+              )}
+            </AnimatePresence>
 
-          {nativeComposition ? (
-            <div
-              ref={attachScreen}
-              className="relative shrink-0"
-              style={{ width: deviceAvailWidth, height: deviceAvailHeight, marginBottom: 16 }}
-              {...mediaDrop.dropZoneProps}
+            <AnimatePresence>
+              {inspectorOpen && (
+                <motion.aside
+                  key="ins"
+                  className="glass absolute z-30 overflow-hidden rounded-[24px]"
+                  style={{ top: GAP, bottom: GAP, right: GAP, width: INS_W }}
+                  initial={{ x: INS_W + GAP * 2, opacity: 0.4 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: INS_W + GAP * 2, opacity: 0.4 }}
+                  transition={spring.surface}
+                >
+                  <Inspector {...inspectorProps} />
+                </motion.aside>
+              )}
+            </AnimatePresence>
+
+            <motion.main
+              className="absolute top-0 bottom-0"
+              initial={false}
+              animate={{ left: stageLeft, right: stageRight }}
+              transition={spring.surface}
             >
               <div
-                aria-hidden
-                className="pointer-events-none absolute"
-                style={{ width: 1, height: 1, overflow: "hidden", visibility: "hidden" }}
+                ref={stageRef}
+                className="absolute inset-x-0 bottom-0"
+                style={{ top: TOOLBAR_H }}
               >
-                {screenContent}
-              </div>
-              <NativeDuoDevice
-                sourceRef={recordingSourceRef}
-                recordingSourceRef={duoRecordingSourceRef}
-                width={deviceAvailWidth}
-                height={deviceAvailHeight}
-                onTouch={onStreamTouch}
-                onMultiTouch={onStreamMultiTouch}
-                onScroll={onStreamScroll}
-                onButton={onStreamButton}
-                axEnabled={axOverlayEnabled}
-                includeFrame={showBezels}
-                scale={deviceScale}
-                streaming={streaming}
-                onBoundsChange={updateDuoBounds}
-                onOutputSide={changeOutputSide}
-              />
-              {(!streaming || streamError) && (
-                <div
-                  className="absolute inset-0 flex items-center justify-center bg-panel/80 text-body text-fg"
-                  role={streamError ? "alert" : "status"}
+                {/* The stage stays mounted under the Wall so the stream (and
+                    any recording) keeps running while you look at the others. */}
+                <motion.div
+                  className="absolute inset-0"
+                  initial={false}
+                  animate={{ opacity: wallOpen ? 0 : 1, scale: wallOpen ? 0.96 : 1 }}
+                  transition={spring.surface}
+                  style={{ pointerEvents: wallOpen ? "none" : undefined }}
+                  aria-hidden={wallOpen || undefined}
                 >
-                  {streamError ?? "Connecting..."}
-                </div>
-              )}
-              {mediaDropOverlay}
-              {duoBounds && (
-                <div
-                  ref={duoResizeRef}
-                  className="absolute pointer-events-none"
-                  style={{
-                    left: duoBounds.x,
-                    top: duoBounds.y,
-                    width: duoBounds.width,
-                    height: duoBounds.height,
-                  }}
-                >
-                  <DeviceResizeHandles
-                    fittedSize={{ width: duoBounds.fittedWidth, height: duoBounds.fittedHeight }}
-                    availableSize={{ width: deviceAvailWidth - 24, height: deviceAvailHeight - 24 }}
-                    scale={deviceScale}
-                    maxScale={
-                      Math.min(deviceAvailWidth - 24, deviceAvailHeight - 24) /
-                      Math.min(
-                        deviceAvailWidth,
-                        deviceAvailHeight,
-                        simulatorMaxWidth("iphone", { width: 2, height: 1 }),
-                      )
-                    }
-                    onScaleChange={setDeviceScale}
-                  />
-                </div>
-              )}
-            </div>
-          ) : (
-            <div
-              className="relative shrink-0"
-              style={{
-                width: showBezels && bezelGeom ? bezelGeom.width : frameGeom.width,
-                height: showBezels && bezelGeom ? bezelGeom.height : frameGeom.height,
-              }}
-            >
-              {bezelGeom && bezelSpec ? (
-                <DeviceBezel
-                  spec={bezelSpec}
-                  geometry={
-                    showBezels
-                      ? bezelGeom
-                      : {
-                          ...bezelGeom,
-                          screen: {
-                            ...bezelGeom.screen,
-                            width: frameGeom.width,
-                            height: frameGeom.height,
-                          },
-                        }
-                  }
-                  showFrame={showBezels}
-                  screenRef={attachScreen}
-                  onPressButton={pressHardwareButton}
-                  {...mediaDrop.dropZoneProps}
-                >
-                  {screenContent}
-                </DeviceBezel>
-              ) : (
-                <BareScreen
-                  width={frameGeom.width}
-                  height={frameGeom.height}
-                  screenRef={attachScreen}
-                  {...mediaDrop.dropZoneProps}
-                >
-                  {screenContent}
-                </BareScreen>
-              )}
-              <DeviceResizeHandles
-                fittedSize={fittedDevice}
-                availableSize={{ width: deviceAvailWidth - 24, height: deviceAvailHeight - 24 }}
-                scale={deviceScale}
-                onScaleChange={setDeviceScale}
-              />
-            </div>
-          )}
-          {foldable && (
-            <PanelCard
-              className="absolute bottom-0 shrink-0"
-              style={{ width: Math.min(400, deviceAvailWidth) }}
-            >
-              <DeviceMotionTool
-                disabled={!streaming}
-                angle={hingeAngle}
-                pose={duoPose}
-                onAngleChange={changeHingeAngle}
-                error={foldError}
-              />
-            </PanelCard>
-          )}
-        </div>
-
-        {/* Right card — inspector. */}
-        <InspectorBar
-          open={inspectorOpen}
-          onToggle={() => setInspectorOpen((o) => !o)}
-          collapsedWidth={RAIL_COLLAPSED_WIDTH}
-          expandedWidth={RAIL_EXPANDED_WIDTH}
-          topBarHeight={PANEL_HEADER_HEIGHT}
-          height={cardHeight}
-          openOverlay={
-            statsOpen
-              ? "stats"
-              : logsOpen
-                ? "logs"
-                : gridOpen
-                  ? "grid"
-                  : devtoolsOpen
-                    ? "devtools"
-                    : null
-          }
-          udid={config.device}
-          foldable={foldable}
-          onOrientationChange={(orientation) => {
-            orientationEditRef.current++;
-            setDuoOrientation(orientation);
-          }}
-          displayId={activeStreamConfig.displayId}
-          view={{
-            bezels: showBezels,
-            scale: deviceScale,
-            slowAnimations,
-            keyboardCapture,
-            onKeyboardCaptureChange: setKeyboardCapture,
-            onBezelsChange: changeBezels,
-            onScaleChange: setDeviceScale,
-            onSoftwareKeyboard: toggleSoftwareKeyboard,
-            onSlowAnimationsChange: (enabled) => {
-              setSlowAnimations(enabled);
-              sendWs(0x08, { option: "debug_slow_animations", enabled });
-            },
-          }}
-          deviceFrameSpec={foldable ? null : recordingDeviceFrameSpec}
-          streaming={streaming}
-          streamMode={streamMode}
-          streamModeAvailable={useAvccVideo}
-          onStreamModeChange={onModeChange}
-          recordingSourceRef={nativeComposition ? duoRecordingSourceRef : recordingSourceRef}
-          execToken={config.execToken}
-          uiSettingsRevision={uiSettingsRevision}
-          currentApp={currentApp}
-          axOverlayEnabled={axOverlayEnabled}
-          onToggleAxOverlay={() => setAxOverlayEnabled((enabled) => !enabled)}
-          onOpenStats={() => {
-            setLogsOpen(false);
-            setGridOpen(false);
-            setDevtoolsOpen(false);
-            setStatsOpen(true);
-          }}
-          onOpenLogs={() => {
-            setStatsOpen(false);
-            setGridOpen(false);
-            setDevtoolsOpen(false);
-            setLogsOpen(true);
-          }}
-          onOpenGrid={() => {
-            setStatsOpen(false);
-            setLogsOpen(false);
-            setDevtoolsOpen(false);
-            setGridOpen(true);
-          }}
-          onOpenDevtools={() => {
-            setStatsOpen(false);
-            setLogsOpen(false);
-            setGridOpen(false);
-            setDevtoolsOpen(true);
-          }}
-        />
-
-        {/* Upload toasts */}
-        {uploads.toasts.length > 0 && (
-          <div className="fixed bottom-6 right-6 flex flex-col gap-2 max-w-[320px] z-30">
-            {uploads.toasts.map((t) => {
-              const isError = t.status === "error";
-              const isUploading = t.status === "uploading";
-              // While transferring chunks, show "Uploading … N%". Once chunks
-              // are done, the install/addmedia step has no progress signal, so
-              // swap to a phase-specific verb and an indeterminate bar.
-              const transferring = isUploading && t.progress !== null;
-              const pct = t.progress != null ? Math.round(t.progress * 100) : 0;
-              return (
-                <div
-                  key={t.id}
-                  className={`flex flex-col gap-1.5 px-3.5 py-3 rounded-card bg-panel text-fg text-value font-mono shadow-overlay ${isError ? "select-text cursor-text" : "select-none cursor-default"}`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="size-1.5 shrink-0 rounded-full [transition:background_0.3s]"
+                  <motion.div
+                    className="absolute"
+                    initial={{ opacity: 0, y: 40, filter: "blur(12px)" }}
+                    animate={{
+                      opacity: 1,
+                      y: 0,
+                      filter: "blur(0px)",
+                      top: deviceTop,
+                    }}
+                    transition={{ ...spring.surface, opacity: { duration: 0.4 } }}
+                    style={{ left: deviceLeft, width: deviceBox.width, height: deviceBox.height }}
+                  >
+                    <div
+                      className="absolute"
                       style={{
-                        background: isUploading
-                          ? "var(--color-fg-3)"
-                          : t.status === "success"
-                            ? "var(--color-success)"
-                            : "var(--color-danger)",
+                        left: visible.x,
+                        top: visible.y,
+                        width: visible.width,
+                        height: visible.height,
                       }}
-                    />
-                    <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                      {isUploading && transferring && `Uploading ${t.name}… ${pct}%`}
-                      {isUploading &&
-                        !transferring &&
-                        (t.kind === "ipa" ? `Installing ${t.name}…` : `Adding ${t.name}…`)}
-                      {t.status === "success" &&
-                        (t.kind === "ipa" ? `Installed ${t.name}` : `Added ${t.name} to Photos`)}
-                      {isError && `${t.name}: ${t.message ?? "Upload failed"}`}
-                    </span>
-                  </div>
-                  {isUploading && (
-                    <div className="relative h-[3px] w-full rounded-full bg-track overflow-hidden">
-                      {transferring ? (
-                        <div
-                          className="h-full rounded-full bg-accent-solid [transition:width_120ms_linear]"
-                          style={{ width: `${pct}%` }}
-                        />
-                      ) : (
-                        <div className="headless-serve-sim-toast-indeterminate absolute top-0 left-0 h-full w-[40%] rounded-full bg-accent-solid" />
-                      )}
+                    >
+                      <ScreenGlow colors={glowColors} w={visible.width} h={visible.height} />
                     </div>
+                    <div className="relative size-full">{device}</div>
+                  </motion.div>
+
+                  {/* Contact shadow: the device rests on the stage rather than floating in it. */}
+                  <motion.div
+                    aria-hidden
+                    className="pointer-events-none absolute top-0 left-0 rounded-[50%] bg-black/25 blur-[14px] dark:bg-black/70"
+                    initial={false}
+                    animate={{
+                      x: deviceLeft + visible.x + visible.width * 0.14,
+                      y: deviceBottom - 12,
+                      width: visible.width * 0.72,
+                      height: 22,
+                    }}
+                    transition={spring.surface}
+                  />
+
+                  {/* Dock rides just under the device's lower edge. */}
+                  <motion.div
+                    className="absolute top-0 left-0 z-20 flex flex-col items-center gap-2.5"
+                    initial={false}
+                    animate={{ x: stageWidth / 2, y: deviceBottom + 22 }}
+                    transition={spring.surface}
+                  >
+                    <div className="-translate-x-1/2">
+                      <DeviceDock />
+                    </div>
+                    {foldable && (
+                      <motion.div
+                        className="glass-sm w-[400px] max-w-[calc(100vw-48px)] -translate-x-1/2 rounded-[22px]"
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ ...spring.surface, delay: 0.3 }}
+                      >
+                        <DeviceMotionTool
+                          disabled={!streaming}
+                          angle={hingeAngle}
+                          pose={duoPose}
+                          onAngleChange={changeHingeAngle}
+                          error={foldError}
+                        />
+                      </motion.div>
+                    )}
+                  </motion.div>
+                </motion.div>
+
+                <AnimatePresence>
+                  {wallOpen && (
+                    <motion.div
+                      key="wall"
+                      className="absolute inset-0"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    >
+                      <WallScene
+                        currentUdid={config.device}
+                        insetBottom={insetBottom}
+                        onFocus={(udid) => {
+                          setWallOpen(false);
+                          if (udid === config.device) return;
+                          const target = devices.find((d) => d.udid === udid) ?? {
+                            udid,
+                            name: udid,
+                            state: "Booted",
+                            runtime: "",
+                          };
+                          void switchToDevice(target);
+                        }}
+                      />
+                    </motion.div>
                   )}
-                </div>
-              );
-            })}
+                </AnimatePresence>
+              </div>
+
+              <div className="absolute inset-x-0 top-0 z-20 pt-[6px]">
+                <Toolbar
+                  devices={devices}
+                  fpsSinkRef={fpsSinkRef}
+                  wallSummary={`${bootedCount} booted`}
+                  phoneLink={
+                    config.phonePreviewUrl ? (
+                      <PhoneLinkButton
+                        url={config.phonePreviewUrl}
+                        deviceName={resolvedDeviceName ?? "Simulator"}
+                      />
+                    ) : null
+                  }
+                  onSelectDevice={(d) => void switchToDevice(d)}
+                />
+              </div>
+
+              <AnimatePresence>
+                {consoleOpen && (
+                  <ConsoleDrawer
+                    key="console"
+                    height={consoleHeight}
+                    maxHeight={viewportHeight * 0.62}
+                    onHeight={setConsoleHeight}
+                  >
+                    <ConsolePanel
+                      udid={config.device}
+                      logsEndpoint={config.logsEndpoint}
+                      appProcessId={currentApp?.pid ?? null}
+                      devtools={devtools}
+                      selectedDevtoolsTargetId={selectedDevtoolsTargetId}
+                      onSelectDevtoolsTarget={setSelectedDevtoolsTargetId}
+                    />
+                  </ConsoleDrawer>
+                )}
+              </AnimatePresence>
+            </motion.main>
+
+            <Toasts
+              items={toastItems}
+              right={toastRight}
+              onDismiss={(id) =>
+                typeof id === "number"
+                  ? dismissToast(id)
+                  : setHiddenUploads((prev) => new Set(prev).add(id))
+              }
+            />
+            <ScreenshotFlight
+              flight={flight}
+              right={inspectorOpen && !overlayPanels ? INS_W + GAP * 2 : 0}
+              onOpen={() => {
+                setInspectorOpen(true);
+                setInspectorTab("capture");
+              }}
+              onDone={endFlight}
+            />
+            <CommandPalette
+              devices={devices}
+              currentUdid={config.device}
+              onSelectDevice={(d) => void switchToDevice(d)}
+              phonePreviewUrl={config.phonePreviewUrl}
+            />
           </div>
-        )}
+        </AxStateProvider>
+      </TipProvider>
+    </ShellContext.Provider>
+  );
+}
 
-        <GridPanel
-          open={gridOpen}
-          onClose={() => setGridOpen(false)}
-          currentUdid={config.device}
-          width={gridPanelWidth}
-        />
-        <ResizeHandle
-          panelWidth={gridPanelWidth}
-          visible={gridOpen}
-          onPointerDown={onGridResize}
-          ariaLabel="Resize simulators panel"
-        />
+/** Upload progress, in the shell's toast shape. */
+function uploadToastItem(t: UploadToast): ToastItem {
+  if (t.status === "error")
+    return { id: t.id, title: t.name, detail: t.message ?? "Upload failed", tone: "danger" };
+  if (t.status === "success")
+    return {
+      id: t.id,
+      title: t.kind === "ipa" ? `Installed ${t.name}` : `Added ${t.name} to Photos`,
+      tone: "success",
+    };
+  // While chunks transfer the bar is determinate; the install / addmedia step
+  // after it has no progress signal, so it runs indeterminate.
+  if (t.progress !== null)
+    return {
+      id: t.id,
+      title: `Uploading ${t.name}`,
+      detail: `${Math.round(t.progress * 100)}%`,
+      progress: t.progress,
+    };
+  return {
+    id: t.id,
+    title: t.kind === "ipa" ? `Installing ${t.name}…` : `Adding ${t.name}…`,
+    progress: "indeterminate",
+  };
+}
 
-        <WebKitDevtoolsPanel
-          open={devtoolsOpen}
-          onClose={() => setDevtoolsOpen(false)}
-          udid={config.device}
-          targets={devtools.targets}
-          selectedTargetId={selectedDevtoolsTargetId}
-          onSelectTarget={setSelectedDevtoolsTargetId}
-          loading={devtools.loading}
-          error={devtools.error}
-          onRefresh={() => void devtools.refresh()}
-          width={devtoolsPanelWidth}
-        />
-        <ResizeHandle
-          panelWidth={devtoolsPanelWidth}
-          visible={devtoolsOpen}
-          onPointerDown={onDevtoolsResize}
-          ariaLabel="Resize WebKit DevTools panel"
-        />
+/** Width × height from a PNG's IHDR chunk, without decoding the image. */
+async function pngSize(blob: Blob): Promise<{ width: number; height: number } | null> {
+  try {
+    const view = new DataView(await blob.slice(16, 24).arrayBuffer());
+    return { width: view.getUint32(0), height: view.getUint32(4) };
+  } catch {
+    return null;
+  }
+}
 
-        <ConnectionStatsPanel
-          open={statsOpen}
-          onClose={() => setStatsOpen(false)}
-          width={connectionStatsPanelWidth}
-          live={streaming}
-          codecMode={useAvccVideo ? "avcc" : "mjpeg"}
-          streamConfig={activeStreamConfig}
-          sinkRef={statsSinkRef}
-          mode={streamMode}
-          onModeChange={onModeChange}
-        />
-        <ResizeHandle
-          panelWidth={connectionStatsPanelWidth}
-          visible={statsOpen}
-          onPointerDown={onConnectionStatsResize}
-          ariaLabel="Resize connection stats panel"
-        />
+/** Connecting / stream-error state, quietly over the screen. */
+function ScreenStatus({ error }: { error?: string }) {
+  return (
+    <motion.div
+      className="pointer-events-none absolute inset-0 z-[70] flex items-center justify-center bg-black/55 p-5"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      role={error ? "alert" : "status"}
+    >
+      {error ? (
+        <span className="glass-pop flex max-w-[260px] items-start gap-2 rounded-[14px] px-3 py-2.5 text-footnote text-label [overflow-wrap:anywhere]">
+          <TriangleAlert className="mt-px size-4 shrink-0 text-orange" />
+          {error}
+        </span>
+      ) : (
+        <span className="flex items-center gap-2 text-footnote font-medium text-white/85">
+          <LoaderCircle className="size-4 animate-spin" />
+          Connecting…
+        </span>
+      )}
+    </motion.div>
+  );
+}
 
-        <LogsPanel
-          open={logsOpen}
-          onClose={() => setLogsOpen(false)}
-          endpoint={config.logsEndpoint}
-          appProcessId={currentApp?.pid ?? null}
-          width={logsPanelWidth}
-        />
-        <ResizeHandle
-          panelWidth={logsPanelWidth}
-          visible={logsOpen}
-          onPointerDown={onLogsResize}
-          ariaLabel="Resize logs panel"
+/** Console drawer — rises from the bottom edge and leaves the same way. */
+function ConsoleDrawer({
+  height,
+  maxHeight,
+  onHeight,
+  children,
+}: {
+  height: number;
+  maxHeight: number;
+  onHeight: (h: number) => void;
+  children: React.ReactNode;
+}) {
+  const [drag, setDrag] = useState<{ y: number; h: number } | null>(null);
+  return (
+    <motion.section
+      className="glass absolute z-20 flex flex-col overflow-hidden rounded-[22px]"
+      style={{ left: GAP, right: GAP, bottom: GAP, height }}
+      initial={{ y: height + GAP * 2, opacity: 0.5 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: height + GAP * 2, opacity: 0.5 }}
+      transition={spring.surface}
+    >
+      <div
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize console"
+        className="group absolute inset-x-0 top-0 z-10 flex h-2 cursor-row-resize touch-none justify-center"
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setDrag({ y: e.clientY, h: height });
+        }}
+        onPointerMove={(e) => {
+          if (!drag) return;
+          const raw = drag.h + (drag.y - e.clientY);
+          // Past the limits the edge keeps following, but with resistance.
+          const next =
+            raw < CONSOLE_MIN
+              ? CONSOLE_MIN - rubberband(CONSOLE_MIN - raw, 200)
+              : raw > maxHeight
+                ? maxHeight + rubberband(raw - maxHeight, 200)
+                : raw;
+          onHeight(next);
+        }}
+        onPointerUp={() => {
+          setDrag(null);
+          const clamped = Math.min(maxHeight, Math.max(CONSOLE_MIN, height));
+          if (clamped !== height)
+            animate(height, clamped, { ...spring.momentum, onUpdate: onHeight });
+        }}
+      >
+        <span
+          className="mt-1 h-1 w-9 rounded-full bg-label-4 opacity-0 transition-opacity group-hover:opacity-100"
+          style={{ opacity: drag ? 1 : undefined }}
         />
       </div>
-    </AxStateProvider>
+      {children}
+    </motion.section>
   );
 }
 

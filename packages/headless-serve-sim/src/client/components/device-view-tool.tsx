@@ -1,7 +1,13 @@
-import { useState } from "react";
-import { CollapsibleSection } from "./collapsible-section";
-import { Slider } from "./design-system";
-import { SettingSwitch } from "./setting-switch";
+import { Keyboard, Smartphone, Snail, TextCursorInput } from "lucide-react";
+import { SliderRow } from "../inspector/device-rows";
+import { Button } from "../ui/button";
+import { Row, Section } from "../ui/group";
+import { Slider } from "../ui/slider";
+import { Switch } from "../ui/switch";
+
+export function scaleLabel(scale: number): string {
+  return `${Math.round(scale * 100)}%`;
+}
 
 export function DeviceViewTool({
   bezels,
@@ -24,51 +30,54 @@ export function DeviceViewTool({
   onSlowAnimationsChange: (value: boolean) => void;
   onSoftwareKeyboard: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   return (
-    <CollapsibleSection open={open} onOpenChange={setOpen} summary="View & keyboard">
-      <SettingSwitch label="Show bezels" checked={bezels} onChange={onBezelsChange} />
-      <Slider
-        label="Scale"
-        min={0.5}
-        max={2}
-        step={0.05}
-        value={scale}
-        onChange={onScaleChange}
-        format={(value) => `${Math.round(value * 100)}%`}
-      />
-      <p className="m-0 text-value text-fg-2">Scale is capped to keep the whole device visible.</p>
-      <button
-        type="button"
-        className="min-h-[38px] rounded-card border border-control-border bg-panel-deep px-3 py-2 text-body text-fg hover:bg-hover"
-        onClick={() => onScaleChange(1)}
-      >
-        Zoom to fit
-      </button>
-      <SettingSwitch
-        label="Slow animations"
-        checked={slowAnimations}
-        onChange={onSlowAnimationsChange}
-      />
-      <button
-        type="button"
-        className="min-h-[38px] rounded-card border border-control-border bg-panel-deep px-3 py-2 text-body text-fg hover:bg-hover"
-        onClick={onSoftwareKeyboard}
-      >
-        Software keyboard
-      </button>
+    <Section
+      title="View"
+      accessory={
+        <Button variant="plain" size="sm" onClick={() => onScaleChange(1)}>
+          Zoom to fit
+        </Button>
+      }
+      footer="Scale is capped to keep the whole device visible."
+    >
+      <Row label="Show bezel" icon={<Smartphone />}>
+        <Switch label="Show bezel" checked={bezels} onChange={onBezelsChange} />
+      </Row>
+      <SliderRow label="Scale" value={scaleLabel(scale)}>
+        <Slider
+          label="Scale"
+          value={scale}
+          min={0.5}
+          max={2}
+          step={0.05}
+          onChange={onScaleChange}
+        />
+      </SliderRow>
+      <Row label="Slow animations" icon={<Snail />}>
+        <Switch
+          label="Slow animations"
+          checked={slowAnimations}
+          onChange={onSlowAnimationsChange}
+        />
+      </Row>
       {onKeyboardCaptureChange && (
-        <>
-          <SettingSwitch
+        <Row
+          label="Capture keyboard"
+          detail="Forward keys while this page is focused. Form fields remain editable."
+          icon={<Keyboard />}
+        >
+          <Switch
             label="Capture keyboard"
             checked={keyboardCapture}
             onChange={onKeyboardCaptureChange}
           />
-          <p className="m-0 text-value text-fg-2">
-            Forward keyboard input while this page is focused. Form fields remain editable.
-          </p>
-        </>
+        </Row>
       )}
-    </CollapsibleSection>
+      <Row label="Software keyboard" icon={<TextCursorInput />}>
+        <Button variant="secondary" size="sm" onClick={onSoftwareKeyboard}>
+          Toggle
+        </Button>
+      </Row>
+    </Section>
   );
 }

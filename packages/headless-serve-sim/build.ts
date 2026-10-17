@@ -12,7 +12,7 @@
  * provide a Node-compatible CLI and Connect middleware.
  * Runtime server and timing behavior is implemented with Node stdlib APIs.
  *
- * The preview HTML (bundled client.tsx + Preact + headless-serve-sim-client, base64
+ * The preview HTML (bundled client.tsx + React + headless-serve-sim-client, base64
  * encoded) is injected into every artifact that could need to serve the UI
  * via the __PREVIEW_HTML_B64__ build-time define.
  */
@@ -28,6 +28,7 @@ import {
 } from "fs";
 import { spawnSync } from "child_process";
 import tailwindPlugin from "bun-plugin-tailwind";
+import { THEME_BOOT_SCRIPT } from "./src/client/lib/theme";
 
 const root = import.meta.dir;
 const nativeRoot = resolve(root, "../headless-serve-sim-binary");
@@ -55,22 +56,7 @@ function kb(n: number): string {
   return `${(n / 1024).toFixed(1)} KB`;
 }
 
-// ─── 1. Bundle the browser client (React aliased to Preact) ───────────────
-
-const preactPlugin = {
-  name: "preact-alias",
-  setup(build: any) {
-    const preactCompat = resolve(root, "node_modules/preact/compat/dist/compat.module.js");
-    const preactCompatClient = resolve(root, "node_modules/preact/compat/client.mjs");
-    const preactJsxRuntime = resolve(
-      root,
-      "node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js",
-    );
-    build.onResolve({ filter: /^react-dom\/client$/ }, () => ({ path: preactCompatClient }));
-    build.onResolve({ filter: /^react(-dom)?$/ }, () => ({ path: preactCompat }));
-    build.onResolve({ filter: /^react\/jsx(-dev)?-runtime$/ }, () => ({ path: preactJsxRuntime }));
-  },
-};
+// ─── 1. Bundle the browser client ─────────────────────────────────────────
 
 async function buildTailwindCss(): Promise<string> {
   const result = await Bun.build({
@@ -95,7 +81,6 @@ async function bundleBrowserClient(entry: string): Promise<string> {
     target: "browser",
     format: "esm",
     define: { "process.env.NODE_ENV": '"production"' },
-    plugins: [preactPlugin],
   });
   if (!result.success) {
     console.error(`Build failed for ${entry}:`);
@@ -125,6 +110,7 @@ const html = `<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Simulator Preview</title>
 ${faviconTag}
+<script>${THEME_BOOT_SCRIPT}</script>
 <style>*,*::before,*::after{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden}</style>
 <style>${tailwindCss}</style>
 </head><body>

@@ -1,11 +1,18 @@
-import { describe, expect, test, beforeAll } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { getDeviceType, simulatorMaxWidth } from "headless-serve-sim-client/simulator";
 import { fitDeviceFrame } from "../client/utils/frame-geometry";
 
 // roundToDevicePixel (inside fitDeviceFrame) reads window.devicePixelRatio.
+const savedWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 beforeAll(() => {
   (globalThis as { window?: unknown; devicePixelRatio?: number }).window = { devicePixelRatio: 1 };
   (globalThis as { devicePixelRatio?: number }).devicePixelRatio = 1;
+});
+// Restore: later files render components that subscribe to window events.
+afterAll(() => {
+  if (savedWindow) Object.defineProperty(globalThis, "window", savedWindow);
+  else Reflect.deleteProperty(globalThis, "window");
+  Reflect.deleteProperty(globalThis, "devicePixelRatio");
 });
 
 // A tall viewport where the per-device-type upscale cap actually binds — the

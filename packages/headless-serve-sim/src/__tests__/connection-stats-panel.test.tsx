@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { ConnectionStats } from "headless-serve-sim-client/simulator";
-import { FrameDeliveryStats } from "../client/components/connection-stats-panel";
+import type { ConnectionStats, StreamConfig } from "headless-serve-sim-client/simulator";
+import {
+  FrameDeliveryStats,
+  StreamStats,
+  statSpread,
+} from "../client/components/connection-stats-panel";
 
 const stats: ConnectionStats = {
   fps: 59.6,
@@ -80,5 +84,53 @@ describe("FrameDeliveryStats", () => {
     expect(output).toContain("Capture skipped—");
     expect(output).toContain("Encoder lost—");
     expect(output).toContain("Transport skipped—");
+  });
+});
+
+describe("statSpread", () => {
+  test("formats min · avg · max, and dashes before any data", () => {
+    expect(statSpread([1, 2, 6], (n) => n.toFixed(0))).toBe("1 · 3 · 6");
+    expect(statSpread([], (n) => n.toFixed(0))).toBe("— · — · —");
+  });
+});
+
+describe("StreamStats", () => {
+  test("shows live state, codec, resolution and the H.264 mode switch before any stats", () => {
+    const html = renderToStaticMarkup(
+      <StreamStats
+        live
+        codecMode="avcc"
+        streamConfig={{ width: 1206, height: 2622 } as StreamConfig}
+        sinkRef={{ current: null }}
+        mode="perf"
+        onModeChange={() => {}}
+      />,
+    );
+    for (const value of [
+      "Stream",
+      "Live",
+      "H.264",
+      "1206×2622",
+      'aria-label="Stream mode"',
+      "Waiting for stream…",
+    ]) {
+      expect(html).toContain(value);
+    }
+  });
+
+  test("MJPEG has no mode switch", () => {
+    const html = renderToStaticMarkup(
+      <StreamStats
+        live={false}
+        codecMode="mjpeg"
+        streamConfig={null}
+        sinkRef={{ current: null }}
+        mode="perf"
+        onModeChange={() => {}}
+      />,
+    );
+    expect(html).toContain("Offline");
+    expect(html).toContain("MJPEG");
+    expect(html).not.toContain('aria-label="Stream mode"');
   });
 });

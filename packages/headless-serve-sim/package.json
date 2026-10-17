@@ -73,18 +73,22 @@
     "dev": "bun run dev.ts"
   },
   "devDependencies": {
+    "@base-ui/react": "1.9.0",
     "@types/bun": "catalog:",
     "@types/debug": "^4.1.13",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@types/ws": "^8.18.1",
     "bun-plugin-tailwind": "^0.1.2",
+    "clsx": "2.1.1",
     "commander": "^14.0.1",
     "debug": "^4.4.3",
-    "preact": "^10.29.1",
+    "lucide-react": "1.58.0",
+    "motion": "14.3.0",
     "qrcode-generator": "^2.0.4",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "tailwind-merge": "3.7.0",
     "tailwindcss": "^4.1.7"
   },
   "dependencies": {

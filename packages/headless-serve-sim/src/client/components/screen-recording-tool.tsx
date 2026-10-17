@@ -1,476 +1,155 @@
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
-import type {
-  DeviceType,
-  DeviceFrameSpec,
-  SimulatorRecordingSource,
-} from "headless-serve-sim-client/simulator";
-import { Chevron } from "../icons";
-import type { NativeStreamRecorder } from "../native-stream-recorder";
-import { simEndpoint } from "../utils/sim-endpoint";
-import { SegmentedGroup } from "./design-system";
-import { SettingSwitch } from "./setting-switch";
-import { StreamModeToggle, type StreamMode } from "./stream-mode-toggle";
+import { AnimatePresence, motion } from "motion/react";
+import { Hand, Smartphone } from "lucide-react";
+import type { ReactNode } from "react";
 import {
-  CanvasScreenRecorder,
-  supportedRecordingMimeTypes,
-  type RecordingArtifact,
-  type RecordingFormat,
-} from "../screen-recorder";
-import {
-  prepareDeviceFrameArtwork,
-  type PreparedDeviceFrameArtwork,
-} from "../device-frame-artwork";
+  durationLabel,
+  useRecordingElapsed,
+  type ScreenRecording,
+} from "../hooks/use-screen-recording";
+import { spring } from "../lib/motion";
+import type { RecordingFormat } from "../screen-recorder";
+import { Button } from "../ui/button";
+import { Row, Section } from "../ui/group";
+import { Segmented } from "../ui/segmented";
+import { Switch } from "../ui/switch";
 
-type RecordingPhase = "idle" | "starting" | "recording" | "stopping";
-type RecordingDeviceFrame = DeviceFrameSpec | DeviceType | null | undefined;
-type FrameArtworkState = {
-  key: string;
-  loading: boolean;
-  prepared: PreparedDeviceFrameArtwork | null;
-  failed: boolean;
-};
+export {
+  frameSelectionAfterDeviceChange,
+  recordingFormatSupport,
+  recordingFrameDescription,
+} from "../hooks/use-screen-recording";
 
-function isExactDeviceFrame(frame: RecordingDeviceFrame): frame is DeviceFrameSpec {
-  return typeof frame === "object" && frame !== null;
-}
-
-function frameArtworkKey(deviceKey: string, frame: RecordingDeviceFrame): string {
-  if (isExactDeviceFrame(frame) && frame.artwork) {
-    return `${deviceKey}:${frame.deviceTypeIdentifier}:${frame.chromeIdentifier}:${frame.artwork.width}x${frame.artwork.height}`;
-  }
-  return `${deviceKey}:${frame ?? "procedural"}`;
-}
-
-export function recordingFormatSupport(
-  isTypeSupported: (mimeType: string) => boolean,
-): Record<RecordingFormat, boolean> {
-  const mp4 = supportedRecordingMimeTypes("mp4", isTypeSupported).length > 0;
-  const webm = supportedRecordingMimeTypes("webm", isTypeSupported).length > 0;
-  return { auto: mp4 || webm, mp4, webm };
-}
-
-export function frameSelectionAfterDeviceChange(
-  selected: boolean,
-  previousDeviceKey: string,
-  nextDeviceKey: string,
-  hasFrameSpec: boolean,
-): boolean {
-  return selected && previousDeviceKey === nextDeviceKey && hasFrameSpec;
-}
-
-export function recordingFrameDescription(
-  frame: RecordingDeviceFrame,
-  loading: boolean,
-  failed: boolean,
-): string {
-  if (typeof frame === "string") {
-    return `Generic ${frame === "iphone" ? "iPhone" : frame === "ipad" ? "iPad" : "Apple Watch"} frame`;
-  }
-  if (loading) return "Preparing real hardware frame…";
-  if (failed) return "Real frame unavailable — using simple frame";
-  return frame?.modelName ?? "Unavailable for this simulator";
-}
-
-function browserRecordingSupport(): Record<RecordingFormat, boolean> {
-  if (
-    typeof MediaRecorder === "undefined" ||
-    typeof HTMLCanvasElement === "undefined" ||
-    typeof HTMLCanvasElement.prototype.captureStream !== "function"
-  ) {
-    return { auto: false, mp4: false, webm: false };
-  }
-  return recordingFormatSupport((mimeType) => MediaRecorder.isTypeSupported(mimeType));
-}
-
-function durationLabel(seconds: number): string {
-  const total = Math.max(0, Math.floor(seconds));
-  const minutes = Math.floor(total / 60);
-  return `${minutes}:${String(total % 60).padStart(2, "0")}`;
-}
-
-function bytesLabel(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
+/**
+ * Screen recording section of the Capture tab. All recorder state lives in
+ * useScreenRecording (owned by client.tsx); this only presents it. The record
+ * button morphs into a timer capsule while recording.
+ */
 export function ScreenRecordingTool({
-  sourceRef,
-  deviceFrameSpec,
-  deviceKey,
-  streaming,
-  streamMode,
-  streamModeAvailable,
-  onStreamModeChange,
-  touchMarkersAvailable = true,
-  initiallyOpen = false,
+  recording,
+  streamControl,
 }: {
-  sourceRef: MutableRefObject<SimulatorRecordingSource | null>;
-  deviceFrameSpec?: RecordingDeviceFrame;
-  deviceKey: string;
-  streaming: boolean;
-  streamMode: StreamMode;
-  streamModeAvailable: boolean;
-  onStreamModeChange: (mode: StreamMode) => void;
-  touchMarkersAvailable?: boolean;
-  initiallyOpen?: boolean;
+  recording: ScreenRecording;
+  /** Optional "Stream" row (native H.264 only), rendered between Format and touches. */
+  streamControl?: ReactNode;
 }) {
-  const [open, setOpen] = useState(initiallyOpen);
-  const [format, setFormat] = useState<RecordingFormat>("auto");
-  const [includeTouches, setIncludeTouches] = useState(true);
-  const [includeFrame, setIncludeFrame] = useState(false);
-  const [phase, setPhase] = useState<RecordingPhase>("idle");
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [artifact, setArtifact] = useState<RecordingArtifact | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [frameArtwork, setFrameArtwork] = useState<FrameArtworkState>({
-    key: "",
-    loading: false,
-    prepared: null,
-    failed: false,
-  });
-  const recorderRef = useRef<CanvasScreenRecorder | NativeStreamRecorder | null>(null);
-  const startRevisionRef = useRef(0);
-  const startingRef = useRef(false);
-  const startedAtRef = useRef(0);
-  const mountedRef = useRef(true);
-  const deviceKeyRef = useRef(deviceKey);
-  const nativeRecording = !touchMarkersAvailable && Boolean(sourceRef.current?.subscribeEncoded);
-  const browserSupport = browserRecordingSupport();
-  const support = nativeRecording ? { ...browserSupport, auto: true, mp4: true } : browserSupport;
-  const exactDeviceFrame = isExactDeviceFrame(deviceFrameSpec) ? deviceFrameSpec : null;
-  const artworkKey = frameArtworkKey(deviceKey, deviceFrameSpec);
-  const artworkLoading = Boolean(
-    includeFrame &&
-    exactDeviceFrame?.artwork &&
-    (frameArtwork.key !== artworkKey || frameArtwork.loading),
-  );
-
-  const cancelCurrent = useCallback((message?: string) => {
-    startRevisionRef.current++;
-    startingRef.current = false;
-    const recorder = recorderRef.current;
-    recorderRef.current = null;
-    recorder?.cancel();
-    if (!mountedRef.current) return;
-    setPhase("idle");
-    setElapsedSeconds(0);
-    setArtifact(null);
-    if (message) setError(message);
-  }, []);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    const onPageHide = () => cancelCurrent();
-    window.addEventListener("pagehide", onPageHide);
-    return () => {
-      mountedRef.current = false;
-      window.removeEventListener("pagehide", onPageHide);
-      cancelCurrent();
-    };
-  }, [cancelCurrent]);
-
-  useEffect(() => {
-    const previousDeviceKey = deviceKeyRef.current;
-    setIncludeFrame((selected) =>
-      frameSelectionAfterDeviceChange(
-        selected,
-        previousDeviceKey,
-        deviceKey,
-        deviceFrameSpec != null,
-      ),
-    );
-    if (previousDeviceKey === deviceKey) return;
-    deviceKeyRef.current = deviceKey;
-    cancelCurrent("Recording cleared because the simulator changed.");
-  }, [cancelCurrent, deviceFrameSpec, deviceKey]);
-
-  useEffect(() => {
-    const frame = exactDeviceFrame;
-    if (!frame?.artwork || !includeFrame) {
-      setFrameArtwork({ key: artworkKey, loading: false, prepared: null, failed: false });
-      return;
-    }
-    let cancelled = false;
-    setFrameArtwork({ key: artworkKey, loading: true, prepared: null, failed: false });
-    void prepareDeviceFrameArtwork(frame).then((prepared) => {
-      if (!cancelled) {
-        setFrameArtwork({
-          key: artworkKey,
-          loading: false,
-          prepared,
-          failed: prepared === null,
-        });
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [artworkKey, exactDeviceFrame, includeFrame]);
-
-  useEffect(() => {
-    if (streaming || phase === "idle") return;
-    cancelCurrent("Recording cancelled because the simulator stream ended.");
-  }, [cancelCurrent, phase, streaming]);
-
-  useEffect(() => {
-    if (phase !== "recording") return;
-    const update = () => setElapsedSeconds((performance.now() - startedAtRef.current) / 1_000);
-    update();
-    const timer = window.setInterval(update, 250);
-    return () => window.clearInterval(timer);
-  }, [phase]);
-
-  const start = useCallback(async () => {
-    if (startingRef.current || phase !== "idle") return;
-    setError(null);
-    const source = sourceRef.current;
-    if (!source) {
-      setError("The simulator screen is not ready yet.");
-      return;
-    }
-    if (artworkLoading) return;
-
-    recorderRef.current?.cancel();
-    setArtifact(null);
-    const startRevision = ++startRevisionRef.current;
-    startingRef.current = true;
-    setPhase("starting");
-    let recorder: CanvasScreenRecorder | NativeStreamRecorder | null = null;
-    const options = {
-      source,
-      format,
-      includeTouches: touchMarkersAvailable && includeTouches,
-      deviceFrame: includeFrame ? (deviceFrameSpec ?? null) : null,
-      deviceFrameArtwork:
-        includeFrame && exactDeviceFrame && frameArtwork.key === artworkKey
-          ? frameArtwork.prepared
-          : null,
-      onError: (nextError: Error) => {
-        if (!mountedRef.current || recorderRef.current !== recorder) return;
-        recorderRef.current = null;
-        setPhase("idle");
-        setError(nextError.message);
-      },
-    };
-    try {
-      if (nativeRecording && format !== "webm") {
-        const module = (await import(
-          simEndpoint("native-stream-recorder.js")
-        )) as typeof import("../native-stream-recorder");
-        if (!mountedRef.current || startRevision !== startRevisionRef.current) return;
-        if (sourceRef.current !== source) {
-          cancelCurrent("Recording cancelled because the simulator stream changed.");
-          return;
-        }
-        recorder = new module.NativeStreamRecorder(options);
-      } else recorder = new CanvasScreenRecorder(options);
-      recorderRef.current = recorder;
-      recorder.start();
-      startedAtRef.current = performance.now();
-      setElapsedSeconds(0);
-      setPhase("recording");
-    } catch (nextError) {
-      recorder?.cancel();
-      if (!mountedRef.current || startRevision !== startRevisionRef.current) return;
-      recorderRef.current = null;
-      setPhase("idle");
-      setError(nextError instanceof Error ? nextError.message : "Screen recording failed.");
-    } finally {
-      if (startRevision === startRevisionRef.current) startingRef.current = false;
-    }
-  }, [
-    artworkKey,
-    artworkLoading,
-    deviceFrameSpec,
-    exactDeviceFrame,
-    format,
-    frameArtwork,
-    includeFrame,
-    includeTouches,
-    touchMarkersAvailable,
-    sourceRef,
-    nativeRecording,
-    phase,
-    cancelCurrent,
-  ]);
-
-  const stop = useCallback(async () => {
-    const recorder = recorderRef.current;
-    if (!recorder) {
-      if (startingRef.current) cancelCurrent();
-      return;
-    }
-    setPhase("stopping");
-    setError(null);
-    try {
-      const result = await recorder.stop();
-      if (!mountedRef.current || recorderRef.current !== recorder) return;
-      setArtifact(result);
-      setElapsedSeconds(result.durationSeconds);
-      setPhase("idle");
-    } catch (nextError) {
-      if (!mountedRef.current || recorderRef.current !== recorder) return;
-      recorderRef.current = null;
-      setPhase("idle");
-      setError(nextError instanceof Error ? nextError.message : "Screen recording failed.");
-    }
-  }, [cancelCurrent]);
-
-  const busy = phase !== "idle";
-
+  const busy = recording.status !== "idle";
   return (
-    <div className="overflow-hidden border-t border-divider bg-panel">
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        className="flex min-h-[56px] w-full cursor-pointer select-none items-center justify-between gap-2.5 border-none bg-transparent px-5 text-left hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-solid)]"
-        aria-expanded={open}
+    <Section title="Screen recording">
+      <Row label="Format">
+        <Segmented<RecordingFormat>
+          aria-label="Recording format"
+          size="sm"
+          className="w-[188px]"
+          value={recording.format}
+          onChange={recording.setFormat}
+          items={[
+            { value: "auto", label: "Auto", disabled: busy || !recording.support.auto },
+            { value: "mp4", label: "MP4", disabled: busy || !recording.support.mp4 },
+            { value: "webm", label: "WebM", disabled: busy || !recording.support.webm },
+          ]}
+        />
+      </Row>
+      {streamControl}
+      <Row
+        label="Show touches"
+        icon={<Hand />}
+        detail={
+          recording.touchMarkersAvailable
+            ? undefined
+            : "Touch markers are unavailable in the 3D view."
+        }
       >
-        <span className="mr-auto flex items-center gap-2 text-body font-semibold text-fg">
-          {busy && <span className="size-2 rounded-full bg-danger" aria-hidden="true" />}
-          Screen Recording
-        </span>
-        <Chevron open={open} />
-      </button>
+        <Switch
+          label="Show touches"
+          checked={recording.showTouches}
+          disabled={busy || !recording.touchMarkersAvailable}
+          onChange={recording.setShowTouches}
+        />
+      </Row>
+      <Row label="Device frame" detail={recording.frameDescription} icon={<Smartphone />}>
+        <Switch
+          label="Device frame"
+          checked={recording.deviceFrame}
+          disabled={busy || !recording.deviceFrameAvailable}
+          onChange={recording.setDeviceFrame}
+        />
+      </Row>
+      <div className="row flex flex-col gap-2 px-3 py-2.5">
+        <RecordControl recording={recording} />
+        {recording.notice && (
+          <p role="status" className="text-footnote text-label-2">
+            {recording.notice}
+          </p>
+        )}
+        {recording.error && (
+          <p role="alert" className="text-footnote text-red [overflow-wrap:anywhere]">
+            {recording.error}
+          </p>
+        )}
+      </div>
+    </Section>
+  );
+}
 
-      {open && (
-        <div className="flex flex-col gap-3 px-5 pb-4 pt-1">
-          <SegmentedGroup
-            label="Format"
-            ariaLabel="Recording format"
-            value={format}
-            showValue={false}
-            disabled={busy}
-            options={[
-              { value: "auto", label: "Auto", disabled: !support.auto },
-              { value: "mp4", label: "MP4", disabled: !support.mp4 },
-              { value: "webm", label: "WebM", disabled: !support.webm },
-            ]}
-            onChange={setFormat}
-          />
-
-          {streamModeAvailable && (
-            <StreamModeToggle
-              label="Stream quality"
-              mode={streamMode}
-              disabled={!streaming}
-              onModeChange={onStreamModeChange}
-            />
-          )}
-
-          <SettingSwitch
-            label="Show touches"
-            checked={touchMarkersAvailable && includeTouches}
-            disabled={busy || !touchMarkersAvailable}
-            onChange={setIncludeTouches}
-          />
-          {!touchMarkersAvailable && (
-            <p className="text-micro text-fg-3">Touch markers are unavailable in the 3D view.</p>
-          )}
-          <SettingSwitch
-            label="Device frame"
-            decoratedLabel={
-              <span className="flex min-w-0 flex-col">
-                <span>Device frame</span>
-                <span className="truncate text-micro text-fg-3">
-                  {recordingFrameDescription(
-                    deviceFrameSpec,
-                    artworkLoading,
-                    includeFrame &&
-                      ((exactDeviceFrame != null && !exactDeviceFrame.artwork) ||
-                        (frameArtwork.key === artworkKey && frameArtwork.failed)),
-                  )}
-                </span>
+function RecordControl({ recording }: { recording: ScreenRecording }) {
+  const { status } = recording;
+  const busy = status !== "idle";
+  const elapsed = useRecordingElapsed(recording.startedAt);
+  return (
+    <motion.div layout transition={spring.ui} className="flex items-center gap-2">
+      <AnimatePresence initial={false} mode="popLayout">
+        {busy && (
+          <motion.span
+            key="timer"
+            layout
+            role="status"
+            initial={{ opacity: 0, scale: 0.8, filter: "blur(4px)" }}
+            animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+            exit={{ opacity: 0, scale: 0.8, filter: "blur(4px)" }}
+            transition={spring.ui}
+            className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-full bg-red/10 px-3 text-red"
+          >
+            <span className="live-dot size-2 shrink-0 rounded-full bg-red text-red" />
+            <span className="truncate text-footnote font-semibold">
+              {status === "preparing"
+                ? "Preparing recorder…"
+                : status === "finishing"
+                  ? "Finishing…"
+                  : "Recording"}
+            </span>
+            {status === "recording" && (
+              <span className="ml-auto font-mono text-footnote font-semibold tabular">
+                {durationLabel(elapsed)}
               </span>
-            }
-            checked={includeFrame}
-            disabled={busy || !deviceFrameSpec}
-            onChange={setIncludeFrame}
-          />
-
-          {busy ? (
-            <div className="flex items-center gap-2">
-              <div
-                className="flex h-8 flex-1 items-center justify-center gap-2 rounded-card border border-divider bg-surface-2 text-value font-medium text-fg"
-                role="status"
-              >
-                <span className="size-2 rounded-full bg-danger" aria-hidden="true" />
-                {phase === "starting"
-                  ? "Preparing recorder…"
-                  : phase === "stopping"
-                    ? "Finishing…"
-                    : `Recording ${durationLabel(elapsedSeconds)}`}
-              </div>
-              <button
-                type="button"
-                onClick={() => void stop()}
-                disabled={phase === "stopping"}
-                className="h-8 cursor-pointer rounded-card border-none bg-danger px-4 text-value font-semibold text-on-accent hover:brightness-105 disabled:cursor-not-allowed disabled:bg-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
-              >
-                {phase === "starting" ? "Cancel" : "Stop recording"}
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => void start()}
-              disabled={!support[format] || !streaming || artworkLoading}
-              className="inline-flex min-h-8 w-full cursor-pointer items-center justify-center gap-2 rounded-card border-none bg-accent-solid px-4 text-value font-semibold text-on-accent hover:brightness-105 disabled:cursor-not-allowed disabled:bg-fg-3 focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
-            >
-              <span className="size-2 rounded-full border-2 border-current" aria-hidden="true" />
-              {artworkLoading ? "Preparing frame…" : "Start recording"}
-            </button>
-          )}
-
-          {!support.auto && (
-            <div
-              className="rounded-card border border-divider bg-surface-2 px-3 py-2 text-value text-fg-2"
-              role="status"
-            >
-              Screen recording is not supported in this browser.
-            </div>
-          )}
-          {support.auto && !streaming && (
-            <div
-              className="rounded-card border border-divider bg-surface-2 px-3 py-2 text-value text-fg-2"
-              role="status"
-            >
-              Waiting for the simulator stream.
-            </div>
-          )}
-          {error && (
-            <div
-              className="rounded-card border border-divider bg-surface-2 px-3 py-2 text-value text-danger"
-              role="alert"
-            >
-              {error}
-            </div>
-          )}
-
-          {artifact && (
-            <div className="flex flex-col gap-2" role="group" aria-label="Screen recording result">
-              <video
-                src={artifact.url}
-                controls
-                preload="metadata"
-                className="max-h-[220px] w-full rounded-card border border-divider bg-black"
-                aria-label="Recorded simulator video"
-              />
-              <div className="text-center text-micro text-fg-3 [font-variant-numeric:tabular-nums]">
-                {artifact.width}×{artifact.height} · {durationLabel(artifact.durationSeconds)} ·{" "}
-                {bytesLabel(artifact.bytes)}
-              </div>
-              <a
-                href={artifact.url}
-                download={artifact.filename}
-                className="inline-flex min-h-8 w-full items-center justify-center rounded-card border border-divider bg-panel px-3 text-value font-medium text-fg-2 no-underline hover:bg-hover focus-visible:outline-none focus-visible:[box-shadow:0_0_0_2px_var(--color-accent-solid)]"
-              >
-                Download recording
-              </a>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+            )}
+          </motion.span>
+        )}
+      </AnimatePresence>
+      <motion.div layout transition={spring.ui} className={busy ? "" : "flex-1"}>
+        {busy ? (
+          <Button
+            variant="secondary"
+            size="lg"
+            block
+            disabled={status === "finishing"}
+            onClick={recording.stop}
+          >
+            <span className="size-2.5 rounded-[3px] bg-red" />
+            {status === "preparing" ? "Cancel" : "Stop"}
+          </Button>
+        ) : (
+          <Button
+            variant="record"
+            size="lg"
+            block
+            disabled={!recording.available}
+            onClick={recording.start}
+          >
+            <span className="size-2.5 rounded-full bg-white" />
+            {recording.artworkLoading ? "Preparing frame…" : "Start recording"}
+          </Button>
+        )}
+      </motion.div>
+    </motion.div>
   );
 }

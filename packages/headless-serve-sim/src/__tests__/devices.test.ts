@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseSimctlList } from "../client/utils/devices";
+import { parseSimctlList, runtimeLabel } from "../client/utils/devices";
 
 describe("parseSimctlList", () => {
   test("preserves the immutable device type identifier for renamed simulators", () => {
@@ -29,4 +29,10 @@ describe("parseSimctlList", () => {
       },
     ]);
   });
+});
+
+test("runtime labels read like the OS name", () => {
+  expect(runtimeLabel("iOS.27.0")).toBe("iOS 27.0");
+  expect(runtimeLabel("watchOS.11.2")).toBe("watchOS 11.2");
+  expect(runtimeLabel("xrOS.2.0")).toBe("xrOS 2.0");
 });

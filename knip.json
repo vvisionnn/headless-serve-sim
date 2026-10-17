@@ -9,7 +9,6 @@
       "entry": [".claude/skills/release-and-monitor/scripts/*.ts", "scripts/*.ts"]
     },
     "packages/headless-serve-sim": {
-      "ignoreDependencies": ["preact"],
       "entry": [
         "src/index.ts",
         "src/__tests__/**/*.test.{ts,tsx}",
