@@ -93,6 +93,19 @@ func settle(_ pump: DuoFramePump) async {
             fatalError("first composition must use the observed hinge: \(earlyAngles)")
         }
         earlyPump.stop()
+        // A freshly booted Duo may never report its hinge. With the cover
+        // display lit it is closed; composing it open would show it edge-on.
+        let closed = FocusRecorder()
+        let closedPump = DuoFramePump(hingeGrace: 0.2) { _, state in await closed.record(state) }
+        closedPump.update(displayId: 1)
+        closedPump.offer(panel: 1, buffer: buffer!)
+        await until("fallback composition after the hinge grace") { await !closed.angles.isEmpty }
+        await settle(closedPump)
+        let closedAngles = await closed.angles
+        guard closedAngles == [0] else {
+            fatalError("an unknown hinge with the cover display lit must compose closed: \(closedAngles)")
+        }
+        closedPump.stop()
         let seam = FocusRecorder()
         let seamPump = DuoFramePump { _, state in await seam.record(state) }
         seamPump.update(angle: 180, rotation: 170)

@@ -101,6 +101,10 @@ final class DuoFramePump {
         lock.lock()
         guard !running, !stopped, !panels.isEmpty else { lock.unlock(); return }
         let waited = ProcessInfo.processInfo.systemUptime - created
+        if !seededHinge && waited >= hingeGrace && seededFocus && focus.target == 90 {
+            // Still no hinge sample: the lit cover display means it's closed.
+            hinge = DuoMotion(value: 0, target: 0)
+        }
         if !seededHinge && waited < hingeGrace {
             let retry = !graceRetryScheduled
             graceRetryScheduled = true
