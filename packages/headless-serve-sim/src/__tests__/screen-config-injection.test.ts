@@ -33,6 +33,63 @@ describe("parseScreenConfig", () => {
     });
   });
 
+  test("keeps the real interface orientation and active display under composition", () => {
+    expect(
+      parseScreenConfig({
+        width: 3420,
+        height: 3420,
+        orientation: "portrait",
+        interfaceOrientation: "landscape_left",
+        activeDisplay: {
+          id: 3,
+          rotation: 270,
+          orientation: "landscape_left",
+          width: 1350,
+          height: 1800,
+        },
+        deviceComposition: true,
+      }),
+    ).toEqual({
+      width: 3420,
+      height: 3420,
+      orientation: "portrait",
+      interfaceOrientation: "landscape_left",
+      activeDisplay: {
+        id: 3,
+        rotation: 270,
+        orientation: "landscape_left",
+        width: 1350,
+        height: 1800,
+      },
+      deviceComposition: true,
+    });
+  });
+
+  test("omits an active display size the helper doesn't know", () => {
+    expect(
+      parseScreenConfig({
+        width: 10,
+        height: 20,
+        activeDisplay: { id: 1, rotation: 0, orientation: "portrait" },
+      }),
+    ).toEqual({
+      width: 10,
+      height: 20,
+      activeDisplay: { id: 1, rotation: 0, orientation: "portrait" },
+    });
+  });
+
+  test("drops a malformed active display and non-string interface orientation", () => {
+    expect(
+      parseScreenConfig({
+        width: 10,
+        height: 20,
+        interfaceOrientation: 90,
+        activeDisplay: { id: "3", rotation: 0, orientation: "portrait" },
+      }),
+    ).toEqual({ width: 10, height: 20 });
+  });
+
   test("rejects zero / negative dimensions (helper not ready yet)", () => {
     expect(parseScreenConfig({ width: 0, height: 0, orientation: "portrait" })).toBeNull();
     expect(parseScreenConfig({ width: -1, height: 20 })).toBeNull();

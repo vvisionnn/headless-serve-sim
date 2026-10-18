@@ -11,6 +11,8 @@ final class ClientManager {
     private var screenHeight = 0
     private var screenOrientation = "portrait"
     private var displayID: Int?
+    private var displayRotation = 0
+    private var displaySize: (width: Int, height: Int)?
     private var deviceComposition = false
     private var includeFrame = true
 
@@ -65,20 +67,28 @@ final class ClientManager {
         if changed { broadcastConfig() }
     }
 
-    /// Publishes the display's orientation in the same vocabulary clients use
-    /// to request one (see the 0x07 handler): "landscape_left" turns the
-    /// device clockwise, which iOS draws into the framebuffer at rot270.
-    func setDisplay(id: Int?, rotation: Int) {
-        let orientation: String
+    /// The display's orientation in the same vocabulary clients use to request
+    /// one (see the 0x07 handler): "landscape_left" turns the device
+    /// clockwise, which iOS draws into the framebuffer at rot270.
+    static func orientationName(rotation: Int) -> String {
         switch rotation {
-        case 90: orientation = "landscape_right"
-        case 180: orientation = "portrait_upside_down"
-        case 270: orientation = "landscape_left"
-        default: orientation = "portrait"
+        case 90: return "landscape_right"
+        case 180: return "portrait_upside_down"
+        case 270: return "landscape_left"
+        default: return "portrait"
         }
+    }
+
+    /// `width`/`height` are the active panel's raw pixel size, when known.
+    func setDisplay(id: Int?, rotation: Int, width: Int? = nil, height: Int? = nil) {
+        let orientation = Self.orientationName(rotation: rotation)
+        let size = width.flatMap { w in height.map { (width: w, height: $0) } }
         configLock.lock()
-        let changed = id != displayID || orientation != screenOrientation
+        let changed = id != displayID || orientation != screenOrientation || rotation != displayRotation
+            || size?.width != displaySize?.width || size?.height != displaySize?.height
         displayID = id
+        displayRotation = rotation
+        displaySize = size
         screenOrientation = orientation
         configLock.unlock()
         if changed { broadcastConfig() }
@@ -123,6 +133,16 @@ final class ClientManager {
             "orientation": screenOrientation,
         ]
         if let displayID { config["displayId"] = displayID }
+        // The real interface orientation, which `orientation` hides under
+        // device composition (the composed video is always upright).
+        let interfaceOrientation = Self.orientationName(rotation: displayRotation)
+        config["interfaceOrientation"] = interfaceOrientation
+        if let displayID {
+            var active: [String: Any] = ["id": displayID, "rotation": displayRotation,
+                                         "orientation": interfaceOrientation]
+            if let displaySize { active["width"] = displaySize.width; active["height"] = displaySize.height }
+            config["activeDisplay"] = active
+        }
         if deviceComposition {
             config["deviceComposition"] = true
             config["orientation"] = "portrait"

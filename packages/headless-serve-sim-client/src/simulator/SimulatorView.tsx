@@ -332,7 +332,12 @@ export function SimulatorView({
       prev.orientation === next.orientation &&
       prev.displayId === next.displayId &&
       prev.deviceComposition === next.deviceComposition &&
-      prev.includeFrame === next.includeFrame
+      prev.includeFrame === next.includeFrame &&
+      prev.interfaceOrientation === next.interfaceOrientation &&
+      prev.activeDisplay?.id === next.activeDisplay?.id &&
+      prev.activeDisplay?.rotation === next.activeDisplay?.rotation &&
+      prev.activeDisplay?.width === next.activeDisplay?.width &&
+      prev.activeDisplay?.height === next.activeDisplay?.height
     ) {
       return;
     }

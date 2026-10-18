@@ -34,6 +34,13 @@ final class FrameCapture {
         defer { displayStateLock.unlock() }
         return publishedDisplayState
     }
+    private var publishedDisplaySize: (width: Int, height: Int)?
+    /// Raw pixel size of the active panel, published with `displayState`.
+    var activeDisplaySize: (width: Int, height: Int)? {
+        displayStateLock.lock()
+        defer { displayStateLock.unlock() }
+        return publishedDisplaySize
+    }
     var activeDisplayID: Int? { displayState.displayID }
     var displayRotation: Int { displayState.rotation }
     private(set) var touchDisplayID: Int?
@@ -246,6 +253,7 @@ final class FrameCapture {
             let next = displayBinding.state
             displayStateLock.lock()
             publishedDisplayState = next
+            publishedDisplaySize = (selected.candidate.width, selected.candidate.height)
             displayStateLock.unlock()
             onDisplayChanged?(next.displayID, next.rotation)
         }
@@ -495,6 +503,7 @@ final class FrameCapture {
         displayBinding = FrameDisplayBinding()
         displayStateLock.lock()
         publishedDisplayState = FrameDisplayState(displayID: nil, rotation: 0)
+        publishedDisplaySize = nil
         displayStateLock.unlock()
         touchDisplayID = nil
         hasMultipleIntegratedDisplays = false

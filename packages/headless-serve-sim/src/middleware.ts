@@ -451,14 +451,42 @@ export function rewriteStateForRequestHost(
   };
 }
 
+/** The panel input lands on, as the helper reports it. */
+export interface HelperActiveDisplay {
+  id: number;
+  rotation: number;
+  orientation: string;
+  /** Raw panel pixels, when the helper knows them. */
+  width?: number;
+  height?: number;
+}
+
 /** The helper's live screen geometry (from its `/config` route). */
 export interface HelperScreenConfig {
   width: number;
   height: number;
   orientation?: string;
+  /** Real interface orientation; `orientation` stays "portrait" under device composition. */
+  interfaceOrientation?: string;
+  activeDisplay?: HelperActiveDisplay;
   displayId?: number;
   deviceComposition?: boolean;
   includeFrame?: boolean;
+}
+
+function parseActiveDisplay(raw: unknown): HelperActiveDisplay | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { id, rotation, orientation, width, height } = raw as Record<string, unknown>;
+  if (typeof id !== "number" || typeof rotation !== "number" || typeof orientation !== "string")
+    return null;
+  return {
+    id,
+    rotation,
+    orientation,
+    ...(typeof width === "number" && typeof height === "number" && width > 0 && height > 0
+      ? { width, height }
+      : {}),
+  };
 }
 
 /**
@@ -468,16 +496,25 @@ export interface HelperScreenConfig {
  */
 export function parseScreenConfig(raw: unknown): HelperScreenConfig | null {
   if (!raw || typeof raw !== "object") return null;
-  const { width, height, orientation, displayId, deviceComposition, includeFrame } = raw as Record<
-    string,
-    unknown
-  >;
+  const {
+    width,
+    height,
+    orientation,
+    interfaceOrientation,
+    activeDisplay,
+    displayId,
+    deviceComposition,
+    includeFrame,
+  } = raw as Record<string, unknown>;
   if (typeof width !== "number" || typeof height !== "number") return null;
   if (!(width > 0) || !(height > 0)) return null;
+  const active = parseActiveDisplay(activeDisplay);
   return {
     width,
     height,
     ...(typeof orientation === "string" ? { orientation } : {}),
+    ...(typeof interfaceOrientation === "string" ? { interfaceOrientation } : {}),
+    ...(active ? { activeDisplay: active } : {}),
     ...(typeof displayId === "number" ? { displayId } : {}),
     ...(deviceComposition === true ? { deviceComposition: true } : {}),
     ...(typeof includeFrame === "boolean" ? { includeFrame } : {}),

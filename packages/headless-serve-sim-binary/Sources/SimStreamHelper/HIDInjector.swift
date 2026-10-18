@@ -166,12 +166,20 @@ final class HIDInjector {
         if let msg = touchMessage(type: type, x: x, y: y, edge: edge, displayID: displayID) { rawSend(msg) }
     }
 
-    func sendTouch(type: String, x: Double, y: Double, screenWidth: Int, screenHeight: Int, edge: UInt32 = 0, displayID: Int? = nil) {
+    /// `interfaceSpace`: x/y/edge are upright in the interface orientation and
+    /// are mapped onto the raw panel with the rotation current on `inputQueue`.
+    func sendTouch(type: String, x: Double, y: Double, screenWidth: Int, screenHeight: Int, edge: UInt32 = 0, displayID: Int? = nil, interfaceSpace: Bool = false) {
         // A direct touch interleaved with an in-flight scroll drag would corrupt
         // both gestures, so every send goes through the one input queue — and
         // the scroll finger has to come up first, ordering alone isn't enough.
         inputQueue.async { [self] in
             finishScrollDrag()
+            var x = x, y = y, edge = edge
+            if interfaceSpace {
+                let native = HIDDisplayInput.nativeTouch(x: x, y: y, edge: edge, rotation: displayRotation,
+                                                         hasMultipleIntegratedDisplays: hasMultipleIntegratedDisplays)
+                (x, y, edge) = (native.point.x, native.point.y, native.edge)
+            }
             guard let msg = touchMessage(type: type, x: x, y: y, edge: edge, displayID: displayID) else {
                 print("[hid] IndigoHIDMessageForMouseNSEvent returned nil for \(type)")
                 return
@@ -181,7 +189,7 @@ final class HIDInjector {
         }
     }
 
-    func sendMultiTouch(type: String, x1: Double, y1: Double, x2: Double, y2: Double, screenWidth: Int, screenHeight: Int, displayID: Int? = nil) {
+    func sendMultiTouch(type: String, x1: Double, y1: Double, x2: Double, y2: Double, screenWidth: Int, screenHeight: Int, displayID: Int? = nil, interfaceSpace: Bool = false) {
         guard let mouseFunc = mouseFunc else { return }
 
         let eventType: Int32
@@ -199,6 +207,12 @@ final class HIDInjector {
             // (ratios + any derived values) are computed correctly by the C function.
             var point1 = CGPoint(x: x1, y: y1)
             var point2 = CGPoint(x: x2, y: y2)
+            if interfaceSpace {
+                point1 = HIDDisplayInput.nativeTouch(x: x1, y: y1, edge: 0, rotation: displayRotation,
+                                                     hasMultipleIntegratedDisplays: hasMultipleIntegratedDisplays).point
+                point2 = HIDDisplayInput.nativeTouch(x: x2, y: y2, edge: 0, rotation: displayRotation,
+                                                     hasMultipleIntegratedDisplays: hasMultipleIntegratedDisplays).point
+            }
             let target = displayID.map { HIDTouchTarget.select(displayID: $0) } ?? digitizerTarget
             guard let rawMsg = mouseFunc(&point1, &point2, target, eventType, 1.0, 1.0, 0) else {
                 print("[hid] IndigoHIDMessageForMouseNSEvent returned nil for multi-touch \(type)")

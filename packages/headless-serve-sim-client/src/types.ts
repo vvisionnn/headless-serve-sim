@@ -35,6 +35,16 @@ export interface StreamConfig {
   displayId?: number;
   /** Native display orientation, when known. */
   orientation?: SimulatorOrientation;
+  /** Real interface orientation; `orientation` stays portrait under device composition. */
+  interfaceOrientation?: SimulatorOrientation;
+  /** The panel input lands on; width/height are raw panel pixels when known. */
+  activeDisplay?: {
+    id: number;
+    rotation: number;
+    orientation: SimulatorOrientation;
+    width?: number;
+    height?: number;
+  };
 }
 
 export interface ExecMessage {

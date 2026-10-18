@@ -34,6 +34,9 @@ struct TouchEventPayload: Codable {
     let y: Double      // normalized 0..1
     let edge: UInt32?  // IndigoHIDEdge value (0=none, 3=bottom, etc.) — omit for regular touches
     let displayId: Int?
+    /// "interface": x/y/edge are upright in the current interface orientation
+    /// and the helper maps them into the raw panel. Absent = raw panel space.
+    let space: String?
 }
 
 struct ButtonEventPayload: Codable {
@@ -55,6 +58,8 @@ struct MultiTouchEventPayload: Codable {
     let x2: Double      // finger 2 normalized 0..1
     let y2: Double
     let displayId: Int?
+    /// See `TouchEventPayload.space`.
+    let space: String?
 }
 
 struct KeyEventPayload: Codable {

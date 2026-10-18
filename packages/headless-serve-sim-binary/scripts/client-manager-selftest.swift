@@ -63,9 +63,49 @@ func flush(_ manager: ClientManager) { _ = manager.avccTransportMetrics() }
                      "a display drawn rot270 is the device turned clockwise")
         plain.setDisplay(id: 1, rotation: 180)
         precondition(plain.screenConfig()["orientation"] as? String == "portrait_upside_down")
+        precondition(plain.screenConfig()["interfaceOrientation"] as? String == "portrait_upside_down")
+        let unsized = plain.screenConfig()["activeDisplay"] as? [String: Any]
+        precondition(unsized?["id"] as? Int == 1 && unsized?["rotation"] as? Int == 180
+                     && unsized?["orientation"] as? String == "portrait_upside_down"
+                     && unsized?["width"] == nil && unsized?["height"] == nil,
+                     "an active display without a known size must omit width/height")
+        plain.setDisplay(id: 1, rotation: 180, width: 1080, height: 2400)
+        let sized = plain.screenConfig()["activeDisplay"] as? [String: Any]
+        precondition(sized?["width"] as? Int == 1080 && sized?["height"] as? Int == 2400)
+        let unbound = ClientManager()
+        precondition(unbound.screenConfig()["activeDisplay"] == nil, "no active display until one is bound")
+        precondition(unbound.screenConfig()["interfaceOrientation"] as? String == "portrait")
+        unbound.stop()
+        // Composition keeps the composed video upright but still reports the
+        // real interface orientation, and pushes rotation changes over /ws.
+        let composed = ClientManager()
+        composed.setDeviceComposition(true)
+        let watcher = WebSocketSession()
+        composed.addWSClient(watcher)
+        flush(composed)
+        let before = watcher.writtenFrames().count
+        composed.setDisplay(id: 3, rotation: 270, width: 1350, height: 1800)
+        precondition(composed.screenConfig()["orientation"] as? String == "portrait")
+        precondition(composed.screenConfig()["interfaceOrientation"] as? String == "landscape_left")
+        flush(composed)
+        let pushed = watcher.writtenFrames()
+        precondition(pushed.count == before + 1, "a rotation change must push one config update")
+        let pushedConfig = try JSONSerialization.jsonObject(with: Data(pushed.last!.dropFirst())) as! [String: Any]
+        precondition(pushedConfig["interfaceOrientation"] as? String == "landscape_left")
+        precondition((pushedConfig["activeDisplay"] as? [String: Any])?["rotation"] as? Int == 270)
+        composed.setDisplay(id: 3, rotation: 270, width: 1350, height: 1800)
+        flush(composed)
+        precondition(watcher.writtenFrames().count == before + 1, "an unchanged display must not re-push config")
+        composed.stop()
+        let rawTouch = try JSONDecoder().decode(TouchEventPayload.self, from: Data(#"{"type":"begin","x":0.1,"y":0.2}"#.utf8))
+        let interfaceTouch = try JSONDecoder().decode(TouchEventPayload.self, from: Data(#"{"type":"begin","x":0.1,"y":0.2,"space":"interface"}"#.utf8))
+        precondition(rawTouch.space == nil && interfaceTouch.space == "interface", "touch space must be opt-in")
+        let rawPinch = try JSONDecoder().decode(MultiTouchEventPayload.self, from: Data(#"{"type":"begin","x1":0.1,"y1":0.2,"x2":0.3,"y2":0.4}"#.utf8))
+        let interfacePinch = try JSONDecoder().decode(MultiTouchEventPayload.self, from: Data(#"{"type":"begin","x1":0.1,"y1":0.2,"x2":0.3,"y2":0.4,"space":"interface"}"#.utf8))
+        precondition(rawPinch.space == nil && interfacePinch.space == "interface", "multi-touch space must be opt-in")
         plain.stop()
         manager.stop()
-        print("Client manager shared bezel config, duplicate suppression, orientation labels and scroll payload self-test passed")
+        print("Client manager shared bezel config, duplicate suppression, orientation labels, active display, touch space and scroll payload self-test passed")
     }
 }
 #endif

@@ -94,7 +94,8 @@ let frameCapture = FrameCapture()
 frameCapture.onDisplayChanged = { displayID, rotation in
     hidInjector.setActiveDisplayID(frameCapture.touchDisplayID, rotation: rotation,
                                    hasMultipleIntegratedDisplays: frameCapture.hasMultipleIntegratedDisplays)
-    httpServer.clientManager.setDisplay(id: displayID, rotation: rotation)
+    let size = frameCapture.activeDisplaySize
+    httpServer.clientManager.setDisplay(id: displayID, rotation: rotation, width: size?.width, height: size?.height)
     duoPump?.update(displayId: displayID)
 }
 let frameSnapshotter = FrameSnapshotter()
@@ -240,7 +241,8 @@ httpServer.clientManager.onTouch = { touch in
     guard touch.displayId == nil || displayID != nil else { return }
     hidInjector.sendTouch(type: touch.type, x: touch.x, y: touch.y,
                           screenWidth: screenWidth, screenHeight: screenHeight,
-                          edge: touch.edge ?? 0, displayID: displayID)
+                          edge: touch.edge ?? 0, displayID: displayID,
+                          interfaceSpace: touch.space == "interface")
 }
 httpServer.clientManager.onButton = { payload in
     // A raw usage takes precedence: the bezel's hardware buttons send page +
@@ -260,7 +262,8 @@ httpServer.clientManager.onMultiTouch = { multiTouch in
                                x1: multiTouch.x1, y1: multiTouch.y1,
                                x2: multiTouch.x2, y2: multiTouch.y2,
                                screenWidth: screenWidth, screenHeight: screenHeight,
-                               displayID: displayID)
+                               displayID: displayID,
+                               interfaceSpace: multiTouch.space == "interface")
 }
 httpServer.clientManager.onKey = { key in
     hidInjector.sendKey(type: key.type, usage: key.usage)
