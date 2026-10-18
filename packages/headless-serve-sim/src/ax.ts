@@ -3,6 +3,9 @@ import { AX_UNAVAILABLE_ERROR, type AxElement, type AxRect, type AxSnapshot } fr
 export type { AxElement, AxRect, AxSnapshot } from "./ax-shared";
 
 const SNAPSHOT_TIMEOUT_MS = 3500;
+// The helper stops walking (and returns a truncated tree) before we abort, so
+// an abandoned walk never keeps it busy for the next poll.
+const HELPER_WALK_TIMEOUT_MS = SNAPSHOT_TIMEOUT_MS - 500;
 const MAX_ELEMENTS = 500;
 const POLL_INTERVAL_MS = 500;
 const MAX_POLL_INTERVAL_MS = 2000;
@@ -17,6 +20,7 @@ interface RawAxeNode {
   role_description: string;
   type: string;
   children: RawAxeNode[];
+  truncated?: boolean;
 }
 
 function chooseScreenFrame(roots: RawAxeNode[]) {
@@ -77,6 +81,7 @@ function normalizeAxTree(roots: RawAxeNode[]): AxSnapshot {
       height: screen.height,
     },
     elements,
+    ...(roots[0]?.truncated ? { truncated: true } : {}),
   };
 }
 
@@ -84,7 +89,9 @@ async function snapshotFromHelper(port: number): Promise<AxSnapshot> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SNAPSHOT_TIMEOUT_MS);
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/ax`, { signal: controller.signal });
+    const res = await fetch(`http://127.0.0.1:${port}/ax?timeoutMs=${HELPER_WALK_TIMEOUT_MS}`, {
+      signal: controller.signal,
+    });
     if (res.status === 503) {
       // Helper is up but the simulator can't satisfy accessibility right
       // now (framework missing, SpringBoard restarting, etc). Surface as

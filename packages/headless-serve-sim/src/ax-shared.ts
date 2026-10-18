@@ -22,4 +22,6 @@ export interface AxSnapshot {
   screen: { width: number; height: number };
   elements: AxElement[];
   errors?: string[];
+  /** The helper hit its walk deadline; `elements` is partial. */
+  truncated?: boolean;
 }

@@ -38,3 +38,62 @@ describe("createAxStreamerCache", () => {
     removeClient();
   });
 });
+
+describe("helper /ax request", () => {
+  const node = (frame: { width: number; height: number }, children: unknown[] = []) => ({
+    AXUniqueId: null,
+    AXLabel: "x",
+    AXValue: null,
+    enabled: true,
+    frame: { x: 0, y: 0, ...frame },
+    role_description: "",
+    type: "Button",
+    children,
+  });
+
+  async function firstSnapshot(root: Record<string, unknown>) {
+    const urls: string[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        urls.push(req.url);
+        return Response.json([root]);
+      },
+    });
+    const cache = createAxStreamerCache();
+    try {
+      const streamer = cache.get("UDID-AX", server.port!);
+      const message = await new Promise<string>((resolve) => {
+        streamer.addClient({ write: resolve });
+      });
+      return { url: new URL(urls[0]!), snapshot: JSON.parse(message.slice("data: ".length)) };
+    } finally {
+      cache.prune([]);
+      await server.stop(true);
+    }
+  }
+
+  test("asks the helper to stop walking before the snapshot request aborts", async () => {
+    const { url } = await firstSnapshot(
+      node({ width: 400, height: 800 }, [node({ width: 40, height: 40 })]),
+    );
+    expect(url.pathname).toBe("/ax");
+    expect(Number(url.searchParams.get("timeoutMs"))).toBe(3000);
+  });
+
+  test("marks a snapshot truncated when the helper hit its deadline", async () => {
+    const { snapshot } = await firstSnapshot({
+      ...node({ width: 400, height: 800 }, [node({ width: 40, height: 40 })]),
+      truncated: true,
+    });
+    expect(snapshot.truncated).toBe(true);
+    expect(snapshot.elements).toHaveLength(1);
+  });
+
+  test("leaves a complete snapshot unmarked", async () => {
+    const { snapshot } = await firstSnapshot(
+      node({ width: 400, height: 800 }, [node({ width: 40, height: 40 })]),
+    );
+    expect(snapshot.truncated).toBeUndefined();
+  });
+});

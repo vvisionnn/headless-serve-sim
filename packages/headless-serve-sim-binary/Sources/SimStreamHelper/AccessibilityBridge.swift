@@ -41,6 +41,18 @@ enum AccessibilityError: Error, LocalizedError {
     }
 }
 
+/// Optional wall-clock limit on one describeUI walk. Once passed it stays
+/// `hit`, so the walk unwinds and the partial tree is marked truncated.
+struct AXDeadline {
+    let at: DispatchTime?
+    private(set) var hit = false
+
+    mutating func passed() -> Bool {
+        if !hit, let at, DispatchTime.now() >= at { hit = true }
+        return hit
+    }
+}
+
 /// Singleton bridging private AXPTranslator delegation onto SimDevice's
 /// async accessibility XPC. The translator is process-global so we map
 /// per-request tokens → SimDevice instances, and route every callback
@@ -91,8 +103,11 @@ final class AccessibilityBridge: NSObject {
     /// Capture the simulator's accessibility tree and return JSON bytes
     /// matching the `axe describe-ui` flat-array output. Throws on
     /// framework load failure or if the simulator returns no frontmost
-    /// application (e.g. SpringBoard hasn't come up yet).
-    func describeUI(udid: String, displayID: UInt32 = 0) throws -> Data {
+    /// application (e.g. SpringBoard hasn't come up yet). With a `timeout`
+    /// the walk stops at the deadline and the root gains `"truncated": true`;
+    /// `gridPass: false` skips hit-test discovery entirely.
+    func describeUI(udid: String, displayID: UInt32 = 0, timeout: TimeInterval? = nil, gridPass: Bool = true) throws -> Data {
+        var deadline = AXDeadline(at: timeout.map { .now() + $0 })
         try ensureLoaded()
 
         guard let device = FrameCapture.findSimDevice(udid: udid) else {
@@ -154,6 +169,7 @@ final class AccessibilityBridge: NSObject {
             coverage: &coverage,
             visited: &visited,
             remainingElements: &remainingElements,
+            deadline: &deadline,
             depth: 0
         ) else {
             throw AccessibilityError.noFrontmostApplication
@@ -171,7 +187,7 @@ final class AccessibilityBridge: NSObject {
         //    screen and ask the translator what's under each — anything
         //    that's still a real accessibility element shows up here. Same
         //    technique as idb's processRemoteContent path.
-        if screenFrame.width > 1, screenFrame.height > 1 {
+        if gridPass, screenFrame.width > 1, screenFrame.height > 1 {
             var children = (root["children"] as? [[String: Any]]) ?? []
             let discovered = discoverByGrid(
                 token: token,
@@ -179,11 +195,13 @@ final class AccessibilityBridge: NSObject {
                 bounds: screenFrame,
                 coverage: &coverage,
                 visited: &visited,
-                remainingElements: &remainingElements
+                remainingElements: &remainingElements,
+                deadline: &deadline
             )
             children.append(contentsOf: discovered)
             root["children"] = children
         }
+        if deadline.hit { root["truncated"] = true }
 
         let json: [Any] = [root]
         return try JSONSerialization.data(withJSONObject: json)
@@ -298,7 +316,8 @@ final class AccessibilityBridge: NSObject {
         bounds: CGRect,
         coverage: inout AccessibilityCoverage,
         visited: inout Set<ObjectIdentifier>,
-        remainingElements: inout Int
+        remainingElements: inout Int,
+        deadline: inout AXDeadline
     ) -> [[String: Any]] {
         guard let translator = translator else { return [] }
 
@@ -317,9 +336,9 @@ final class AccessibilityBridge: NSObject {
         var discovered: [[String: Any]] = []
 
         var y = bounds.minY + step / 2
-        while y < bounds.maxY, pointBudget > 0, remainingElements > 0 {
+        while y < bounds.maxY, pointBudget > 0, remainingElements > 0, !deadline.passed() {
             var x = bounds.minX + step / 2
-            while x < bounds.maxX, pointBudget > 0, remainingElements > 0 {
+            while x < bounds.maxX, pointBudget > 0, remainingElements > 0, !deadline.passed() {
                 let point = CGPoint(x: x, y: y)
                 x += step
 
@@ -359,6 +378,7 @@ final class AccessibilityBridge: NSObject {
                     coverage: &coverage,
                     visited: &visited,
                     remainingElements: &remainingElements,
+                    deadline: &deadline,
                     depth: 0
                 ) {
                     discovered.append(serialized)
@@ -397,9 +417,10 @@ final class AccessibilityBridge: NSObject {
         coverage: inout AccessibilityCoverage,
         visited: inout Set<ObjectIdentifier>,
         remainingElements: inout Int,
+        deadline: inout AXDeadline,
         depth: Int
     ) -> [String: Any]? {
-        guard remainingElements > 0, depth <= Self.maxSerializationDepth else {
+        guard remainingElements > 0, depth <= Self.maxSerializationDepth, !deadline.passed() else {
             return nil
         }
         guard visited.insert(ObjectIdentifier(element)).inserted else {
@@ -461,7 +482,7 @@ final class AccessibilityBridge: NSObject {
         }
         if let children {
             for child in children {
-                guard remainingElements > 0 else { break }
+                guard remainingElements > 0, !deadline.hit else { break }
                 guard let childObj = child as? NSObject else { continue }
                 if let childDict = serialize(
                     element: childObj,
@@ -469,6 +490,7 @@ final class AccessibilityBridge: NSObject {
                     coverage: &coverage,
                     visited: &visited,
                     remainingElements: &remainingElements,
+                    deadline: &deadline,
                     depth: depth + 1
                 ) {
                     childDicts.append(childDict)

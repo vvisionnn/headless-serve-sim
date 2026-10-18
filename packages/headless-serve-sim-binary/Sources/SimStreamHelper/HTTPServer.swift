@@ -168,11 +168,17 @@ final class HTTPServer {
         // Accessibility tree (replaces a global `axe describe-ui` install).
         // Returns axe's flat-array JSON shape so the Node-side normalizer
         // in src/ax.ts works unchanged.
-        server["/ax"] = { [weak self] _ in
+        // `?timeoutMs=N` bounds the walk (partial tree, root `truncated: true`);
+        // `?grid=0` skips the hit-test discovery pass.
+        server["/ax"] = { [weak self] request in
             guard let self else { return .internalServerError }
             do {
                 let displayID = self.clientManager.screenConfig()["displayId"] as? Int ?? 0
-                let data = try AccessibilityBridge.shared.describeUI(udid: self.deviceUDID, displayID: UInt32(displayID))
+                let timeoutMs = request.queryParams.first { $0.0 == "timeoutMs" }.flatMap { Double($0.1) }
+                let gridPass = !request.queryParams.contains { $0.0 == "grid" && $0.1 == "0" }
+                let data = try AccessibilityBridge.shared.describeUI(
+                    udid: self.deviceUDID, displayID: UInt32(displayID),
+                    timeout: timeoutMs.flatMap { $0 > 0 ? $0 / 1000 : nil }, gridPass: gridPass)
                 var headers = self.corsHeaders
                 headers["Content-Type"] = "application/json"
                 headers["Cache-Control"] = "no-cache, no-store"
