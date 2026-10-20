@@ -10,14 +10,16 @@ test("exposes bezel, scale, keyboard and animation controls", () => {
       slowAnimations={false}
       onBezelsChange={() => {}}
       onScaleChange={() => {}}
+      onRealSize={() => {}}
       onSlowAnimationsChange={() => {}}
       onSoftwareKeyboard={() => {}}
     />,
   );
   expect(html).toContain('role="switch" aria-checked="true" aria-label="Show bezel"');
-  expect(html).toContain('role="slider" aria-label="Scale" aria-valuemin="0.5" aria-valuemax="2"');
+  expect(html).toContain('role="slider" aria-label="Scale" aria-valuemin="0.25" aria-valuemax="1"');
   expect(html).toContain("Zoom to fit");
-  expect(html).toContain("Scale is capped to keep the whole device visible.");
+  expect(html).toContain("Real size");
+  expect(html).toContain("Opens at its real size, with room around it.");
   expect(html).toContain('aria-label="Slow animations"');
   expect(html).toContain("Software keyboard");
 });

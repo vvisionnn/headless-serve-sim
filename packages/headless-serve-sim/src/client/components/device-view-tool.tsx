@@ -18,6 +18,7 @@ export function DeviceViewTool({
   onBezelsChange,
   onScaleChange,
   onZoomToFit = () => onScaleChange(1),
+  onRealSize,
   onSlowAnimationsChange,
   onSoftwareKeyboard,
 }: {
@@ -30,6 +31,8 @@ export function DeviceViewTool({
   onScaleChange: (value: number) => void;
   /** A one-step jump back to scale 1, which the stage animates; drags track. */
   onZoomToFit?: () => void;
+  /** Back to the device's real size, forgetting a chosen one. */
+  onRealSize?: () => void;
   onSlowAnimationsChange: (value: boolean) => void;
   onSoftwareKeyboard: () => void;
 }) {
@@ -37,11 +40,18 @@ export function DeviceViewTool({
     <Section
       title="View"
       accessory={
-        <Button variant="plain" size="sm" onClick={onZoomToFit}>
-          Zoom to fit
-        </Button>
+        <div className="flex gap-1">
+          {onRealSize && (
+            <Button variant="plain" size="sm" onClick={onRealSize}>
+              Real size
+            </Button>
+          )}
+          <Button variant="plain" size="sm" onClick={onZoomToFit}>
+            Zoom to fit
+          </Button>
+        </div>
       }
-      footer="Scale is capped to keep the whole device visible."
+      footer="Opens at its real size, with room around it."
     >
       <Row label="Show bezel" icon={<Smartphone />}>
         <Switch label="Show bezel" checked={bezels} onChange={onBezelsChange} />
@@ -50,8 +60,8 @@ export function DeviceViewTool({
         <Slider
           label="Scale"
           value={scale}
-          min={0.5}
-          max={2}
+          min={0.25}
+          max={1}
           step={0.05}
           onChange={onScaleChange}
         />

@@ -75,7 +75,7 @@ test("all handles clamp scale to the canvas and the minimum", () => {
       startScale: 0.8,
     };
     expect(getDeviceResizeScale({ ...input, deltaX: x * 10_000, deltaY: y * 10_000 })).toBe(1.1);
-    expect(getDeviceResizeScale({ ...input, deltaX: -x * 10_000, deltaY: -y * 10_000 })).toBe(0.5);
+    expect(getDeviceResizeScale({ ...input, deltaX: -x * 10_000, deltaY: -y * 10_000 })).toBe(0.25);
   }
 });
 
@@ -130,7 +130,7 @@ test("empty canvas or frame returns finite zero scale", () => {
   }
 });
 
-test("canvas bounds override the minimum when space is smaller than half the fit", () => {
+test("canvas bounds override the minimum when space is smaller than a quarter of the fit", () => {
   expect(
     getDeviceResizeScale({
       handle: "se",

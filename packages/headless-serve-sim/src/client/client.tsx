@@ -147,6 +147,12 @@ import {
 } from "./utils/screenshot";
 import { simEndpoint } from "./utils/sim-endpoint";
 import { SIMULATOR_RESIZE_MAX_SCALE } from "./utils/simulator-resize";
+import {
+  naturalZoom,
+  readDeviceZoom,
+  realSizeScale,
+  writeDeviceZoom,
+} from "./utils/natural-device-size";
 import { toggleCachedSimulatorAppearance } from "./utils/simulator-appearance";
 import { fitDeviceFrame } from "./utils/frame-geometry";
 import { fitDeviceBezel } from "./utils/bezel-geometry";
@@ -696,7 +702,10 @@ function AppWithConfig({
   const [streamError, setStreamError] = useState<string | null>(null);
   const deviceViewRef = useRef<DeviceView | null>(null);
   const [duoOrientation, setDuoOrientation] = useState<SimulatorOrientation | null>(null);
-  const [deviceScale, setDeviceScale] = useState(1);
+  // The size someone chose for a device model; null opens it at its real size.
+  const [zoomChoice, setZoomChoice] = useState<{ model?: string; zoom: number | null } | null>(
+    null,
+  );
   const duoResizeRef = useRef<HTMLDivElement | null>(null);
   const [duoBounds, setDuoBounds] = useState<DuoBounds | null>(null);
   const updateDuoBounds = useCallback((bounds: DuoBounds) => {
@@ -1813,6 +1822,79 @@ function AppWithConfig({
     return nativeIsLandscape !== displayIsLandscape ? 90 : 0;
   }, [activeStreamConfig, bezelSpec, frameDisplayConfig]);
 
+  const fittedDevice = useMemo(
+    () =>
+      bezelSpec && showBezels
+        ? fitDeviceBezel({
+            spec: bezelSpec,
+            rotation: bezelRotation,
+            availWidth: deviceAvailWidth,
+            availHeight: deviceAvailHeight,
+            maxScreenWidth: frameMaxWidth,
+            maxScale: SIMULATOR_RESIZE_MAX_SCALE,
+          })
+        : fitDeviceFrame({
+            viewportWidth: deviceAvailWidth,
+            viewportHeight: deviceAvailHeight,
+            topBarHeight: 0,
+            sideRailsWidth: 0,
+            assemblyBorder: 0,
+            aspect: frameAspectRatioValue,
+            maxWidth: frameMaxWidth,
+            maxScale: SIMULATOR_RESIZE_MAX_SCALE,
+          }),
+    [
+      bezelSpec,
+      showBezels,
+      bezelRotation,
+      deviceAvailWidth,
+      deviceAvailHeight,
+      frameMaxWidth,
+      frameAspectRatioValue,
+    ],
+  );
+
+  // A device opens at its real size, measured along its long side: the whole
+  // body with its bezel, the bare screen without, the Duo's drawn composite.
+  const deviceModel = selectedDevice?.deviceTypeIdentifier ?? config.deviceTypeIdentifier;
+  const chosenZoom = useMemo(
+    () =>
+      zoomChoice && zoomChoice.model === deviceModel
+        ? zoomChoice.zoom
+        : readDeviceZoom(globalThis.localStorage ?? null, deviceModel),
+    [zoomChoice, deviceModel],
+  );
+  // The Duo composite shows whichever display is active: its cover, or the
+  // inner screen when it's open.
+  const realSpec =
+    (nativeComposition &&
+      deviceFrameSpecs.find((spec) => spec.displayId === activeStreamConfig.displayId)) ||
+    bezelSpec;
+  const realScale = realSpec ? realSizeScale(realSpec) : null;
+  const fittedLength = nativeComposition
+    ? duoBounds
+      ? Math.max(duoBounds.fittedWidth, duoBounds.fittedHeight)
+      : 0
+    : Math.max(fittedDevice.width, fittedDevice.height);
+  const realLength = (() => {
+    if (!realSpec || !realScale) return null;
+    if (!nativeComposition && "scale" in fittedDevice && typeof fittedDevice.scale === "number")
+      return (fittedLength / fittedDevice.scale) * realScale;
+    const { width, height } = realSpec.nativeScreen;
+    const inset = showBezels ? realSpec.insetsPx : { top: 0, right: 0, bottom: 0, left: 0 };
+    return (
+      Math.max(inset.left + width + inset.right, inset.top + height + inset.bottom) * realScale
+    );
+  })();
+  const deviceScale = chosenZoom ?? naturalZoom(realLength, fittedLength);
+  const setDeviceScale = useCallback(
+    (zoom: number | null) => {
+      setZoomChoice({ model: deviceModel, zoom });
+      writeDeviceZoom(globalThis.localStorage ?? null, deviceModel, zoom);
+    },
+    [deviceModel],
+  );
+
   const bezelGeom = useMemo(
     () =>
       bezelSpec
@@ -1847,37 +1929,6 @@ function AppWithConfig({
     [deviceAvailWidth, deviceAvailHeight, frameAspectRatioValue, frameMaxWidth, deviceScale],
   );
 
-  const fittedDevice = useMemo(
-    () =>
-      bezelSpec && showBezels
-        ? fitDeviceBezel({
-            spec: bezelSpec,
-            rotation: bezelRotation,
-            availWidth: deviceAvailWidth,
-            availHeight: deviceAvailHeight,
-            maxScreenWidth: frameMaxWidth,
-            maxScale: SIMULATOR_RESIZE_MAX_SCALE,
-          })
-        : fitDeviceFrame({
-            viewportWidth: deviceAvailWidth,
-            viewportHeight: deviceAvailHeight,
-            topBarHeight: 0,
-            sideRailsWidth: 0,
-            assemblyBorder: 0,
-            aspect: frameAspectRatioValue,
-            maxWidth: frameMaxWidth,
-            maxScale: SIMULATOR_RESIZE_MAX_SCALE,
-          }),
-    [
-      bezelSpec,
-      showBezels,
-      bezelRotation,
-      deviceAvailWidth,
-      deviceAvailHeight,
-      frameMaxWidth,
-      frameAspectRatioValue,
-    ],
-  );
   const attachScreen = useCallback((node: HTMLDivElement | null) => {
     simContainerRef.current = node;
   }, []);
@@ -2273,6 +2324,10 @@ function AppWithConfig({
       onZoomToFit: () => {
         resizeRequestedAt.current = Date.now();
         setDeviceScale(1);
+      },
+      onRealSize: () => {
+        resizeRequestedAt.current = Date.now();
+        setDeviceScale(null);
       },
       onSoftwareKeyboard: toggleSoftwareKeyboard,
       onSlowAnimationsChange: (enabled) => {

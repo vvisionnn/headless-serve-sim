@@ -53,6 +53,8 @@ export interface DeviceFrameSpec {
   deviceName?: string;
   nativeRotation?: number;
   nativeScreen: { width: number; height: number };
+  /** Screen pixels per physical inch, from the device profile. */
+  screenPixelsPerInch?: number;
   insetsPx: DeviceFrameInsets;
   screenRadiiPx: {
     topLeft: number;

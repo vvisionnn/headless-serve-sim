@@ -104,7 +104,7 @@ export function getDeviceResizeScale(p: {
     p.availableSize.width / width,
     p.availableSize.height / height,
   );
-  const min = Math.min(0.5, max);
+  const min = Math.min(0.25, max);
   const startScale = Math.max(min, Math.min(max, p.startScale));
   return Math.max(min, Math.min(max, startScale + delta));
 }

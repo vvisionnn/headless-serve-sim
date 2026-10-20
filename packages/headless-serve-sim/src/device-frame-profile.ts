@@ -197,6 +197,7 @@ export function buildDeviceFrameSpec({
   const scale = finite(display?.scale);
   const width = finite(display?.width);
   const height = finite(display?.height);
+  const pixelsPerInch = finite(display?.hdpi);
   const sizing = record(record(chromeRoot.images)?.sizing);
   const outside = record(record(chromeRoot.paths)?.simpleOutsideBorder);
   if (!display || !scale || scale <= 0 || !width || !height || !sizing || !outside) {
@@ -258,6 +259,7 @@ export function buildDeviceFrameSpec({
         }
       : {}),
     nativeScreen: { width, height },
+    ...(pixelsPerInch ? { screenPixelsPerInch: pixelsPerInch } : {}),
     insetsPx: {
       top: top * scale,
       right: right * scale,

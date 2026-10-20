@@ -235,6 +235,21 @@ describe("buildDeviceFrameSpec", () => {
     });
   });
 
+  test("carries the screen's pixel density so the device can be drawn at its real size", () => {
+    const withDensity = capabilities();
+    const display = withDensity.capabilities.displays[0] as Record<string, unknown>;
+    display.hdpi = 460;
+    display.vdpi = 460;
+    expect(
+      buildDeviceFrameSpec({
+        deviceType: iphone17Pro,
+        capabilities: withDensity,
+        profile: { chromeIdentifier: "com.apple.dt.devicekit.chrome.phone11" },
+        chrome,
+      })?.screenPixelsPerInch,
+    ).toBe(460);
+  });
+
   test("uses notch metadata instead of drawing an Island on every iPhone", () => {
     expect(
       buildDeviceFrameSpec({
