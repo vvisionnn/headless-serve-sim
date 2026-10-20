@@ -107,6 +107,7 @@ final class AccessibilityBridge: NSObject {
     /// the walk stops at the deadline and the root gains `"truncated": true`;
     /// `gridPass: false` skips hit-test discovery entirely.
     func describeUI(udid: String, displayID: UInt32 = 0, interfaceOrientation: String? = nil,
+                    displayPixels: CGSize? = nil,
                     timeout: TimeInterval? = nil, gridPass: Bool = true) throws -> Data {
         var deadline = AXDeadline(at: timeout.map { .now() + $0 })
         try ensureLoaded()
@@ -142,6 +143,16 @@ final class AccessibilityBridge: NSObject {
         }
         translation.setValue(token, forKey: "bridgeDelegateToken")
 
+        // SpringBoard reports every frame (its own included) in the fixed
+        // portrait screen however the interface is turned, so walk it there
+        // and turn the finished tree.
+        var fixedScreen: CGSize?
+        if let displayPixels, Self.identity(of: translation).bundleId == "com.apple.springboard",
+           let deviceType = device.value(forKey: "deviceType") as? NSObject,
+           let scale = (deviceType.value(forKey: "mainScreenScale") as? NSNumber)?.doubleValue, scale > 0 {
+            fixedScreen = CGSize(width: displayPixels.width / scale, height: displayPixels.height / scale)
+        }
+
         // Convert the translation object to a real AXPMacPlatformElement —
         // an NSAccessibilityElement subclass whose accessibility properties
         // lazily fault in via more delegate callbacks.
@@ -176,7 +187,11 @@ final class AccessibilityBridge: NSObject {
             throw AccessibilityError.noFrontmostApplication
         }
         let screenFrame: NSRect
-        if let app = rootElement as? NSAccessibilityElement {
+        if let fixedScreen {
+            screenFrame = NSRect(origin: .zero, size: fixedScreen)
+            root["frame"] = ["x": screenFrame.origin.x, "y": screenFrame.origin.y,
+                             "width": screenFrame.size.width, "height": screenFrame.size.height]
+        } else if let app = rootElement as? NSAccessibilityElement {
             screenFrame = AXInterfaceFrame.normalize(app.accessibilityFrame(), interfaceOrientation: interfaceOrientation)
             root["frame"] = ["x": screenFrame.origin.x, "y": screenFrame.origin.y,
                              "width": screenFrame.size.width, "height": screenFrame.size.height]
@@ -203,6 +218,11 @@ final class AccessibilityBridge: NSObject {
             )
             children.append(contentsOf: discovered)
             root["children"] = children
+        }
+        if let fixedScreen {
+            AXInterfaceFrame.mapFrames(in: &root) {
+                AXInterfaceFrame.fromFixed($0, screen: fixedScreen, interfaceOrientation: interfaceOrientation)
+            }
         }
         if deadline.hit { root["truncated"] = true }
 
@@ -241,6 +261,15 @@ final class AccessibilityBridge: NSObject {
         }
         translation.setValue(token, forKey: "bridgeDelegateToken")
 
+        let (bundleId, pid) = Self.identity(of: translation)
+        guard let bundleId else { throw AccessibilityError.noFrontmostApplication }
+        var result: [String: Any] = ["bundleId": bundleId]
+        if pid > 0 { result["pid"] = Int(pid) }
+        return result
+    }
+
+    /// The bundle id and pid behind a frontmost-application translation.
+    private static func identity(of translation: NSObject) -> (bundleId: String?, pid: Int32) {
         // AXPTranslationObject's accessors vary across simulator runtimes
         // and throw NSUnknownKeyException for undefined keys, so probe via
         // -respondsToSelector: before each KVC fetch.
@@ -270,11 +299,7 @@ final class AccessibilityBridge: NSObject {
         if bundleId == nil, pid > 0 {
             bundleId = Self.bundleIdForPid(pid)
         }
-
-        guard let bundleId else { throw AccessibilityError.noFrontmostApplication }
-        var result: [String: Any] = ["bundleId": bundleId]
-        if pid > 0 { result["pid"] = Int(pid) }
-        return result
+        return (bundleId, pid)
     }
 
     /// Resolve a pid to its bundle identifier by reading

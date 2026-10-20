@@ -177,9 +177,14 @@ final class HTTPServer {
                 let displayID = config["displayId"] as? Int ?? 0
                 let timeoutMs = request.queryParams.first { $0.0 == "timeoutMs" }.flatMap { Double($0.1) }
                 let gridPass = !request.queryParams.contains { $0.0 == "grid" && $0.1 == "0" }
+                let display = config["activeDisplay"] as? [String: Any] ?? config
+                let displayPixels = (display["width"] as? Int).flatMap { w in
+                    (display["height"] as? Int).map { CGSize(width: w, height: $0) }
+                }
                 let data = try AccessibilityBridge.shared.describeUI(
                     udid: self.deviceUDID, displayID: UInt32(displayID),
                     interfaceOrientation: config["interfaceOrientation"] as? String,
+                    displayPixels: displayPixels,
                     timeout: timeoutMs.flatMap { $0 > 0 ? $0 / 1000 : nil }, gridPass: gridPass)
                 var headers = self.corsHeaders
                 headers["Content-Type"] = "application/json"
