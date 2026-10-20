@@ -13,6 +13,8 @@ test("a quarter turn starts drawn at the old angle and the old size", () => {
   expect(start.y).toBe(100);
   // The dock starts at the old bottom edge (850) instead of the new one (550).
   expect(start.lift).toBe(300);
+  // The contact shadow starts as wide as the old device rests, not the new.
+  expect(start.footprint).toBe(0.5);
 });
 
 test("turns the short way round, including through the 270/-90 seam", () => {
@@ -31,4 +33,5 @@ test("a half turn keeps the size", () => {
   const start = rotationStart(portrait, { ...portrait, rotation: 180, width: 200, height: 400 });
   expect(Math.abs(start.rotate)).toBe(180);
   expect(start.scale).toBeCloseTo(2);
+  expect(start.footprint).toBeCloseTo(2);
 });

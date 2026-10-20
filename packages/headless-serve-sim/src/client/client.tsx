@@ -1554,6 +1554,8 @@ function AppWithConfig({
   const flyRotate = useMotionValue(0);
   // What hangs under the device (shadow, dock) rides with a turn.
   const dockLift = useMotionValue(0);
+  // The contact shadow widens or narrows with the turn instead of snapping.
+  const shadowWidth = useMotionValue(1);
   // The visible device within the device box (the Duo draws inside a larger one).
   const visibleRef = useRef({ x: 0, y: 0, width: 0, height: 0 });
   const flyFrom = useCallback(
@@ -1733,6 +1735,7 @@ function AppWithConfig({
   const poseRef = useRef(pose);
   const turnRef = useRef<HTMLDivElement>(null);
   const shadowLiftRef = useRef<HTMLDivElement>(null);
+  const shadowWidthRef = useRef<HTMLDivElement>(null);
   const dockLiftRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const prev = poseRef.current;
@@ -1746,12 +1749,15 @@ function AppWithConfig({
     flyX.set(start.x);
     flyY.set(start.y);
     dockLift.set(start.lift);
+    shadowWidth.set(start.footprint);
     // Motion writes these on its next frame; the new geometry paints on this
     // one. Write the start pose now so the two land together.
     if (turnRef.current)
       turnRef.current.style.transform = `translateX(${start.x}px) translateY(${start.y}px) scale(${start.scale}) rotate(${start.rotate}deg)`;
     for (const el of [shadowLiftRef.current, dockLiftRef.current])
       if (el) el.style.transform = `translateY(${start.lift}px)`;
+    if (shadowWidthRef.current)
+      shadowWidthRef.current.style.transform = `scaleX(${start.footprint})`;
     // iOS turns the picture inside the screen as one motion with the device,
     // the way a real phone does: hold the device until the stream starts
     // turning, then swing with it on a physical spring that lands with a
@@ -1770,6 +1776,7 @@ function AppWithConfig({
         [flyX, 0],
         [flyY, 0],
         [dockLift, 0],
+        [shadowWidth, 1],
       ] as const)
         animate(value, rest, transition);
     };
@@ -1778,7 +1785,7 @@ function AppWithConfig({
       cancel();
       turn();
     };
-  }, [pose, flyRotate, flyScale, flyX, flyY, dockLift]);
+  }, [pose, flyRotate, flyScale, flyX, flyY, dockLift, shadowWidth]);
 
   // Arriving from the wall: fly in from the tile once the device has a place
   // (a Duo has none until its first composite), holding the tile's last
@@ -2274,7 +2281,7 @@ function AppWithConfig({
                     style={{ y: dockLift }}
                   >
                     <motion.div
-                      className="absolute top-0 left-0 h-[22px] rounded-[50%] bg-black/25 blur-[14px] dark:bg-black/70"
+                      className="absolute top-0 left-0 h-[22px]"
                       // Nothing rests on the stage until the Duo's first frame.
                       initial={false}
                       animate={{ opacity: screenless ? 0 : 1 }}
@@ -2283,7 +2290,13 @@ function AppWithConfig({
                         transform: `translate(${deviceLeft + visible.x + visible.width * 0.14}px, ${deviceBottom - 12}px)`,
                         width: visible.width * 0.72,
                       }}
-                    />
+                    >
+                      <motion.div
+                        ref={shadowWidthRef}
+                        className="size-full rounded-[50%] bg-black/25 blur-[14px] dark:bg-black/70"
+                        style={{ scaleX: shadowWidth }}
+                      />
+                    </motion.div>
                   </motion.div>
 
                   {/* Dock rides just under the device's lower edge. */}
