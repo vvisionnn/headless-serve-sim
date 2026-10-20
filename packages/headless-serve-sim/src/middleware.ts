@@ -844,6 +844,42 @@ async function listAllSimulators(hostCommands: HostCommands): Promise<SimctlDevi
   }
 }
 
+type SimulatorListSnapshot = {
+  at: number;
+  list: SimctlDevice[] | null;
+  pending: Promise<SimctlDevice[]> | null;
+};
+
+/** How long one `simctl list` answers every poller (navigator, wall, palette). */
+const SIMULATOR_LIST_TTL_MS = 500;
+
+/**
+ * `listAllSimulators`, shared: each call spawns simctl for 100–150ms, and the
+ * navigator and the wall poll at once. Concurrent callers join the request in
+ * flight, and a result stays fresh for a short TTL.
+ */
+function recentSimulators(
+  hostCommands: HostCommands,
+  snapshot: SimulatorListSnapshot,
+  now: () => number,
+): Promise<SimctlDevice[]> {
+  if (snapshot.list && now() - snapshot.at < SIMULATOR_LIST_TTL_MS) {
+    return Promise.resolve(snapshot.list);
+  }
+  if (snapshot.pending) return snapshot.pending;
+  const pending = listAllSimulators(hostCommands).then((list) => {
+    // A shutdown may invalidate this lookup while simctl runs.
+    if (snapshot.pending === pending) {
+      snapshot.at = now();
+      snapshot.list = list;
+      snapshot.pending = null;
+    }
+    return list;
+  });
+  snapshot.pending = pending;
+  return pending;
+}
+
 // Default per-simulator footprint when we have no running sim to measure
 // from — a fresh booted iOS sim with one app launched typically sits in
 // the 1.2–1.8 GB range. Used as a fallback only.
@@ -1179,6 +1215,12 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
   const now = options?.now ?? Date.now;
   const bootedSnapshot: BootedSnapshot = { at: 0, booted: null, pending: null };
   const readStates = () => readServeSimStates(hostCommands, stateDir, bootedSnapshot, now);
+  const simulatorList: SimulatorListSnapshot = { at: 0, list: null, pending: null };
+  const forgetSimulatorList = () => {
+    simulatorList.at = 0;
+    simulatorList.list = null;
+    simulatorList.pending = null;
+  };
 
   // Simulator-settings requests run in-process (just the underlying simctl /
   // ax-tool spawn) instead of round-tripping a full `node <cli>` exec per
@@ -1477,7 +1519,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
     if (url === base + "/grid/api") {
       const states = await readStates();
       const helperByUdid = new Map(states.map((s) => [s.device, s] as const));
-      const sims = await listAllSimulators(hostCommands);
+      const sims = await recentSimulators(hostCommands, simulatorList, now);
       const devices = sims.map((d) => {
         const helper = helperByUdid.get(d.udid);
         const remoteHelper = helper ? rewriteStateForRequestHost(helper, req.headers?.host) : null;
@@ -1558,6 +1600,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
         bootedSnapshot.at = 0;
         bootedSnapshot.booted = null;
         bootedSnapshot.pending = null;
+        forgetSimulatorList();
         void hostCommands
           .run({
             executable: "xcrun",
@@ -1579,6 +1622,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
             bootedSnapshot.at = 0;
             bootedSnapshot.booted = null;
             bootedSnapshot.pending = null;
+            forgetSimulatorList();
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ ok: true }));
           })
@@ -1667,6 +1711,8 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
         void child.result
           .then((result) => {
             clearTimeout(timer);
+            // Start may have booted the simulator.
+            forgetSimulatorList();
             if (commandSucceeded(result)) {
               res.writeHead(200, { "Content-Type": "application/json" });
               res.end(JSON.stringify({ ok: true, stdout: stdout.trim() }));
