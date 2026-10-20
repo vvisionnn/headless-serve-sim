@@ -173,11 +173,13 @@ final class HTTPServer {
         server["/ax"] = { [weak self] request in
             guard let self else { return .internalServerError }
             do {
-                let displayID = self.clientManager.screenConfig()["displayId"] as? Int ?? 0
+                let config = self.clientManager.screenConfig()
+                let displayID = config["displayId"] as? Int ?? 0
                 let timeoutMs = request.queryParams.first { $0.0 == "timeoutMs" }.flatMap { Double($0.1) }
                 let gridPass = !request.queryParams.contains { $0.0 == "grid" && $0.1 == "0" }
                 let data = try AccessibilityBridge.shared.describeUI(
                     udid: self.deviceUDID, displayID: UInt32(displayID),
+                    interfaceOrientation: config["interfaceOrientation"] as? String,
                     timeout: timeoutMs.flatMap { $0 > 0 ? $0 / 1000 : nil }, gridPass: gridPass)
                 var headers = self.corsHeaders
                 headers["Content-Type"] = "application/json"

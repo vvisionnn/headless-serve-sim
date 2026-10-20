@@ -106,7 +106,8 @@ final class AccessibilityBridge: NSObject {
     /// application (e.g. SpringBoard hasn't come up yet). With a `timeout`
     /// the walk stops at the deadline and the root gains `"truncated": true`;
     /// `gridPass: false` skips hit-test discovery entirely.
-    func describeUI(udid: String, displayID: UInt32 = 0, timeout: TimeInterval? = nil, gridPass: Bool = true) throws -> Data {
+    func describeUI(udid: String, displayID: UInt32 = 0, interfaceOrientation: String? = nil,
+                    timeout: TimeInterval? = nil, gridPass: Bool = true) throws -> Data {
         var deadline = AXDeadline(at: timeout.map { .now() + $0 })
         try ensureLoaded()
 
@@ -176,7 +177,9 @@ final class AccessibilityBridge: NSObject {
         }
         let screenFrame: NSRect
         if let app = rootElement as? NSAccessibilityElement {
-            screenFrame = app.accessibilityFrame()
+            screenFrame = AXInterfaceFrame.normalize(app.accessibilityFrame(), interfaceOrientation: interfaceOrientation)
+            root["frame"] = ["x": screenFrame.origin.x, "y": screenFrame.origin.y,
+                             "width": screenFrame.size.width, "height": screenFrame.size.height]
         } else {
             screenFrame = .zero
         }
