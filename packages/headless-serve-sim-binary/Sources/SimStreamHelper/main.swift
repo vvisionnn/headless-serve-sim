@@ -7,6 +7,9 @@ import Darwin
 // Force unbuffered output
 setbuf(stdout, nil)
 setbuf(stderr, nil)
+// A write to an exited child's pipe (the guest motion session) must fail
+// with EPIPE, not kill the helper.
+signal(SIGPIPE, SIG_IGN)
 
 // Initialize AppKit (needed for HID touch subprocess)
 let app = NSApplication.shared
@@ -268,8 +271,13 @@ httpServer.clientManager.onMultiTouch = { multiTouch in
 httpServer.clientManager.onKey = { key in
     hidInjector.sendKey(type: key.type, usage: key.usage)
 }
+let guestMotion = GuestMotion(deviceUDID: deviceUDID,
+                              binaryPath: ProcessInfo.processInfo.environment["HEADLESS_SERVE_SIM_DEVICE_MOTION"])
 httpServer.clientManager.onOrientation = { orientation in
-    hidInjector.sendOrientation(orientation: orientation)
+    if isDuo, let guestMotion {
+        return guestMotion.setOrientation(deviceOrientation: orientation)
+    }
+    return hidInjector.sendOrientation(orientation: orientation)
 }
 httpServer.clientManager.onCADebug = { payload in
     _ = hidInjector.setCADebugOption(name: payload.option, enabled: payload.enabled)

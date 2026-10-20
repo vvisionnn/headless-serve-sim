@@ -34,7 +34,7 @@ import {
 import { appActions } from "./app-actions";
 import { screenshot } from "./screenshot";
 import { deviceMotionCli } from "./device-motion-cli";
-import { createDeviceMotion } from "./device-motion";
+import { createDeviceMotion, locateDeviceMotionTool } from "./device-motion";
 import { routeNativeDeviceInput } from "./native-device-input";
 import { cameraShmNameForUdid } from "./camera-shm-name";
 import { formatEventLine, type EventLogEntry } from "./event-log";
@@ -336,6 +336,10 @@ function helperSpawnEnv(): NodeJS.ProcessEnv {
   if (existsSync(observer)) env.HEADLESS_SERVE_SIM_DISPLAY_OBSERVER = observer;
   else if (existsSync(workspaceObserver))
     env.HEADLESS_SERVE_SIM_DISPLAY_OBSERVER = workspaceObserver;
+  // The Duo rotates through the simulated motion sensor, so the helper routes
+  // the 0x07 orientation opcode through this tool.
+  const motion = locateDeviceMotionTool();
+  if (motion) env.HEADLESS_SERVE_SIM_DEVICE_MOTION = motion;
   return env;
 }
 
