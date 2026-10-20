@@ -1,5 +1,6 @@
 import { selectedPreviewConfig } from "./preview-config";
 import { simEndpoint } from "./sim-endpoint";
+import { warmSimulatorSettings } from "./simulator-settings-cache";
 
 type PreviewConfig = NonNullable<Window["__SIM_PREVIEW__"]>;
 
@@ -61,14 +62,21 @@ export function deviceConfig<T = PreviewConfig>(
 /**
  * Keep configs fresh while the pointer rests where a click would switch to
  * them, quicker than the server's snapshot goes stale. Returns the stop.
+ * Each one's simulator settings are read too (throttled — it's a `simctl`
+ * exec), so the inspector shows real values on the first switch to it.
  */
 export function keepDeviceConfigsWarm<T = PreviewConfig>(
   udids: string[],
   load?: (udid: string) => Promise<T>,
   everyMs = 1200,
+  warmSettings: (udid: string) => void = (udid) => void warmSimulatorSettings(udid),
 ): () => void {
   const warm = () => {
-    for (const udid of udids) prefetchDeviceConfig(udid, load).catch(() => {});
+    for (const udid of udids)
+      prefetchDeviceConfig(udid, load).then(
+        () => warmSettings(udid),
+        () => {},
+      );
   };
   warm();
   const timer = setInterval(warm, everyMs);
