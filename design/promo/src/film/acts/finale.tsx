@@ -7,7 +7,7 @@ import { Typed, Words } from "../type";
 
 const QR = (() => {
   const q = qrcode(0, "M");
-  q.addData("http://192.168.1.24:3200/p/7f3a9c2e");
+  q.addData("https://github.com/vvisionnn/headless-serve-sim");
   q.make();
   const n = q.getModuleCount();
   const finder = (r: number, c: number) =>
