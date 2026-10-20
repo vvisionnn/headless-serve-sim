@@ -6,10 +6,8 @@ import Foundation
   precondition(DuoOutput.side(requested: 99_999) == DuoOutput.maximumSide, "Huge viewers are capped")
   precondition(DuoOutput.side(requested: 1500) == 1536, "Requests round up to the 128 px step")
   precondition(DuoOutput.side(requested: 1536) == 1536, "Exact steps are kept")
-  // H.264 level 5.1/5.2 caps a frame at 36864 macroblocks; above it the
-  // low-latency encoder silently emits nothing and browsers may refuse it.
-  let macroblocks = (DuoOutput.maximumSide / 16) * (DuoOutput.maximumSide / 16)
-  precondition(macroblocks <= 36_864, "Maximum side must fit H.264 level 5.2")
+  // Low-latency H.264 emits nothing past a 4K UHD frame (8,294,400 px).
+  precondition(DuoOutput.maximumSide * DuoOutput.maximumSide <= 3840 * 2160, "Maximum side must fit a 4K UHD frame")
   for side in [DuoOutput.minimumSide, DuoOutput.defaultSide, DuoOutput.maximumSide] {
    precondition(side % 16 == 0, "Every side is macroblock-aligned")
    let target = FrameScaler(maxDimension: DuoOutput.maximumSide).targetSize(width: side, height: side)

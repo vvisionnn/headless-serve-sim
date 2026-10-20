@@ -95,6 +95,21 @@ final class H264Encoder {
     /// under-declared rate makes the rate controller budget bits for a slower
     /// stream than it is actually being handed.
     private let expectedFrameRate: Int32
+    /// Low-latency rate control has a frame-size ceiling (4K UHD on Apple
+    /// silicon) past which it accepts every frame and emits nothing. When a
+    /// session goes silent from its first frame, frames this large fall back to
+    /// the default rate control rather than stalling the stream.
+    private var lowLatencyCeilingPixels: Int?
+    private var sessionLowLatency = false
+    /// Output health of the current session, written from VideoToolbox's queue.
+    private let healthLock = NSLock()
+    private var sessionGeneration = 0
+    private var sessionEmitted = false
+    private var silentFrames = 0
+    private var fallbackRequested = false
+    /// A forced keyframe the encoder swallowed is forced again on the next
+    /// frame, or a viewer that asked to resync waits on a static screen forever.
+    private var forceNextKeyframe = false
     private let stateQueue = DispatchQueue(label: "H264Encoder.state")
     private var emittedDescription = false
     private var frameCount: Int64 = 0
@@ -128,7 +143,13 @@ final class H264Encoder {
         let w = Int32(CVPixelBufferGetWidth(source))
         let h = Int32(CVPixelBufferGetHeight(source))
         let nextColor = ColorMetadata(source)
-        if session == nil || w != width || h != height || colorMetadata != nextColor {
+        healthLock.lock()
+        let fallback = fallbackRequested
+        fallbackRequested = false
+        let forceAgain = forceNextKeyframe
+        forceNextKeyframe = false
+        healthLock.unlock()
+        if session == nil || fallback || w != width || h != height || colorMetadata != nextColor {
             width = w
             height = h
             colorMetadata = nextColor
@@ -164,7 +185,13 @@ final class H264Encoder {
         // buffer). Stamping the real capture instant also lets the viewer present
         // on true timing instead of assuming a fixed cadence.
         let pts = CMClockGetTime(CMClockGetHostTimeClock())
-        let frameProps: NSDictionary? = forceKeyframe
+        let forced = forceKeyframe || forceAgain
+        healthLock.lock()
+        let generation = sessionGeneration
+        healthLock.unlock()
+        let lowLatency = sessionLowLatency
+        let pixels = Int(w) * Int(h)
+        let frameProps: NSDictionary? = forced
             ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue!] as NSDictionary
             : nil
         // Property writes and invalidation must not overlap synchronous submission;
@@ -180,6 +207,7 @@ final class H264Encoder {
             defer { completion?() }
             guard let self else { return }
             guard status == noErr, let sb = sampleBuffer else {
+                self.noteSilent(generation: generation, forced: forced, lowLatency: lowLatency, pixels: pixels)
                 self.countersLock.lock()
                 self.droppedByEncoderCount += 1
                 self.nilSampleBufferCount += 1
@@ -187,6 +215,7 @@ final class H264Encoder {
                 return
             }
             if let encoded = self.extract(from: sb, source: source) {
+                self.noteEmitted(generation: generation)
                 self.countersLock.lock()
                 self.emittedCount += 1
                 self.countersLock.unlock()
@@ -238,6 +267,31 @@ final class H264Encoder {
 
     // MARK: - private
 
+    /// Frames in a row a fresh low-latency session may swallow before it is
+    /// judged unable to take frames this large.
+    private static let silentFramesBeforeFallback = 6
+
+    private func noteSilent(generation: Int, forced: Bool, lowLatency: Bool, pixels: Int) {
+        healthLock.lock()
+        defer { healthLock.unlock() }
+        guard generation == sessionGeneration else { return }
+        if forced { forceNextKeyframe = true }
+        silentFrames += 1
+        if lowLatency, !sessionEmitted, silentFrames >= Self.silentFramesBeforeFallback, !fallbackRequested {
+            fallbackRequested = true
+            lowLatencyCeilingPixels = min(lowLatencyCeilingPixels ?? pixels, pixels)
+            print("[h264] Low-latency encoder emitted nothing at \(pixels) px; using default rate control for frames this large")
+        }
+    }
+
+    private func noteEmitted(generation: Int) {
+        healthLock.lock()
+        defer { healthLock.unlock() }
+        guard generation == sessionGeneration else { return }
+        sessionEmitted = true
+        silentFrames = 0
+    }
+
     private func applyMaxQP(_ qp: Int, to session: VTCompressionSession) {
         if #available(macOS 12.0, *) {
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxAllowedFrameQP, value: NSNumber(value: qp))
@@ -274,8 +328,16 @@ final class H264Encoder {
             )
         }
         var status: OSStatus
-        var lowLatency = useLowLatencyRateControl
-        if useLowLatencyRateControl {
+        healthLock.lock()
+        let ceiling = lowLatencyCeilingPixels
+        sessionGeneration += 1
+        sessionEmitted = false
+        silentFrames = 0
+        healthLock.unlock()
+        let wantsLowLatency = useLowLatencyRateControl
+            && (ceiling.map { Int(width) * Int(height) < $0 } ?? true)
+        var lowLatency = wantsLowLatency
+        if wantsLowLatency {
             status = create(spec: lowLatencySpec)
             if status != noErr || sess == nil {
                 lowLatency = false
@@ -286,7 +348,8 @@ final class H264Encoder {
             status = create(spec: nil)
         }
         guard status == noErr, let sess else { return }
-        if !lowLatency {
+        sessionLowLatency = lowLatency
+        if wantsLowLatency, !lowLatency {
             print("[h264] WARNING: low-latency rate control unavailable; using default spec")
         }
 

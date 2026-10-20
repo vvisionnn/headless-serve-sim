@@ -6,9 +6,10 @@ import Foundation
 enum DuoOutput {
     static let minimumSide = 512
     static let defaultSide = 1536
-    /// H.264 level 5.1/5.2 limit (36864 macroblocks); beyond it the low-latency
-    /// encoder emits nothing.
-    static let maximumSide = 3072
+    /// Low-latency H.264 on Apple silicon takes at most a 4K UHD frame
+    /// (8,294,400 px, 2880²); past it VideoToolbox accepts every frame and
+    /// emits nothing, so a large Retina window froze the stream.
+    static let maximumSide = 2880
     private static let step = 128
 
     /// Rounds up to a coarse step so window resizes rarely rebuild the encoder.
