@@ -95,6 +95,7 @@ import { createFoldControl } from "./utils/fold-control";
 import { sendDeviceView, type DeviceView } from "./utils/device-view-control";
 import { nativeTouchPoint } from "./utils/native-touch";
 import { deviceConfig, keepDeviceConfigsWarm, switchWhileStarting } from "./utils/device-switch";
+import { latestSwitch } from "./utils/latest-switch";
 import { observedDuoOrientation, shouldApplyObservedHinge } from "./utils/fold-sync";
 import { duoHardwareCommands } from "./utils/duo-hardware";
 import { type HardwareButtonPress } from "./utils/hardware-buttons";
@@ -204,16 +205,22 @@ function App() {
     new URLSearchParams(window.location.search).get("device"),
   );
   const [streaming, setStreaming] = useState(false);
-  // Only the shell for the selected device may report streaming: the old one
-  // keeps painting while it fades out and must not flip the new one live.
+  // Each switch mounts a fresh shell, even for a device whose shell is still
+  // fading out (Back mid-switch): revived, it would keep its old stream state.
+  const [shellGeneration, setShellGeneration] = useState(0);
+  const shellKey = `${config?.device}:${shellGeneration}`;
+  // Only the selected shell may report streaming: the old one keeps painting
+  // while it fades out and must not flip the new one live (nor dark, when
+  // both show the same device).
   const selectedDeviceRef = useRef(config?.device);
   selectedDeviceRef.current = config?.device;
+  const selectedShellRef = useRef(shellKey);
+  selectedShellRef.current = shellKey;
   const setStreamingForSelected = useMemo(() => {
-    const device = config?.device;
     return (value: boolean) => {
-      if (selectedDeviceRef.current === device) setStreaming(value);
+      if (selectedShellRef.current === shellKey) setStreaming(value);
     };
-  }, [config?.device]);
+  }, [shellKey]);
   const [devices, setDevices] = useState<SimDevice[]>([]);
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [devicesError, setDevicesError] = useState<string | null>(null);
@@ -324,23 +331,33 @@ function App() {
   // Switch simulators in place: fetch the target's config first (a hover may
   // already have), then swap it in one render, so the window never blanks the
   // way a page load does. The new shell settles in while its stream connects.
-  const switchDevice = useCallback(async (udid: string, push = true) => {
-    const next = await deviceConfig(udid);
-    window.__SIM_PREVIEW__ = next;
-    if (push) {
-      const location = new URL(window.location.href);
-      location.searchParams.set("device", udid);
-      window.history.pushState(null, "", location);
-    }
-    // The new shell mounts in slices, so what's already moving keeps moving.
-    startTransition(() => {
-      setStreaming(false);
-      setUrlDevice(udid);
-      setConnection({ config: next, helperAvailable: true });
-      setSwitching(false);
-      setDeparting(null);
-    });
-  }, []);
+  // Back during a click's switch starts another; only the latest one lands.
+  const [runSwitch] = useState(latestSwitch<PreviewConfig>);
+  const switchDevice = useCallback(
+    async (udid: string, push = true) => {
+      await runSwitch(
+        () => deviceConfig(udid),
+        (next) => {
+          window.__SIM_PREVIEW__ = next;
+          if (push) {
+            const location = new URL(window.location.href);
+            location.searchParams.set("device", udid);
+            window.history.pushState(null, "", location);
+          }
+          // The new shell mounts in slices, so what's already moving keeps moving.
+          startTransition(() => {
+            setStreaming(false);
+            setShellGeneration((n) => n + 1);
+            setUrlDevice(udid);
+            setConnection({ config: next, helperAvailable: true });
+            setSwitching(false);
+            setDeparting(null);
+          });
+        },
+      );
+    },
+    [runSwitch],
+  );
   // Back and forward walk the same in-place switches.
   useEffect(() => {
     const onPop = () => {
@@ -406,7 +423,7 @@ function App() {
 
   return (
     <AnimatePresence initial={false}>
-      <ShellLayer key={config.device}>
+      <ShellLayer key={shellKey}>
         <AppWithConfig
           config={config}
           theme={theme}
@@ -537,6 +554,12 @@ function AppWithConfig({
   // so the shell stays still and plays no entrance; a page load plays it.
   const [handoff] = useState(takeStageHandoff);
   const intro = handoff === null;
+  // The navigator's search and scroll seed only the navigator this shell
+  // opens with; one opened later starts fresh.
+  const navigatorSeed = useRef(handoff?.layout.navigator);
+  useEffect(() => {
+    navigatorSeed.current = undefined;
+  }, []);
   const selectedDevice = devices.find((d) => d.udid === config.device) ?? null;
   // Prefer the live device-list name; fall back to the name baked into
   // __SIM_PREVIEW__ so the device type — and thus the frame's size cap — is
@@ -1538,12 +1561,12 @@ function AppWithConfig({
     ): Promise<boolean> => {
       if (switching || switchingRef.current || d.udid === config.device) return false;
       switchingRef.current = true;
+      // From a tile the wall is up; otherwise this device makes way at once.
+      // Not in the transition: a prefetched config's swap would land in the
+      // same batch, and the recede would never commit.
+      if (!from) setDeparting(config.device);
       // Rendered in the background, so the click's first frame paints now.
-      startTransition(() => {
-        setSwitching(true);
-        // From a tile the wall is up; otherwise this device makes way at once.
-        if (!from) setDeparting(config.device);
-      });
+      startTransition(() => setSwitching(true));
       try {
         const startEndpoint = config.gridStartEndpoint;
         if (!startEndpoint) throw new Error("Simulator start endpoint is unavailable");
@@ -2476,6 +2499,7 @@ function AppWithConfig({
                     onRefresh={() => void fetchDevices()}
                     onSelect={(d) => void switchToDevice(d)}
                     onStop={(udid) => void stopDevice(udid)}
+                    initial={navigatorSeed.current}
                   />
                 </motion.aside>
               )}
@@ -2651,6 +2675,7 @@ function AppWithConfig({
                       <WallScene
                         currentUdid={config.device}
                         insetBottom={insetBottom}
+                        currentStill={() => snapshotCanvas(simContainerRef.current)?.canvas ?? null}
                         onFocus={(udid) => {
                           const tileEl = document.querySelector<HTMLElement>(
                             `[data-wall-tile="${CSS.escape(udid)}"]`,
