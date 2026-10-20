@@ -20,8 +20,8 @@ import { StatusDot } from "../ui/badge";
 import { Button, IconButton } from "../ui/button";
 import { Tip } from "../ui/tooltip";
 import { fitDeviceBezel } from "../utils/bezel-geometry";
-import { simEndpoint } from "../utils/sim-endpoint";
 import { WALL_TILE_REVEAL_CAP_MS, wallTileReady } from "../utils/wall-tile-reveal";
+import { keepDeviceConfigsWarm, prefetchDeviceConfig } from "../utils/device-switch";
 import type { GridDevice } from "../utils/grid";
 
 export interface WallSceneProps {
@@ -279,14 +279,15 @@ function Tile({
     }),
   );
   const [hover, setHover] = useState(false);
-  // Ask for the device's config as the pointer arrives, so the server's
-  // simulator inventory is fresh by the time the click switches to it.
+  // Fetch the device's config as the pointer arrives, so the click switches
+  // on an answer already in hand; again while it rests here, so the answer
+  // (and the server's simulator inventory) stays fresh.
   const warm = () => {
-    if (!live || current) return;
-    const url = new URL(simEndpoint("api"), window.location.href);
-    url.searchParams.set("device", device.device);
-    void fetch(url, { cache: "no-store" }).catch(() => {});
+    if (live && !current) prefetchDeviceConfig(device.device).catch(() => {});
   };
+  useEffect(() => {
+    if (hover && live && !current) return keepDeviceConfigsWarm([device.device]);
+  }, [hover, live, current, device.device]);
   const availW = cellW * 0.86;
   const availH = wallLineupHeight(cellW, cellH) * LINEUP_SHARE[kind];
   const geometry = spec
@@ -335,10 +336,7 @@ function Tile({
       <motion.button
         type="button"
         disabled={!live}
-        onHoverStart={() => {
-          setHover(true);
-          warm();
-        }}
+        onHoverStart={() => setHover(true)}
         onHoverEnd={() => setHover(false)}
         onPointerDown={warm}
         onClick={() => live && onFocus()}

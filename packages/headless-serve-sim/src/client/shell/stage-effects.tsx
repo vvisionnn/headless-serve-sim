@@ -54,41 +54,110 @@ export function screenCaptureAngle(transform: string): number {
   return (Math.atan2(Number(m[2]), Number(m[1])) * 180) / Math.PI;
 }
 
+interface Region {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /**
- * Freeze what's on screen right now, at its on-screen size. Used where a
- * motion must start at once — the screenshot thumbnail lifts off before
- * simctl has written the PNG, the appearance reveal needs the old frame, and
- * a turn holds it while iOS redraws. A stream the view turns with CSS (a
- * portrait frame shown sideways) is captured turned, as it looks.
+ * Which part of an `iw`×`ih` picture shows, and where in its `w`×`h` box, under
+ * the box's `object-fit` — so a capture holds what was drawn, not a stretch.
  */
-export function snapshotScreen(root: HTMLElement | null): { url: string; rect: DOMRect } | null {
+export function fittedRegion(
+  fit: string,
+  w: number,
+  h: number,
+  iw: number,
+  ih: number,
+): { source: Region; box: Region } {
+  const whole = { x: 0, y: 0, width: iw, height: ih };
+  if (fit === "contain") {
+    const s = Math.min(w / iw, h / ih);
+    const bw = iw * s;
+    const bh = ih * s;
+    return { source: whole, box: { x: (w - bw) / 2, y: (h - bh) / 2, width: bw, height: bh } };
+  }
+  const box = { x: 0, y: 0, width: w, height: h };
+  if (fit === "cover") {
+    const s = Math.max(w / iw, h / ih);
+    const sw = w / s;
+    const sh = h / s;
+    return { source: { x: (iw - sw) / 2, y: (ih - sh) / 2, width: sw, height: sh }, box };
+  }
+  return { source: whole, box };
+}
+
+/**
+ * Freeze what's on screen right now into a canvas. At its on-screen size by
+ * default; `max` instead keeps the picture's own resolution, down to that
+ * many device pixels, for a frame that will be shown larger than it is now.
+ * A stream the view turns with CSS (a portrait frame shown sideways) is
+ * captured turned, as it looks.
+ */
+export function snapshotCanvas(
+  root: HTMLElement | null,
+  max?: { width: number; height: number },
+): { canvas: HTMLCanvasElement; rect: DOMRect } | null {
   const source = largestSurface(root);
   if (!source) return null;
   const rect = source.getBoundingClientRect();
   if (rect.width < 2 || rect.height < 2) return null;
   try {
     const ratio = Math.min(2, window.devicePixelRatio || 1);
-    const angle = screenCaptureAngle(getComputedStyle(source).transform);
+    const style = getComputedStyle(source);
+    const angle = screenCaptureAngle(style.transform);
     const sideways = Math.abs(Math.abs(angle) - 90) < 1;
     // Layout sizes: an ancestor may itself be scaled or turning.
     const width = source.offsetWidth || rect.width;
     const height = source.offsetHeight || rect.height;
+    const [iw, ih] =
+      source instanceof HTMLImageElement
+        ? [source.naturalWidth, source.naturalHeight]
+        : source instanceof HTMLVideoElement
+          ? [source.videoWidth, source.videoHeight]
+          : [source.width, source.height];
+    if (!iw || !ih) return null;
+    const { source: from, box } = fittedRegion(style.objectFit, width, height, iw, ih);
+    // Unturned output size: the picture's pixels, or its box's on screen.
+    let ow = max ? from.width : box.width * ratio;
+    let oh = max ? from.height : box.height * ratio;
+    if (max) {
+      const fit = Math.min(
+        1,
+        ((sideways ? max.height : max.width) * ratio) / ow,
+        ((sideways ? max.width : max.height) * ratio) / oh,
+      );
+      ow *= fit;
+      oh *= fit;
+    }
     const canvas = document.createElement("canvas");
-    canvas.width = Math.round((sideways ? height : width) * ratio);
-    canvas.height = Math.round((sideways ? width : height) * ratio);
+    canvas.width = Math.max(1, Math.round(sideways ? oh : ow));
+    canvas.height = Math.max(1, Math.round(sideways ? ow : oh));
     const context = canvas.getContext("2d");
     context?.translate(canvas.width / 2, canvas.height / 2);
     context?.rotate((angle * Math.PI) / 180);
-    context?.drawImage(
-      source,
-      (-width * ratio) / 2,
-      (-height * ratio) / 2,
-      width * ratio,
-      height * ratio,
-    );
-    return { url: canvas.toDataURL("image/png"), rect };
+    context?.drawImage(source, from.x, from.y, from.width, from.height, -ow / 2, -oh / 2, ow, oh);
+    return { canvas, rect };
   } catch {
     // A tainted or not-yet-decoded surface: the caller falls back.
+    return null;
+  }
+}
+
+/**
+ * Freeze what's on screen right now, at its on-screen size. Used where a
+ * motion must start at once — the screenshot thumbnail lifts off before
+ * simctl has written the PNG, the appearance reveal needs the old frame, and
+ * a turn holds it while iOS redraws.
+ */
+export function snapshotScreen(root: HTMLElement | null): { url: string; rect: DOMRect } | null {
+  const snap = snapshotCanvas(root);
+  if (!snap) return null;
+  try {
+    return { url: snap.canvas.toDataURL("image/png"), rect: snap.rect };
+  } catch {
     return null;
   }
 }
