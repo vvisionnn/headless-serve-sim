@@ -327,6 +327,10 @@
     linear-gradient(to bottom, var(--stage) 0%, var(--stage) 55%, var(--stage-floor) 100%);
 }
 
+[data-leaving] .stage-bg {
+  background: none;
+}
+
 @keyframes shimmer {
   0% {
     background-position: 120% 0;

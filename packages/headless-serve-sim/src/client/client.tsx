@@ -479,6 +479,10 @@ function ShellLayer({ children }: { children: React.ReactNode }) {
     const leave = () => {
       if (stopped) return;
       if (!ref.current) return safeToRemove?.();
+      // The new shell beneath paints the same stage, so the leaving one drops
+      // its own: what it no longer draws (the tile that took off) shows the
+      // new shell at full strength rather than through a cross-fade.
+      ref.current.dataset.leaving = "";
       fade = animate(ref.current, { opacity: 0 }, { duration: 0.22, ease: [0.32, 0.72, 0, 1] });
       void fade.then(() => safeToRemove?.());
     };
