@@ -67,7 +67,7 @@ export function AppActionsTool({ udid, bundleId }: { udid: string; bundleId: str
         setError(res.stderr.trim() || `open-url failed (exit ${res.exitCode})`);
         return;
       }
-      shell?.toast({ title: "Opened URL", detail: url });
+      shell?.toast({ title: "Opened URL", detail: url, tone: "success" });
     } finally {
       setPending(null);
     }
