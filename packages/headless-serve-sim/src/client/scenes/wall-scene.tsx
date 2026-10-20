@@ -20,7 +20,7 @@ import { StatusDot } from "../ui/badge";
 import { Button, IconButton } from "../ui/button";
 import { Tip } from "../ui/tooltip";
 import { fitDeviceBezel } from "../utils/bezel-geometry";
-import { WALL_TILE_REVEAL_CAP_MS, wallTileReady } from "../utils/wall-tile-reveal";
+import { stillFitsScreen, wallTileReady, wallTileRevealCap } from "../utils/wall-tile-reveal";
 import { keepDeviceConfigsWarm, prefetchDeviceConfig } from "../utils/device-switch";
 import type { GridDevice } from "../utils/grid";
 
@@ -30,6 +30,12 @@ export interface WallSceneProps {
   insetBottom: number;
   /** Focus a live simulator (current one → back to the stage). */
   onFocus: (udid: string) => void;
+  /**
+   * The stage's latest frame, to hold on this window's own tile until its
+   * stream paints — the stage already has it, the tile's stream is a new
+   * connection.
+   */
+  currentStill?: () => HTMLCanvasElement | null;
 }
 
 type Kind = "phone" | "tablet" | "watch";
@@ -114,7 +120,7 @@ export function wallColumns(count: number, width: number): number {
  * Wall: every running simulator side by side, each live. Click one and it
  * flies forward into the stage — the same object, not a new screen.
  */
-export function WallScene({ currentUdid, insetBottom, onFocus }: WallSceneProps) {
+export function WallScene({ currentUdid, insetBottom, onFocus, currentStill }: WallSceneProps) {
   const config = typeof window === "undefined" ? undefined : window.__SIM_PREVIEW__;
   const ref = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 1000, h: 700 });
@@ -198,6 +204,7 @@ export function WallScene({ currentUdid, insetBottom, onFocus }: WallSceneProps)
                 cellW={cellW}
                 cellH={cellH}
                 current={d.device === currentUdid}
+                still={d.device === currentUdid ? currentStill : undefined}
                 pending={pending[d.device]}
                 error={errors[d.device]}
                 onFocus={() => onFocus(d.device)}
@@ -215,15 +222,15 @@ export function WallScene({ currentUdid, insetBottom, onFocus }: WallSceneProps)
 const TILE_HIDDEN = { opacity: 0, y: 24, filter: "blur(8px)" };
 const TILE_SHOWN = { opacity: 1, y: 0, filter: "blur(0px)" };
 
-/** True once `ready`, or after the reveal cap — a slow stream never holds a tile back. */
-function useReveal(ready: boolean): boolean {
+/** True once `ready`, or after `capMs` — a slow stream never holds a tile back. */
+function useReveal(ready: boolean, capMs: number): boolean {
   const [timedOut, setTimedOut] = useState(false);
   const [shown, setShown] = useState(ready);
   if (ready && !shown) setShown(true);
   useEffect(() => {
-    const id = setTimeout(() => setTimedOut(true), WALL_TILE_REVEAL_CAP_MS);
+    const id = setTimeout(() => setTimedOut(true), capMs);
     return () => clearTimeout(id);
-  }, []);
+  }, [capMs]);
   return shown || timedOut;
 }
 
@@ -233,6 +240,7 @@ function Tile({
   cellW,
   cellH,
   current,
+  still: takeStill,
   pending,
   error,
   onFocus,
@@ -244,6 +252,7 @@ function Tile({
   cellW: number;
   cellH: number;
   current: boolean;
+  still?: () => HTMLCanvasElement | null;
   pending: "start" | "stop" | undefined;
   error: string | undefined;
   onFocus: () => void;
@@ -269,15 +278,8 @@ function Tile({
     check();
     return () => cancelAnimationFrame(id);
   }, [live, nativeComposite, frameReady]);
-  const revealed = useReveal(
-    wallTileReady({
-      specLoaded,
-      needsArtwork,
-      artworkReady: artwork !== null,
-      live,
-      frameReady,
-    }),
-  );
+  // Taken as the tile mounts, while the stage still shows it.
+  const [still] = useState(() => (live ? (takeStill?.() ?? null) : null));
   const [hover, setHover] = useState(false);
   // Fetch the device's config as the pointer arrives, so the click switches
   // on an answer already in hand; again while it rests here, so the answer
@@ -303,23 +305,53 @@ function Tile({
   const aspect = FALLBACK_ASPECT[kind];
   const w = geometry?.width ?? Math.min(availW, availH * aspect);
   const h = geometry?.height ?? w / aspect;
+  // A Duo's tile draws its own composite; any other holds the still on its
+  // screen until the stream's first frame fades in over it.
+  const seed =
+    still && !nativeComposite && stillFitsScreen(still, geometry?.screen ?? { width: w, height: h })
+      ? still
+      : null;
+  const holdStill = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (!el || !seed) return;
+      seed.style.cssText = "display:block;width:100%;height:100%;object-fit:cover";
+      el.replaceChildren(seed);
+    },
+    [seed],
+  );
+  const revealed = useReveal(
+    wallTileReady({
+      specLoaded,
+      needsArtwork,
+      artworkReady: artwork !== null,
+      live,
+      frameReady,
+      stillReady: !!seed,
+    }),
+    wallTileRevealCap({ live, stillReady: !!seed }),
+  );
 
   const screen = live ? (
-    <img
-      ref={imgRef}
-      src={device.helper!.streamUrl}
-      alt={device.name}
-      // The helper allows any origin; asking for CORS keeps the pixels
-      // readable, so a switch can hold this frame while the stage connects.
-      crossOrigin="anonymous"
-      draggable={false}
-      data-wall-screen
-      // A tile shown before its first frame (the reveal cap) fades the
-      // picture in rather than cutting from black.
-      className={`pointer-events-none absolute inset-0 size-full object-cover transition-opacity duration-200 select-none ${
-        frameReady || nativeComposite ? "opacity-100" : "opacity-0"
-      }`}
-    />
+    <>
+      {seed && (
+        <div ref={holdStill} data-wall-still className="pointer-events-none absolute inset-0" />
+      )}
+      <img
+        ref={imgRef}
+        src={device.helper!.streamUrl}
+        alt={device.name}
+        // The helper allows any origin; asking for CORS keeps the pixels
+        // readable, so a switch can hold this frame while the stage connects.
+        crossOrigin="anonymous"
+        draggable={false}
+        data-wall-screen
+        // A tile shown before its first frame (the reveal cap) fades the
+        // picture in rather than cutting from black.
+        className={`pointer-events-none absolute inset-0 size-full object-cover transition-opacity duration-200 select-none ${
+          frameReady || nativeComposite ? "opacity-100" : "opacity-0"
+        }`}
+      />
+    </>
   ) : (
     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#0b0b0d] text-white">
       <span className="text-footnote font-semibold">Not streaming</span>
