@@ -52,7 +52,9 @@ describe("SimulatorSettingsTool", () => {
     expect(html).toContain('role="radiogroup" aria-label="Appearance"');
     expect(html).toContain('role="radiogroup" aria-label="Liquid Glass"');
     expect(html).toMatch(/^<div inert="" aria-busy="true" class="contents">/);
-    expect(html).toContain('<div role="slider" aria-label="Text size" aria-valuemin="0" aria-valuemax="6" aria-valuenow="3"');
+    expect(html).toContain(
+      '<div role="slider" aria-label="Text size" aria-valuemin="0" aria-valuemax="6" aria-valuenow="3"',
+    );
     for (const label of [
       "Reduce motion",
       "Increase contrast",

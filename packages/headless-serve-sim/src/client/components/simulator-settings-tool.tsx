@@ -109,13 +109,7 @@ export function textSizeLabel(index: number): string {
   return TEXT_SIZE_LABELS[index] ?? TEXT_SIZE_LABELS[3];
 }
 
-function TextSizeSlider({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (index: number) => void;
-}) {
+function TextSizeSlider({ value, onChange }: { value: number; onChange: (index: number) => void }) {
   // Local value while dragging so prop round-trips can't interrupt the
   // gesture. Changes apply live but debounced; release flushes immediately.
   const [drag, setDrag] = useState<number | null>(null);
@@ -267,13 +261,10 @@ export function SimulatorSettingsTool({
   }, [refresh, execToken, refreshKey]);
 
   const send = useCallback(
-    async (option: string, value: string) => {
+    async (device: string, option: string, value: string) => {
       try {
-        await hostUiRequest(
-          { device: udid, option, value },
-          { signal: AbortSignal.timeout(15_000) },
-        );
-        confirmSimulatorSetting(udid, option, value);
+        await hostUiRequest({ device, option, value }, { signal: AbortSignal.timeout(15_000) });
+        confirmSimulatorSetting(device, option, value);
       } catch (e) {
         setError(e instanceof Error ? e.message : `Failed to set ${option}`);
         // Re-sync from the simulator rather than restoring a snapshot — with
@@ -282,7 +273,7 @@ export function SimulatorSettingsTool({
         void refresh();
       }
     },
-    [udid, refresh],
+    [refresh],
   );
   const sendRef = useRef(send);
   sendRef.current = send;
@@ -290,8 +281,7 @@ export function SimulatorSettingsTool({
   // option, so a second click while one is in flight lands after it, and
   // out-of-order completions can't leave the simulator on a stale value.
   const queue = useMemo(
-    () => latestWins((option: string, value: string) => sendRef.current(option, value)),
-    // One queue per simulator.
+    () => latestWins((option: string, value: string) => sendRef.current(udid, option, value)),
     [udid],
   );
   const apply = useCallback(
