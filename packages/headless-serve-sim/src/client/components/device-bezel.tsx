@@ -147,6 +147,11 @@ export function DeviceBezel({
   const bodyHeight = sideways ? geometry.artworkWidth : geometry.artworkHeight;
   const bodyLeft = (geometry.width - bodyWidth) / 2;
   const bodyTop = (geometry.height - bodyHeight) / 2;
+  // Hidden, the body stays mounted and fades: scaled about the screen's corner
+  // so its hole sits on the bare screen, which is bigger than the framed one.
+  const framedScreenWidth =
+    (sideways ? spec.nativeScreen.height : spec.nativeScreen.width) * geometry.scale;
+  const bare = framedScreenWidth ? screen.width / framedScreenWidth : 1;
 
   return (
     <div
@@ -161,8 +166,22 @@ export function DeviceBezel({
           drop shadow lives HERE rather than on the wrapper: the wrapper also
           contains the live screen, and a filter forces its whole subtree to be
           re-rasterized — every decoded frame would pay for the shadow. */}
-      {showFrame &&
-        (spec.artwork ? (
+      <div
+        data-bezel-layer=""
+        inert={!showFrame}
+        className="pointer-events-none absolute top-0 left-0"
+        style={{
+          width: geometry.width,
+          height: geometry.height,
+          opacity: showFrame ? 1 : 0,
+          transform: showFrame
+            ? undefined
+            : `translate(${-screen.x * bare}px, ${-screen.y * bare}px) scale(${bare})`,
+          transformOrigin: "0 0",
+          transition: "opacity 0.3s var(--ease-out-quint)",
+        }}
+      >
+        {spec.artwork ? (
           <div
             className="pointer-events-none absolute"
             style={{
@@ -203,7 +222,8 @@ export function DeviceBezel({
             className="pointer-events-none absolute inset-0 bg-[#09090b]"
             style={{ borderRadius: geometry.outerRadius, filter: SHADOW }}
           />
-        ))}
+        )}
+      </div>
 
       {/* The screen, composited over the body and clipped to the profile's own
           corner radii so the stream stops exactly where the glass does. */}

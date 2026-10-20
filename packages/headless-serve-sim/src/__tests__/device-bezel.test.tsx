@@ -72,6 +72,38 @@ function render(rotation: number, frame = spec) {
   );
 }
 
+test("a hidden bezel stays mounted around the bare screen so it can fade", () => {
+  const geometry = fitDeviceBezel({
+    spec,
+    rotation: 0,
+    availWidth: 1000,
+    availHeight: 1000,
+    maxScreenWidth: 1000,
+    maxScale: 1,
+  });
+  // As the stage passes it: the bare screen, twice the framed one's size.
+  const bare = {
+    ...geometry,
+    screen: {
+      ...geometry.screen,
+      width: geometry.screen.width * 2,
+      height: geometry.screen.height * 2,
+    },
+  };
+  const html = renderToStaticMarkup(
+    <DeviceBezel spec={spec} geometry={bare} showFrame={false}>
+      <span>stream</span>
+    </DeviceBezel>,
+  );
+  const layer = html.match(/<div data-bezel-layer=""[^>]*style="([^"]*)"/)?.[1];
+  expect(layer).toContain("opacity:0");
+  // Scaled about the screen's corner so its hole lands on the bare screen.
+  expect(layer).toContain(
+    `transform:translate(${-geometry.screen.x * 2}px, ${-geometry.screen.y * 2}px) scale(2)`,
+  );
+  expect(html).toMatch(/<div data-bezel-layer=""[^>]*inert/);
+});
+
 test("keeps ordinary unmasked phones clipped to their rotated profile radii", () => {
   const frame = { ...spec, screenMask: undefined };
   const geometry = fitDeviceBezel({

@@ -113,7 +113,7 @@ import {
 import { rotateLeft } from "./utils/rotate";
 import { cn } from "./lib/cn";
 import { sameDuoBounds, type DuoBounds } from "./utils/duo-bounds";
-import { rotationStart, type StagePose, type TurnOffsets } from "./utils/stage-pose";
+import { resizeStart, rotationStart, type StagePose, type TurnOffsets } from "./utils/stage-pose";
 import { confirmsOrientation } from "./utils/orientation-confirm";
 import {
   flightStart,
@@ -134,6 +134,7 @@ import { SIMULATOR_RESIZE_MAX_SCALE } from "./utils/simulator-resize";
 import { toggleSimulatorAppearance } from "./utils/simulator-appearance";
 import { fitDeviceFrame } from "./utils/frame-geometry";
 import { fitDeviceBezel } from "./utils/bezel-geometry";
+import { createCoalescedToast } from "./utils/coalesced-toast";
 import { resolveActiveScreenConfig } from "./utils/screen-config";
 import { readPersistedFlag, writePersistedFlag } from "./utils/persisted-flag";
 import { paneInitiallyOpen } from "../preview-initial-state";
@@ -972,15 +973,28 @@ function AppWithConfig({
   const dragRef = useRef<{ x: number; y: number; moves: number } | null>(null);
 
   // A failed input event is worth a word, not the stream's error screen, which
-  // nothing clears while the stream itself is fine.
-  const reportInputError = useCallback(
-    (error: unknown) =>
-      toast({
-        title: "Input not delivered",
-        detail: error instanceof Error ? error.message : String(error),
-        tone: "danger",
+  // nothing clears while the stream itself is fine. One word: a failing drag
+  // fails every move, and those update one toast rather than stacking.
+  const inputErrorToast = useMemo(
+    () =>
+      createCoalescedToast({
+        holdMs: 6000,
+        nextId: () => ++toastSeq,
+        show: (id, detail) =>
+          setToasts((list) =>
+            list.some((t) => t.id === id)
+              ? list.map((t) => (t.id === id ? { ...t, detail } : t))
+              : [...list, { id, title: "Input not delivered", detail, tone: "danger" }],
+          ),
+        dismiss: dismissToast,
+        setTimer: (run, ms) => setTimeout(run, ms),
+        clearTimer: (timer) => clearTimeout(timer),
       }),
-    [toast],
+    [dismissToast],
+  );
+  const reportInputError = useCallback(
+    (error: unknown) => inputErrorToast(error instanceof Error ? error.message : String(error)),
+    [inputErrorToast],
   );
   const keyboardQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const queueKeyboard = useCallback(
@@ -1100,6 +1114,9 @@ function AppWithConfig({
   const rotateRequestedAt = useRef(0);
   // Only turns we command ourselves, not ones we read back.
   const turnCommandedAt = useRef(0);
+  // Set by one-step resizes (the bezel, zoom to fit), so those animate while
+  // drags and window resizes track the pointer directly.
+  const resizeRequestedAt = useRef(0);
   const deviceOrientationEdit = useRef(0);
   const rotateDevice = useCallback(
     (orientation: SimulatorOrientation) => {
@@ -1177,6 +1194,7 @@ function AppWithConfig({
   }, [nativeComposition, streaming, duoOrientation]);
   const changeBezels = useCallback(
     (includeFrame: boolean) => {
+      resizeRequestedAt.current = Date.now();
       setShowBezels(includeFrame);
       if (!nativeComposition) return;
       deviceViewRef.current = {
@@ -1813,6 +1831,12 @@ function AppWithConfig({
   const poseRotation = nativeComposition ? 0 : bezelRotation;
   const poseCx = deviceLeft + visible.x + visible.width / 2;
   const poseCy = deviceTop + visible.y + visible.height / 2;
+  // The screen inside a bezel; a bare screen is the whole box.
+  const framedScreen =
+    !nativeComposition && showBezels && bezelSpec && bezelGeom ? bezelGeom.screen : null;
+  const screenCx = framedScreen && deviceLeft + framedScreen.x + framedScreen.width / 2;
+  const screenCy = framedScreen && deviceTop + framedScreen.y + framedScreen.height / 2;
+  const screenWidth = framedScreen?.width;
   const pose = useMemo<StagePose>(
     () => ({
       // The Duo's renderer turns the device itself, frame by frame.
@@ -1821,8 +1845,12 @@ function AppWithConfig({
       cy: poseCy,
       width: visible.width,
       height: visible.height,
+      screen:
+        screenCx === null || screenCy === null || screenWidth === undefined
+          ? undefined
+          : { cx: screenCx, cy: screenCy, width: screenWidth },
     }),
-    [poseRotation, poseCx, poseCy, visible.width, visible.height],
+    [poseRotation, poseCx, poseCy, visible.width, visible.height, screenCx, screenCy, screenWidth],
   );
   const poseRef = useRef(pose);
   const turnRef = useRef<HTMLDivElement>(null);
@@ -1832,7 +1860,42 @@ function AppWithConfig({
   useLayoutEffect(() => {
     const prev = poseRef.current;
     poseRef.current = pose;
-    if (prev.rotation === pose.rotation || !prev.width || !pose.width) return;
+    if (!prev.width || !pose.width) return;
+    if (prev.rotation === pose.rotation) {
+      // A one-step resize (the bezel, zoom to fit) glides from the old size;
+      // anything else (a drag, the window, the console's spring) tracks.
+      if (Date.now() - resizeRequestedAt.current > 1000) return;
+      resizeRequestedAt.current = 0;
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      const drawn: TurnOffsets = {
+        rotate: flyRotate.get(),
+        scale: flyScale.get(),
+        x: flyX.get(),
+        y: flyY.get(),
+        lift: dockLift.get(),
+        footprint: shadowWidth.get(),
+      };
+      const start = resizeStart(prev, pose, drawn);
+      // As for a turn: write the start now so it lands with the new geometry.
+      if (turnRef.current)
+        turnRef.current.style.transform = `translateX(${start.x}px) translateY(${start.y}px) scale(${start.scale}) rotate(${start.rotate}deg)`;
+      for (const el of [shadowLiftRef.current, dockLiftRef.current])
+        if (el) el.style.transform = `translateY(${start.lift}px)`;
+      if (shadowWidthRef.current)
+        shadowWidthRef.current.style.transform = `scaleX(${start.footprint})`;
+      // The turn, if one is running, carries on untouched.
+      for (const [key, value, rest] of [
+        ["scale", flyScale, 1],
+        ["x", flyX, 0],
+        ["y", flyY, 0],
+        ["lift", dockLift, 0],
+        ["footprint", shadowWidth, 1],
+      ] as const) {
+        value.jump(start[key]);
+        animate(value, rest, spring.surface);
+      }
+      return;
+    }
     if (Date.now() - rotateRequestedAt.current > 5000) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     // Start from where the device is drawn now — partway through a turn if one
@@ -2112,6 +2175,10 @@ function AppWithConfig({
       onKeyboardCaptureChange: setKeyboardCapture,
       onBezelsChange: changeBezels,
       onScaleChange: setDeviceScale,
+      onZoomToFit: () => {
+        resizeRequestedAt.current = Date.now();
+        setDeviceScale(1);
+      },
       onSoftwareKeyboard: toggleSoftwareKeyboard,
       onSlowAnimationsChange: (enabled) => {
         setSlowAnimations(enabled);
@@ -2231,12 +2298,15 @@ function AppWithConfig({
         onDecoderRecover={onDecoderRecover}
         onStreamScroll={onStreamScroll}
       />
-      {axOverlayEnabled && !nativeComposition && (
-        <AxDomOverlay
-          interfaceOrientation={liveStreamConfig?.interfaceOrientation}
-          displayOrientation={activeStreamConfig.orientation}
-        />
-      )}
+      <AnimatePresence>
+        {axOverlayEnabled && !nativeComposition && (
+          <AxDomOverlay
+            key="ax"
+            interfaceOrientation={liveStreamConfig?.interfaceOrientation}
+            displayOrientation={activeStreamConfig.orientation}
+          />
+        )}
+      </AnimatePresence>
       {!nativeComposition && screenOverlays}
     </>
   );

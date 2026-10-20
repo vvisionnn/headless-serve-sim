@@ -47,20 +47,27 @@ export function axSnapshotForDisplay(
 ): AxSnapshot {
   if (!interfaceOrientation || !displayOrientation || interfaceOrientation === displayOrientation)
     return snapshot;
+  // The snapshot's own shape decides: the reported orientation comes from the
+  // stream and can lag an app that just turned. When it disagrees, trust the
+  // device's if that fits, else the usual way up for that shape.
   const { width, height } = snapshot.screen;
-  const fixed = isLandscape(interfaceOrientation)
-    ? { width: height, height: width }
-    : { width, height };
+  const landscape = width > height;
+  const laidOut: SimulatorOrientation =
+    isLandscape(interfaceOrientation) === landscape
+      ? interfaceOrientation
+      : isLandscape(displayOrientation) === landscape
+        ? displayOrientation
+        : landscape
+          ? "landscape_right"
+          : "portrait";
+  if (laidOut === displayOrientation) return snapshot;
+  const fixed = landscape ? { width: height, height: width } : { width, height };
   return {
     ...snapshot,
     screen: isLandscape(displayOrientation) ? { width: fixed.height, height: fixed.width } : fixed,
     elements: snapshot.elements.map((element) => ({
       ...element,
-      frame: fromFixed(
-        toFixed(element.frame, fixed, interfaceOrientation),
-        fixed,
-        displayOrientation,
-      ),
+      frame: fromFixed(toFixed(element.frame, fixed, laidOut), fixed, displayOrientation),
     })),
   };
 }

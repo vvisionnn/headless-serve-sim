@@ -17,6 +17,7 @@ export function DeviceViewTool({
   onKeyboardCaptureChange,
   onBezelsChange,
   onScaleChange,
+  onZoomToFit = () => onScaleChange(1),
   onSlowAnimationsChange,
   onSoftwareKeyboard,
 }: {
@@ -27,6 +28,8 @@ export function DeviceViewTool({
   onKeyboardCaptureChange?: (value: boolean) => void;
   onBezelsChange: (value: boolean) => void;
   onScaleChange: (value: number) => void;
+  /** A one-step jump back to scale 1, which the stage animates; drags track. */
+  onZoomToFit?: () => void;
   onSlowAnimationsChange: (value: boolean) => void;
   onSoftwareKeyboard: () => void;
 }) {
@@ -34,7 +37,7 @@ export function DeviceViewTool({
     <Section
       title="View"
       accessory={
-        <Button variant="plain" size="sm" onClick={() => onScaleChange(1)}>
+        <Button variant="plain" size="sm" onClick={onZoomToFit}>
           Zoom to fit
         </Button>
       }

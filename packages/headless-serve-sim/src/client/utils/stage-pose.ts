@@ -5,6 +5,8 @@ export interface StagePose {
   cy: number;
   width: number;
   height: number;
+  /** Where the screen sits, when it isn't the whole box (a bezel around it). */
+  screen?: { cx: number; cy: number; width: number };
 }
 
 /**
@@ -50,6 +52,32 @@ export function rotationStart(
     scale: (unturnedSize(prev).width * drawn.scale) / unturnedSize(next).width,
     x: prev.cx + drawn.x - next.cx,
     y: prev.cy + drawn.y - next.cy,
+    lift: prev.cy + prev.height / 2 + drawn.lift - (next.cy + next.height / 2),
+    footprint: (prev.width * drawn.footprint) / next.width,
+  };
+}
+
+/**
+ * The offset to draw a resized device with (same turn, new size or place) so
+ * its screen still sits exactly where the old screen is drawn. The screen is
+ * what carries across — the bezel fades in or out around it — so the picture
+ * never jumps. The turning element scales about the device box's centre.
+ */
+export function resizeStart(
+  prev: StagePose,
+  next: StagePose,
+  drawn: TurnOffsets = AT_REST,
+): TurnOffsets {
+  const screenOf = (pose: StagePose) =>
+    pose.screen ?? { cx: pose.cx, cy: pose.cy, width: pose.width };
+  const from = screenOf(prev);
+  const to = screenOf(next);
+  const scale = (from.width * drawn.scale) / to.width;
+  return {
+    rotate: drawn.rotate,
+    scale,
+    x: prev.cx + drawn.scale * (from.cx - prev.cx) + drawn.x - next.cx - scale * (to.cx - next.cx),
+    y: prev.cy + drawn.scale * (from.cy - prev.cy) + drawn.y - next.cy - scale * (to.cy - next.cy),
     lift: prev.cy + prev.height / 2 + drawn.lift - (next.cy + next.height / 2),
     footprint: (prev.width * drawn.footprint) / next.width,
   };

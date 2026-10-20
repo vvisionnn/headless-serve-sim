@@ -21,6 +21,7 @@ import {
 import { digitalCrownDeltaFromWheel } from "./digitalCrown.js";
 import { wheelDeltaToPixels } from "./scroll-wheel.js";
 import { normalizedPoint } from "./touch-geometry.js";
+import { containedStreamBox } from "./stream-box.js";
 import { homeEdgeForRawPoint, rawPointForComposition } from "../composition-mapping.js";
 import { createMjpegFrameParser } from "../mjpeg-frame-parser.js";
 import { extractJpegComposition } from "../jpeg-composition.js";
@@ -244,18 +245,6 @@ export function SimulatorView({
   useEffect(() => {
     serverStatsRef.current = null;
   }, [url]);
-  const viewportRef = useRef<HTMLDivElement | null>(null);
-  const [viewportSize, setViewportSize] = useState<{ width: number; height: number } | null>(null);
-  useEffect(() => {
-    const el = viewportRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver((entries) => {
-      const rect = entries[0]?.contentRect;
-      if (rect) setViewportSize({ width: rect.width, height: rect.height });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
   const [fps, setFps] = useState(0);
   const frameCountRef = useRef(0);
   // Read in the stream effects' 1 Hz intervals without making it a dep (it never
@@ -1305,34 +1294,10 @@ export function SimulatorView({
     }
   }, [sendButton, onHomePress]);
 
-  // Compute the exact box that fits the stream's aspect ratio inside the
-  // viewport, so the <img> matches the video 1:1 (no letterbox, no clipping).
+  // The exact box that fits the stream's aspect ratio inside the viewport, so
+  // the <img> matches the video 1:1 (no letterbox, no clipping).
   const streamGeometry = streamDisplayGeometry(screenSize);
-  const displayScreenSize = streamGeometry.displayConfig;
-  // The ResizeObserver reports after paint; when the shape of the screen
-  // changes (a turn), re-measure before it so the box is right on that frame.
-  // Layout sizes, not bounding rects: an ancestor may be mid-transform.
-  useLayoutEffect(() => {
-    const el = viewportRef.current;
-    if (!el) return;
-    const width = el.clientWidth;
-    const height = el.clientHeight;
-    setViewportSize((prev) =>
-      prev && prev.width === width && prev.height === height ? prev : { width, height },
-    );
-  }, [displayScreenSize?.width, displayScreenSize?.height, streamGeometry.rotationDegrees]);
-  const fittedBox = (() => {
-    if (!displayScreenSize || !viewportSize) return null;
-    if (viewportSize.width === 0 || viewportSize.height === 0) return null;
-    const scale = Math.min(
-      viewportSize.width / displayScreenSize.width,
-      viewportSize.height / displayScreenSize.height,
-    );
-    return {
-      width: displayScreenSize.width * scale,
-      height: displayScreenSize.height * scale,
-    };
-  })();
+  const fittedBox = containedStreamBox(streamGeometry.displayConfig);
   const rotationDegrees = streamGeometry.rotationDegrees;
   const rotatesSideways = streamGeometry.needsCssRotation && Math.abs(rotationDegrees) === 90;
   const clipStyle = imageStyle as (CSSProperties & { cornerShape?: string }) | undefined;
@@ -1340,8 +1305,8 @@ export function SimulatorView({
     position: "absolute",
     top: "50%",
     left: "50%",
-    width: rotatesSideways && fittedBox ? `${fittedBox.height}px` : "100%",
-    height: rotatesSideways && fittedBox ? `${fittedBox.width}px` : "100%",
+    width: rotatesSideways ? fittedBox.height : "100%",
+    height: rotatesSideways ? fittedBox.width : "100%",
     transform: `translate(-50%, -50%)${
       rotationDegrees === 0 ? "" : ` rotate(${rotationDegrees}deg)`
     }`,
@@ -1370,12 +1335,12 @@ export function SimulatorView({
       className={className}
     >
       <div
-        ref={viewportRef}
         style={{
           position: "relative",
           flex: 1,
           minHeight: 0,
           minWidth: 0,
+          containerType: "size",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -1386,8 +1351,8 @@ export function SimulatorView({
           style={
             {
               position: "relative",
-              width: fittedBox ? `${fittedBox.width}px` : "100%",
-              height: fittedBox ? `${fittedBox.height}px` : "100%",
+              width: fittedBox.width,
+              height: fittedBox.height,
               overflow: "hidden",
               borderRadius: clipStyle?.borderRadius,
               cornerShape: clipStyle?.cornerShape,
