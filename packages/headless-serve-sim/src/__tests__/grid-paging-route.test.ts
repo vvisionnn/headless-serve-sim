@@ -139,3 +139,45 @@ describe("/grid/api pagination", () => {
     expect(body.devices[0]?.device).toBe("UDID-020");
   });
 });
+
+describe("/grid/api simulator inventory", () => {
+  test("concurrent and back-to-back polls share one simctl list", async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), "grid-coalesce-test-"));
+    const host = createScriptedHostCommands(
+      Array.from({ length: 8 }, () => ({ result: { stdout: simctlList(3) } })),
+    );
+    let clock = 1_000;
+    const handler = createSimMiddleware(host, {
+      basePath: "/",
+      execToken: "t",
+      serveSimBin: "test-headless-serve-sim",
+      stateDir,
+      now: () => clock,
+    });
+    const server = createServer((req, res) => handler(req, res));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const lists = () =>
+      host.calls.filter((call) => call.request.args?.join(" ") === "simctl list devices -j").length;
+    const grid = () =>
+      fetch(`http://127.0.0.1:${port}/grid/api?limit=24`).then(
+        (r) => r.json() as Promise<GridResponse>,
+      );
+    try {
+      const bodies = await Promise.all([grid(), grid(), grid()]);
+      expect(bodies.every((b) => b.devices.length === 3)).toBe(true);
+      expect(lists()).toBe(1);
+      // A poll just after still reads the same inventory...
+      clock += 200;
+      await grid();
+      expect(lists()).toBe(1);
+      // ...but one past the short TTL asks simctl again.
+      clock += 1_000;
+      await grid();
+      expect(lists()).toBe(2);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+});
