@@ -58,6 +58,7 @@ import {
 import {
   AppearanceReveal,
   DropOverlay,
+  largestSurface,
   ScreenGlow,
   ScreenshotFlight,
   Shutter,
@@ -125,6 +126,7 @@ import {
 import { simEndpoint } from "./utils/sim-endpoint";
 import { SIMULATOR_RESIZE_MAX_SCALE } from "./utils/simulator-resize";
 import { toggleSimulatorAppearance } from "./utils/simulator-appearance";
+import { cachedSimulatorSettings, patchSimulatorSettings } from "./utils/simulator-settings-cache";
 import { fitDeviceFrame } from "./utils/frame-geometry";
 import { fitDeviceBezel } from "./utils/bezel-geometry";
 import { resolveActiveScreenConfig } from "./utils/screen-config";
@@ -587,7 +589,11 @@ function AppWithConfig({
   }, []);
   const [shutter, setShutter] = useState(0);
   const [flight, setFlight] = useState<Flight | null>(null);
-  const [reveal, setReveal] = useState<{ id: number; url: string } | null>(null);
+  const [reveal, setReveal] = useState<{
+    id: number;
+    url: string;
+    source: CanvasImageSource | null;
+  } | null>(null);
   const endReveal = useCallback(() => setReveal(null), []);
   const endFlight = useCallback(() => setFlight(null), []);
 
@@ -1148,14 +1154,23 @@ function AppWithConfig({
   const currentOrientation = foldable
     ? (duoOrientation ?? "portrait")
     : ((activeStreamConfig as { orientation?: SimulatorOrientation }).orientation ?? "portrait");
-  // Flip the simulator between light and dark appearance. Reads the current
-  // mode and sets the opposite, so every invocation is a real toggle — shared
-  // by the toolbar button and the ⇧⌘A shortcut.
+  // Flip the simulator between light and dark appearance, so every invocation
+  // is a real toggle — shared by the toolbar button and the ⇧⌘A shortcut. The
+  // last known mode (the inspector's cache) saves reading it first, and the
+  // inspector's pill moves at the click rather than after simctl returns.
   const toggleAppearance = useCallback(() => {
     // Hold the current frame so the new appearance can be revealed under it.
     const snap = snapshotScreen(simContainerRef.current);
-    if (snap) setReveal({ id: Date.now(), url: snap.url });
-    void toggleSimulatorAppearance(config.device, execOnHost, refreshUiSettings).catch(() => {});
+    if (snap) {
+      const source = largestSurface(simContainerRef.current);
+      setReveal({ id: Date.now(), url: snap.url, source });
+    }
+    const udid = config.device;
+    const known = cachedSimulatorSettings(udid)?.appearance;
+    if (known) patchSimulatorSettings(udid, { appearance: known === "dark" ? "light" : "dark" });
+    void toggleSimulatorAppearance(udid, execOnHost, refreshUiSettings, known).catch(
+      refreshUiSettings,
+    );
   }, [config.device]);
 
   // Screenshot: flash, capture, then the thumbnail lifts off the screen into
@@ -2002,7 +2017,14 @@ function AppWithConfig({
   const screenOverlays = (
     <>
       <Shutter count={shutter} />
-      {reveal && <AppearanceReveal key={reveal.id} url={reveal.url} onDone={endReveal} />}
+      {reveal && (
+        <AppearanceReveal
+          key={reveal.id}
+          url={reveal.url}
+          source={reveal.source}
+          onDone={endReveal}
+        />
+      )}
       <AnimatePresence>
         {heldFrame && (
           <motion.img
