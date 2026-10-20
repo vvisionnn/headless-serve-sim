@@ -127,6 +127,7 @@ import { SIMULATOR_RESIZE_MAX_SCALE } from "./utils/simulator-resize";
 import { toggleSimulatorAppearance } from "./utils/simulator-appearance";
 import { fitDeviceFrame } from "./utils/frame-geometry";
 import { fitDeviceBezel } from "./utils/bezel-geometry";
+import { createCoalescedToast } from "./utils/coalesced-toast";
 import { resolveActiveScreenConfig } from "./utils/screen-config";
 import { readPersistedFlag, writePersistedFlag } from "./utils/persisted-flag";
 import { paneInitiallyOpen } from "../preview-initial-state";
@@ -924,15 +925,28 @@ function AppWithConfig({
   const dragRef = useRef<{ x: number; y: number; moves: number } | null>(null);
 
   // A failed input event is worth a word, not the stream's error screen, which
-  // nothing clears while the stream itself is fine.
-  const reportInputError = useCallback(
-    (error: unknown) =>
-      toast({
-        title: "Input not delivered",
-        detail: error instanceof Error ? error.message : String(error),
-        tone: "danger",
+  // nothing clears while the stream itself is fine. One word: a failing drag
+  // fails every move, and those update one toast rather than stacking.
+  const inputErrorToast = useMemo(
+    () =>
+      createCoalescedToast({
+        holdMs: 6000,
+        nextId: () => ++toastSeq,
+        show: (id, detail) =>
+          setToasts((list) =>
+            list.some((t) => t.id === id)
+              ? list.map((t) => (t.id === id ? { ...t, detail } : t))
+              : [...list, { id, title: "Input not delivered", detail, tone: "danger" }],
+          ),
+        dismiss: dismissToast,
+        setTimer: (run, ms) => setTimeout(run, ms),
+        clearTimer: (timer) => clearTimeout(timer),
       }),
-    [toast],
+    [dismissToast],
+  );
+  const reportInputError = useCallback(
+    (error: unknown) => inputErrorToast(error instanceof Error ? error.message : String(error)),
+    [inputErrorToast],
   );
   const keyboardQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const queueKeyboard = useCallback(
