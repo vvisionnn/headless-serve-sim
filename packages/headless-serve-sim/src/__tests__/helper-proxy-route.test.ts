@@ -33,7 +33,9 @@ async function startFakeHelper(): Promise<{ origin: string; port: number }> {
     }
     if (req.url?.startsWith("/config")) {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ width: 393, height: 852, url: req.url }));
+      res.end(
+        JSON.stringify({ width: 393, height: 852, orientation: "landscape_left", url: req.url }),
+      );
       return;
     }
     res.writeHead(404);
@@ -160,6 +162,16 @@ describe("helper proxy", () => {
       release();
       controller.abort();
     }
+  });
+
+  // An in-place switch builds its stage from /api alone, so it must carry the
+  // helper's screen (and how the device is held), as the page itself does.
+  test("the config for a device carries its helper's screen", async () => {
+    const helper = await startFakeHelper();
+    const origin = await startPreview(helper);
+    const res = await fetch(`${origin}/api?device=${DEVICE}`);
+    const body = (await res.json()) as { screenConfig?: unknown };
+    expect(body.screenConfig).toEqual({ width: 393, height: 852, orientation: "landscape_left" });
   });
 
   test("forwards an HTTP request to the helper", async () => {

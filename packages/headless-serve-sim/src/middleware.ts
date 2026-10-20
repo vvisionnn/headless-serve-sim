@@ -1876,9 +1876,15 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
       });
       const remoteState = state ? rewriteStateForRequestHost(state, req.headers?.host) : null;
       void (async () => {
-        const deviceMetadata = state
-          ? await resolveInstalledDeviceMetadata(state.device)
-          : undefined;
+        // An in-place switch builds its stage from this alone, so carry the
+        // helper's screen as the page does: a device held sideways then
+        // arrives sideways instead of turning a moment later.
+        const [screenConfig, deviceMetadata] = state
+          ? await Promise.all([
+              fetchHelperScreenConfig(state.url),
+              resolveInstalledDeviceMetadata(state.device),
+            ])
+          : [null, undefined];
         res.end(
           JSON.stringify(
             remoteState
@@ -1887,7 +1893,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
                   base,
                   serveSimBin,
                   execToken,
-                  null,
+                  screenConfig,
                   deviceMetadata,
                   null,
                   proxyFor(req),
