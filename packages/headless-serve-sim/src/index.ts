@@ -56,6 +56,7 @@ import { resolveUnembeddedHelperBinary } from "./helper-binary";
 import { resolveNativeSourceRoot } from "./native-source-root";
 import { resolveSimulatorApp, withSimulatorFrameworkPath } from "./xcode-layout";
 import { ensureTouchService } from "./touch-service";
+import { cliTouchPayload } from "./cli-touch";
 
 // `import.meta.dir` is Bun-only; resolve once via fileURLToPath so the bundled
 // CLI works under plain `node` too.
@@ -1183,7 +1184,7 @@ async function gesture(jsonStr: string, deviceArg?: string) {
     ws.binaryType = "arraybuffer";
 
     ws.onopen = () => {
-      const json = new TextEncoder().encode(JSON.stringify(touch));
+      const json = new TextEncoder().encode(JSON.stringify(cliTouchPayload(touch)));
       const msg = new Uint8Array(1 + json.length);
       msg[0] = 0x03;
       msg.set(json, 1);
@@ -1219,7 +1220,7 @@ async function tap(xArg: string, yArg: string, deviceArg?: string) {
     const ws = new WebSocket(state.wsUrl);
     ws.binaryType = "arraybuffer";
     const send = (type: "begin" | "end") => {
-      const json = new TextEncoder().encode(JSON.stringify({ type, x, y }));
+      const json = new TextEncoder().encode(JSON.stringify(cliTouchPayload({ type, x, y })));
       const msg = new Uint8Array(1 + json.length);
       msg[0] = 0x03;
       msg.set(json, 1);
