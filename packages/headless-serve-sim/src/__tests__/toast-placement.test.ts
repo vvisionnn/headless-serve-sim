@@ -118,8 +118,11 @@ describe("createClearanceTracker", () => {
 
   test("jumps again only once the stack has emptied", () => {
     const tracker = createClearanceTracker();
+    expect(tracker.placed).toBe(false);
     tracker.reach(106);
+    expect(tracker.placed).toBe(true);
     tracker.reset();
+    expect(tracker.placed).toBe(false);
     expect(tracker.reach(20)).toBe("jump");
   });
 });

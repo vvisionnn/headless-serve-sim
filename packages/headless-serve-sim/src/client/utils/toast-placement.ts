@@ -79,6 +79,10 @@ export function toastPlacement({
 export function createClearanceTracker() {
   let target: number | null = null;
   return {
+    /** Whether a toast is up and the stack already has a place. */
+    get placed() {
+      return target !== null;
+    },
     reach(next: number): "jump" | "spring" | "stay" {
       const move = target === null ? "jump" : next === target ? "stay" : "spring";
       target = next;

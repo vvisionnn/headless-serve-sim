@@ -14,6 +14,8 @@ export interface ToastItem {
 }
 
 const STACK_W = 320;
+// Frames the dock and screen must hold still before a placed stack moves.
+const STILL_FRAMES = 4;
 
 /**
  * Where the stack sits to stay clear of the device dock and the live screen.
@@ -21,7 +23,10 @@ const STACK_W = 320;
  * toast is up they're measured each frame and the stack springs to follow.
  * The first toast lands in place: the empty stack jumps there before it
  * paints. The targets outlive the effect re-running (the inspector opening
- * moves `right`), so a toast already up springs rather than jumps.
+ * moves `right`), so a toast already up springs rather than jumps. While the
+ * dock or screen is still moving (the stage sliding as the inspector opens)
+ * the stack keeps its place: mid-slide they can call for a lift that's gone
+ * a moment later, and following it would send the stack up and back.
  */
 function useClearance(
   active: boolean,
@@ -51,19 +56,31 @@ function useClearance(
       if (move === "jump") value.jump(next);
       else if (move === "spring") animate(value, next, spring.surface);
     };
+    // Counted afresh each run: what changed `right` (the inspector) may only
+    // set the stage moving a frame or two later.
+    let last = "";
+    let still = 0;
     const measure = () => {
+      frame = requestAnimationFrame(measure);
       const box = (el: Element) => el.getBoundingClientRect();
       const dockEl = document.querySelector("[data-device-dock]");
+      const dock = dockEl ? box(dockEl) : null;
+      const screens = [...document.querySelectorAll("[data-device-screen]")].map(box);
+      const key = [dock, ...screens]
+        .map((r) => (r ? `${r.left},${r.top},${r.right},${r.bottom}` : "-"))
+        .join(" ");
+      still = key === last ? still + 1 : 0;
+      last = key;
+      if (still < STILL_FRAMES && trackers.bottom.placed) return;
       const next = toastPlacement({
         viewport: { width: window.innerWidth, height: window.innerHeight },
         right,
         width: STACK_W,
-        dock: dockEl ? box(dockEl) : null,
-        screens: [...document.querySelectorAll("[data-device-screen]")].map(box),
+        dock,
+        screens,
       });
       follow(bottom, trackers.bottom, next.bottom);
       follow(width, trackers.width, next.width);
-      frame = requestAnimationFrame(measure);
     };
     measure();
     return () => cancelAnimationFrame(frame);
