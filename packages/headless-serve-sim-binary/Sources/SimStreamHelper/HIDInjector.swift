@@ -147,7 +147,7 @@ final class HIDInjector {
 
     /// Build a single-finger touch message from normalized (0..1) coords.
     /// Runs on `inputQueue`. NSSize(1,1) makes ratio = point.
-    private func touchMessage(type: String, x: Double, y: Double, edge: UInt32, displayID: Int? = nil) -> UnsafeMutableRawPointer? {
+    private func touchMessage(type: String, x: Double, y: Double, edge: UInt32, target: UInt32) -> UnsafeMutableRawPointer? {
         guard let mouseFunc = mouseFunc else { return nil }
         let eventType: Int32
         switch type {
@@ -157,13 +157,20 @@ final class HIDInjector {
         default: return nil
         }
         var point = CGPoint(x: x, y: y)
-        return mouseFunc(&point, nil, displayID.map { HIDTouchTarget.select(displayID: $0) } ?? digitizerTarget, eventType, 1.0, 1.0, edge)
+        return mouseFunc(&point, nil, target, eventType, 1.0, 1.0, edge)
     }
+
+    /// The panel and rotation a touch would land on right now. Only read on `inputQueue`.
+    private func currentRoute(displayID: Int?) -> HIDTouchPin.Route {
+        .init(target: displayID.map { HIDTouchTarget.select(displayID: $0) } ?? digitizerTarget, rotation: displayRotation)
+    }
+    private var touchPin = HIDTouchPin()
+    private var multiTouchPin = HIDTouchPin()
 
     /// Build and deliver one touch synchronously. Only call from `inputQueue`
     /// (the multi-step gestures below already run there).
     private func rawSendTouch(type: String, x: Double, y: Double, edge: UInt32 = 0, displayID: Int? = nil) {
-        if let msg = touchMessage(type: type, x: x, y: y, edge: edge, displayID: displayID) { rawSend(msg) }
+        if let msg = touchMessage(type: type, x: x, y: y, edge: edge, target: currentRoute(displayID: displayID).target) { rawSend(msg) }
     }
 
     /// `interfaceSpace`: x/y/edge are upright in the interface orientation and
@@ -174,13 +181,14 @@ final class HIDInjector {
         // the scroll finger has to come up first, ordering alone isn't enough.
         inputQueue.async { [self] in
             finishScrollDrag()
+            let route = touchPin.resolve(type: type, current: currentRoute(displayID: displayID))
             var x = x, y = y, edge = edge
             if interfaceSpace {
-                let native = HIDDisplayInput.nativeTouch(x: x, y: y, edge: edge, rotation: displayRotation,
+                let native = HIDDisplayInput.nativeTouch(x: x, y: y, edge: edge, rotation: route.rotation,
                                                          hasMultipleIntegratedDisplays: hasMultipleIntegratedDisplays)
                 (x, y, edge) = (native.point.x, native.point.y, native.edge)
             }
-            guard let msg = touchMessage(type: type, x: x, y: y, edge: edge, displayID: displayID) else {
+            guard let msg = touchMessage(type: type, x: x, y: y, edge: edge, target: route.target) else {
                 print("[hid] IndigoHIDMessageForMouseNSEvent returned nil for \(type)")
                 return
             }
@@ -205,16 +213,16 @@ final class HIDInjector {
             // Pass both CGPoints to create a 3-block multi-touch message.
             // NSSize(1.0, 1.0) makes ratio = point / 1.0 = point, so all fields
             // (ratios + any derived values) are computed correctly by the C function.
+            let route = multiTouchPin.resolve(type: type, current: currentRoute(displayID: displayID))
             var point1 = CGPoint(x: x1, y: y1)
             var point2 = CGPoint(x: x2, y: y2)
             if interfaceSpace {
-                point1 = HIDDisplayInput.nativeTouch(x: x1, y: y1, edge: 0, rotation: displayRotation,
+                point1 = HIDDisplayInput.nativeTouch(x: x1, y: y1, edge: 0, rotation: route.rotation,
                                                      hasMultipleIntegratedDisplays: hasMultipleIntegratedDisplays).point
-                point2 = HIDDisplayInput.nativeTouch(x: x2, y: y2, edge: 0, rotation: displayRotation,
+                point2 = HIDDisplayInput.nativeTouch(x: x2, y: y2, edge: 0, rotation: route.rotation,
                                                      hasMultipleIntegratedDisplays: hasMultipleIntegratedDisplays).point
             }
-            let target = displayID.map { HIDTouchTarget.select(displayID: $0) } ?? digitizerTarget
-            guard let rawMsg = mouseFunc(&point1, &point2, target, eventType, 1.0, 1.0, 0) else {
+            guard let rawMsg = mouseFunc(&point1, &point2, route.target, eventType, 1.0, 1.0, 0) else {
                 print("[hid] IndigoHIDMessageForMouseNSEvent returned nil for multi-touch \(type)")
                 return
             }
