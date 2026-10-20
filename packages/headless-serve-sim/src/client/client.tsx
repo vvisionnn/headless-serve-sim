@@ -88,6 +88,7 @@ import { screenOrientationForDevice, withDeviceOrientation } from "./utils/devic
 import { DeviceMotionTool, type DuoPose } from "./components/device-motion-tool";
 import { createFoldControl } from "./utils/fold-control";
 import { sendDeviceView, type DeviceView } from "./utils/device-view-control";
+import { nativeTouchPoint } from "./utils/native-touch";
 import { observedDuoOrientation, shouldApplyObservedHinge } from "./utils/fold-sync";
 import { duoHardwareCommands } from "./utils/duo-hardware";
 import { type HardwareButtonPress } from "./utils/hardware-buttons";
@@ -921,22 +922,31 @@ function AppWithConfig({
   // event in the window and make the panel useless during a scroll.
   const dragRef = useRef<{ x: number; y: number; moves: number } | null>(null);
 
+  // A failed input event is worth a word, not the stream's error screen, which
+  // nothing clears while the stream itself is fine.
+  const reportInputError = useCallback(
+    (error: unknown) =>
+      toast({
+        title: "Input not delivered",
+        detail: error instanceof Error ? error.message : String(error),
+        tone: "danger",
+      }),
+    [toast],
+  );
   const keyboardQueueRef = useRef<Promise<unknown>>(Promise.resolve());
-  const queueKeyboard = useCallback((operation: () => Promise<unknown>) => {
-    keyboardQueueRef.current = keyboardQueueRef.current
-      .then(operation)
-      .catch((error: unknown) =>
-        setStreamError(error instanceof Error ? error.message : String(error)),
-      );
-  }, []);
+  const queueKeyboard = useCallback(
+    (operation: () => Promise<unknown>) => {
+      keyboardQueueRef.current = keyboardQueueRef.current.then(operation).catch(reportInputError);
+    },
+    [reportInputError],
+  );
   const onStreamTouch = useCallback(
     (data: any) => {
       if (deviceType === "ipad") {
         queueKeyboard(async () => {
           const handled = await hostDeviceTouchRequest({
             device: config.device,
-            x: data.x,
-            y: data.y,
+            ...nativeTouchPoint(data),
             phase: data.type,
           });
           if (!handled) sendWs(0x03, data);
@@ -1014,10 +1024,10 @@ function AppWithConfig({
   );
   const toggleSoftwareKeyboard = useCallback(() => {
     void hostDeviceMotionRequest({ device: config.device, command: "software-keyboard" }).catch(
-      (error: unknown) => setStreamError(error instanceof Error ? error.message : String(error)),
+      reportInputError,
     );
     logEvent({ kind: "software-keyboard" });
-  }, [config.device, logEvent]);
+  }, [config.device, logEvent, reportInputError]);
   const onModeChange = useCallback((mode: StreamMode) => {
     pendingStreamModeRef.current = { mode, mismatches: 0 };
     setStreamMode(mode);
