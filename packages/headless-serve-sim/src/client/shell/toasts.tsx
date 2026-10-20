@@ -1,8 +1,9 @@
-import { AnimatePresence, motion } from "motion/react";
+import { animate, AnimatePresence, motion, useMotionValue, type MotionValue } from "motion/react";
 import { CircleAlert, CircleCheck, LoaderCircle } from "lucide-react";
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { cn } from "../lib/cn";
 import { project, spring } from "../lib/motion";
+import { TOAST_BOTTOM, toastBottom } from "../utils/toast-placement";
 
 export interface ToastItem {
   id: string | number;
@@ -10,6 +11,46 @@ export interface ToastItem {
   detail?: string;
   tone?: "neutral" | "success" | "danger";
   progress?: number | "indeterminate";
+}
+
+const STACK_W = 320;
+
+/**
+ * How far up the stack sits to stay clear of the device dock. The dock moves
+ * with the device (fits, turns, the console opening), so while any toast is
+ * up it's measured each frame and the stack springs to follow. The first
+ * toast lands in place: the empty stack jumps there before it paints.
+ */
+function useDockClearance(active: boolean, right: number): MotionValue<number> {
+  const bottom = useMotionValue(TOAST_BOTTOM);
+  useLayoutEffect(() => {
+    if (!active) return;
+    let frame = 0;
+    let target: number | null = null;
+    let anim: { stop: () => void } | null = null;
+    const measure = () => {
+      const dock = document.querySelector("[data-device-dock]")?.getBoundingClientRect() ?? null;
+      const next = toastBottom({
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        right,
+        width: STACK_W,
+        dock,
+      });
+      if (target === null) bottom.jump(next);
+      else if (next !== target) {
+        anim?.stop();
+        anim = animate(bottom, next, spring.surface);
+      }
+      target = next;
+      frame = requestAnimationFrame(measure);
+    };
+    measure();
+    return () => {
+      cancelAnimationFrame(frame);
+      anim?.stop();
+    };
+  }, [active, right, bottom]);
+  return bottom;
 }
 
 /**
@@ -29,12 +70,14 @@ export function Toasts({
 }) {
   const [hover, setHover] = useState(false);
   const list = [...items].reverse();
+  const bottom = useDockClearance(items.length > 0, right);
   return (
     <motion.div
-      className="fixed bottom-5 z-[60] w-[320px]"
+      className="fixed z-[60] w-[320px]"
       initial={false}
       animate={{ right }}
       transition={spring.surface}
+      style={{ bottom }}
       onHoverStart={() => setHover(true)}
       onHoverEnd={() => setHover(false)}
     >

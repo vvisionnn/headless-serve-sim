@@ -31,6 +31,7 @@ export function DeviceDock({ intro = true }: { intro?: boolean }) {
   const off = !shell.streaming;
   return (
     <motion.div
+      data-device-dock
       onMouseMove={(e) => mouseX.set(e.clientX)}
       onMouseLeave={() => mouseX.set(Infinity)}
       className="glass flex h-[50px] items-end gap-1 rounded-[25px] px-[7px] pb-[7px]"
