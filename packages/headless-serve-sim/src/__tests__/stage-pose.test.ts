@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
+import { spring as springGenerator } from "motion";
 import {
   AT_REST,
   resizeStart,
   rotationStart,
+  turnTransition,
   unturnedSize,
   type StagePose,
   type TurnOffsets,
@@ -132,4 +134,41 @@ test("a resize begun mid-resize starts from where the screen is drawn", () => {
   for (const key of Object.keys(before) as (keyof typeof before)[])
     expect(after[key]).toBeCloseTo(before[key]);
   expect(big.cy + big.height / 2 + start.lift).toBeCloseTo(small.cy + small.height / 2 + live.lift);
+});
+
+// Steps a transition the way Motion's frame loop would, 60 times a second.
+function frames(transition: ReturnType<typeof turnTransition>, from: number) {
+  const g = springGenerator({ keyframes: [from, 0], ...transition });
+  const values: number[] = [];
+  for (let i = 0; i < 600; i++) {
+    const { value, done } = g.next(i * (1000 / 60));
+    values.push(value as number);
+    if (done) break;
+  }
+  return values;
+}
+
+test("a turn settles on its own instead of snapping to rest on its last frame", () => {
+  for (const from of [-90, 180]) {
+    const values = frames(turnTransition(from, null), from);
+    expect(values.at(-1)).toBe(0);
+    expect(Math.abs(values.at(-2)!)).toBeLessThan(0.01);
+  }
+  const moving = frames(turnTransition(-90, 1000), -90);
+  expect(Math.abs(moving.at(-2)!)).toBeLessThan(0.01);
+  // The scale channel too (offset from its rest of 1): no sub-pixel re-sharpen.
+  const scale = frames(turnTransition(-90, null), 0.3);
+  expect(Math.abs(scale.at(-2)!)).toBeLessThan(0.0001);
+});
+
+test("a half turn takes a little longer than a quarter", () => {
+  expect(frames(turnTransition(180, null), 180).length).toBeGreaterThan(
+    frames(turnTransition(90, null), 90).length,
+  );
+});
+
+test("a turn picked up mid-turn starts its clock at the last frame drawn", () => {
+  // Its start was read from that frame, so no time between it and the click is lost.
+  expect(turnTransition(-60, 1234.5)).toMatchObject({ startTime: 1234.5 });
+  expect(turnTransition(-90, null)).not.toHaveProperty("startTime");
 });
