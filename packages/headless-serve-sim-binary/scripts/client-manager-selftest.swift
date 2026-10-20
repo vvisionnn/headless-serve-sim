@@ -84,14 +84,17 @@ func flush(_ manager: ClientManager) { _ = manager.avccTransportMetrics() }
         composed.addWSClient(watcher)
         flush(composed)
         let before = watcher.writtenFrames().count
+        // A Duo panel turns the other way for the same rotation (see
+        // HIDDisplayInput.nativeTouch), so rot270 there is landscape_right.
         composed.setDisplay(id: 3, rotation: 270, width: 1350, height: 1800)
         precondition(composed.screenConfig()["orientation"] as? String == "portrait")
-        precondition(composed.screenConfig()["interfaceOrientation"] as? String == "landscape_left")
+        precondition(composed.screenConfig()["interfaceOrientation"] as? String == "landscape_right")
         flush(composed)
         let pushed = watcher.writtenFrames()
         precondition(pushed.count == before + 1, "a rotation change must push one config update")
         let pushedConfig = try JSONSerialization.jsonObject(with: Data(pushed.last!.dropFirst())) as! [String: Any]
-        precondition(pushedConfig["interfaceOrientation"] as? String == "landscape_left")
+        precondition(pushedConfig["interfaceOrientation"] as? String == "landscape_right")
+        precondition((pushedConfig["activeDisplay"] as? [String: Any])?["orientation"] as? String == "landscape_right")
         precondition((pushedConfig["activeDisplay"] as? [String: Any])?["rotation"] as? Int == 270)
         composed.setDisplay(id: 3, rotation: 270, width: 1350, height: 1800)
         flush(composed)

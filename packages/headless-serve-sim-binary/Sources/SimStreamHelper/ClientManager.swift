@@ -134,8 +134,10 @@ final class ClientManager {
         ]
         if let displayID { config["displayId"] = displayID }
         // The real interface orientation, which `orientation` hides under
-        // device composition (the composed video is always upright).
-        let interfaceOrientation = Self.orientationName(rotation: displayRotation)
+        // device composition (the composed video is always upright). A Duo
+        // panel turns the other way for the same rotation, as touches do.
+        let interfaceOrientation = Self.orientationName(
+            rotation: deviceComposition ? (360 - displayRotation) % 360 : displayRotation)
         config["interfaceOrientation"] = interfaceOrientation
         if let displayID {
             var active: [String: Any] = ["id": displayID, "rotation": displayRotation,
