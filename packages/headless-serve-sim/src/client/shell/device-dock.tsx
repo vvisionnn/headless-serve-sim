@@ -13,7 +13,8 @@ import { cn } from "../lib/cn";
 import { spring } from "../lib/motion";
 import { Shortcut } from "../ui/kbd";
 import { recordMorphed } from "../utils/record-morph";
-import { useShell } from "./shell-context";
+import { formatRecordTimer, recordTimerSecs } from "../utils/record-timer";
+import { useShell, type RecordingController } from "./shell-context";
 
 const BASE = 36;
 const MAG = 46;
@@ -239,6 +240,19 @@ export function useElapsed(startedAt: number | null) {
   return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
 }
 
+/** The capsule's m:ss: counting while recording, held from the stop on. */
+function useRecordTimer(status: RecordingController["status"], startedAt: number | null) {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    const update = () => setSecs((shown) => recordTimerSecs(shown, status, startedAt, Date.now()));
+    update();
+    if (status !== "recording") return;
+    const t = setInterval(update, 250);
+    return () => clearInterval(t);
+  }, [status, startedAt]);
+  return formatRecordTimer(secs);
+}
+
 /**
  * Record morphs into a live red capsule that counts, then back.
  *
@@ -275,7 +289,7 @@ function RecordItem({ mouseX }: { mouseX: MotionValue<number> }) {
   const mark = useTransform(p, (k) => 11 - k);
   const markRadius = useTransform(p, (k) => 5.5 - k * 2.5);
   const markColor = useTransform(p, [0, 1], ["#ff3b30", "#ffffff"]);
-  const elapsed = useElapsed(rec.status === "recording" ? rec.startedAt : null);
+  const elapsed = useRecordTimer(rec.status, rec.startedAt);
   const [hover, setHover] = useState(false);
   const disabled = !recording && (!streaming || !rec.available);
   const label = recording ? "Stop recording" : "Record screen";
