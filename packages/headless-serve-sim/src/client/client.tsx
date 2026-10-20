@@ -131,8 +131,7 @@ import {
 } from "./utils/screenshot";
 import { simEndpoint } from "./utils/sim-endpoint";
 import { SIMULATOR_RESIZE_MAX_SCALE } from "./utils/simulator-resize";
-import { toggleSimulatorAppearance } from "./utils/simulator-appearance";
-import { cachedSimulatorSettings, patchSimulatorSettings } from "./utils/simulator-settings-cache";
+import { toggleCachedSimulatorAppearance } from "./utils/simulator-appearance";
 import { fitDeviceFrame } from "./utils/frame-geometry";
 import { fitDeviceBezel } from "./utils/bezel-geometry";
 import { createCoalescedToast } from "./utils/coalesced-toast";
@@ -1230,10 +1229,7 @@ function AppWithConfig({
       const source = largestSurface(simContainerRef.current);
       setReveal({ id: Date.now(), url: snap.url, source });
     }
-    const udid = config.device;
-    const known = cachedSimulatorSettings(udid)?.appearance;
-    if (known) patchSimulatorSettings(udid, { appearance: known === "dark" ? "light" : "dark" });
-    void toggleSimulatorAppearance(udid, execOnHost, refreshUiSettings, known).catch(
+    void toggleCachedSimulatorAppearance(config.device, execOnHost, refreshUiSettings).catch(
       refreshUiSettings,
     );
   }, [config.device]);
