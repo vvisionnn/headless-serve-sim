@@ -1,0 +1,50 @@
+@import "../../src/styles.css";
+
+@source "./";
+
+/* The film nests themes (a light room sweeping over a dark one), so the
+   colour tokens must resolve where each [data-theme] is set, not only at :root. */
+[data-theme] {
+  --color-stage: var(--stage);
+  --color-label: var(--label);
+  --color-label-2: var(--label-2);
+  --color-label-3: var(--label-3);
+  --color-label-4: var(--label-4);
+  --color-separator: var(--separator);
+  --color-fill: var(--fill);
+  --color-fill-2: var(--fill-2);
+  --color-fill-3: var(--fill-3);
+  --color-group: var(--group);
+  --color-control: var(--control);
+  --color-ink: var(--ink);
+  --color-on-ink: var(--on-ink);
+  --color-green: var(--green);
+  --color-orange: var(--orange);
+  --color-red: var(--red);
+  --color-blue: var(--blue);
+  color: var(--label);
+}
+
+/* Nothing moves on its own clock: the playhead drives every frame. */
+.film *,
+.film *::before,
+.film *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+.film {
+  position: relative;
+  width: 1440px;
+  height: 810px;
+  overflow: hidden;
+  background: #000;
+  font-feature-settings: "cv11", "ss01";
+}
+
+.display {
+  font-family: var(--font-display);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.04;
+}

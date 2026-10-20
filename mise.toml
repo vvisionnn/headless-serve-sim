@@ -14,3 +14,30 @@ lockfile = true
 bun = "1.3.14"    # primary runtime + package manager (matches bun.lock)
 node = "24.18.0"  # tooling/interop; shared by CI so local and CI match
 gh = "2.96.0"     # GitHub CLI — used by the release-and-monitor skill (backend: aqua:cli/cli)
+
+# The promo film (design/promo). Renders from source, so any machine can make
+# the video: mise brings ffmpeg and libwebp, bun brings Playwright's headless Chromium.
+[tasks.promo]
+description = "Render the promo film into design/promo/renders"
+dir = "{{config_root}}/design"
+tools = { ffmpeg = "9.0.2", "conda:libwebp" = "1.6.0" }
+run = [
+  "bun install --frozen-lockfile",
+  "bunx playwright-core install chromium-headless-shell",
+  "bun run promo/render.ts",
+]
+
+[tasks."promo:preview"]
+description = "Rebuild the promo player on change and serve it at http://localhost:4310/dist/promo.html"
+dir = "{{config_root}}/design"
+run = ["bun install --frozen-lockfile", "bun run promo/build.ts --watch"]
+
+[tasks."promo:capture"]
+description = "Re-capture the real simulator screens the promo film shows (macOS, Xcode)"
+dir = "{{config_root}}/design"
+tools = { "conda:libwebp" = "1.6.0" }
+run = [
+  "bun install --frozen-lockfile",
+  "bunx playwright-core install chromium-headless-shell",
+  "bun run promo/scripts/capture.ts",
+]

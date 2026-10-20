@@ -23,6 +23,8 @@ this repo, contributors use bun.
   `.claude-plugin/` marketplace.
 - `design/`: the self-contained "Stage" design preview (`design/serve-sim-design.html`) and
   `DESIGN.md`. The `design-system` skill holds the rules for the web UI.
+- `design/promo`: the README's promo film, a frame-deterministic React composition.
+  `mise run promo` renders it; `mise run promo:preview` gives a scrubbable player.
 - `.claude/skills/release-and-monitor`: cuts and watches a release.
 
 Toolchain: `mise install` (bun, node, gh), plus a full Xcode 26 or newer for the Swift build.
