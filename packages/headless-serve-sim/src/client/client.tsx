@@ -89,6 +89,7 @@ import { DeviceMotionTool, type DuoPose } from "./components/device-motion-tool"
 import { createFoldControl } from "./utils/fold-control";
 import { sendDeviceView, type DeviceView } from "./utils/device-view-control";
 import { nativeTouchPoint } from "./utils/native-touch";
+import { switchWhileStarting } from "./utils/device-switch";
 import { observedDuoOrientation, shouldApplyObservedHinge } from "./utils/fold-sync";
 import { duoHardwareCommands } from "./utils/duo-hardware";
 import { type HardwareButtonPress } from "./utils/hardware-buttons";
@@ -1450,20 +1451,22 @@ function AppWithConfig({
       try {
         const startEndpoint = config.gridStartEndpoint;
         if (!startEndpoint) throw new Error("Simulator start endpoint is unavailable");
-        const response = await fetch(startEndpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ udid: d.udid }),
-        });
-        const result = (await response.json().catch(() => null)) as {
-          ok?: boolean;
-          error?: string;
-        } | null;
-        if (!response.ok || !result?.ok) {
-          throw new Error(result?.error || "Failed to start headless-serve-sim");
-        }
+        const start = async () => {
+          const response = await fetch(startEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ udid: d.udid }),
+          });
+          const result = (await response.json().catch(() => null)) as {
+            ok?: boolean;
+            error?: string;
+          } | null;
+          if (!response.ok || !result?.ok) {
+            throw new Error(result?.error || "Failed to start headless-serve-sim");
+          }
+        };
         handOffStage({ from: from?.rect ?? null, frame: from?.frame ?? null });
-        await onSwitchDevice(d.udid);
+        await switchWhileStarting(start, () => onSwitchDevice(d.udid));
       } catch {
         takeStageHandoff();
       } finally {
