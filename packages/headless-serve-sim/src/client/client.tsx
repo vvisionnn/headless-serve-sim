@@ -1754,13 +1754,16 @@ function AppWithConfig({
       if (el) el.style.transform = `translateY(${start.lift}px)`;
     // iOS turns the picture inside the screen as one motion with the device,
     // the way a real phone does: hold the device until the stream starts
-    // turning, then move with it at its pace, so the picture stays upright
-    // while the device swings round beneath it.
+    // turning, then swing with it on a physical spring that lands with a
+    // touch of settle; a half turn takes a little longer than a quarter.
     let turning = false;
     const turn = () => {
       if (turning) return;
       turning = true;
-      const transition = { duration: (Math.abs(start.rotate) / 90) * 0.5, ease: IOS_ROTATION_EASE };
+      const transition = {
+        ...spring.rotate,
+        duration: spring.rotate.duration * Math.sqrt(Math.abs(start.rotate) / 90),
+      };
       for (const [value, rest] of [
         [flyRotate, 0],
         [flyScale, 1],
@@ -2461,9 +2464,6 @@ async function pngSize(blob: Blob): Promise<{ width: number; height: number } | 
     return null;
   }
 }
-
-/** UIKit turns the interface on an ease-in-out curve. */
-const IOS_ROTATION_EASE = [0.42, 0, 0.58, 1] as const;
 
 /**
  * Connecting / stream-error state, quietly over the screen. `bare` is for a
