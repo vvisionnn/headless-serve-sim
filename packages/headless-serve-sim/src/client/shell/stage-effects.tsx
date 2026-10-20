@@ -2,6 +2,7 @@ import { animate, AnimatePresence, motion, useMotionTemplate, useMotionValue } f
 import { ImageDown } from "lucide-react";
 import { useEffect, useState, type RefObject } from "react";
 import { spring } from "../lib/motion";
+import { unturnedSize, type StagePose } from "../utils/stage-pose";
 
 const NEUTRAL_GLOW = ["#8a8a8e", "#a1a1a6", "#7c7c80", "#98989d"];
 
@@ -131,35 +132,63 @@ export function useScreenColors(screen: RefObject<HTMLElement | null>, enabled: 
 }
 
 /**
- * Screen light: the screen's colours spill softly onto the stage, as if the
- * device were lit from within.
+ * The glow's frame: the device held upright, turned with it. Sized from the
+ * upright device, so a turn's start transform lands it exactly on the glow
+ * before the turn and it swings with the device instead of reshaping.
  */
-export function ScreenGlow({ colors, w, h }: { colors: string[]; w: number; h: number }) {
+export function screenGlowFrame(pose: Pick<StagePose, "rotation" | "width" | "height">) {
+  const { width, height } = unturnedSize(pose);
+  return { width, height, rotate: pose.rotation, blur: Math.max(48, width * 0.22) };
+}
+
+/**
+ * Screen light: the screen's colours spill softly onto the stage, as if the
+ * device were lit from within. Fills the visible device box it sits in.
+ */
+export function ScreenGlow({
+  colors,
+  pose,
+}: {
+  colors: string[];
+  pose: Pick<StagePose, "rotation" | "width" | "height">;
+}) {
+  const { width: w, height: h, rotate, blur } = screenGlowFrame(pose);
   return (
-    <motion.div
+    <div
       aria-hidden
       className="pointer-events-none absolute"
-      initial={{ opacity: 0 }}
-      animate={{
-        opacity: 1,
-        background: [
-          `radial-gradient(40% 32% at 32% 26%, ${colors[0]} 0%, transparent 100%)`,
-          `radial-gradient(40% 34% at 70% 40%, ${colors[1]} 0%, transparent 100%)`,
-          `radial-gradient(44% 34% at 62% 78%, ${colors[2]} 0%, transparent 100%)`,
-          `radial-gradient(40% 30% at 30% 70%, ${colors[3]} 0%, transparent 100%)`,
-        ].join(","),
-      }}
-      transition={{ duration: 1.1, ease: [0.32, 0.72, 0, 1] }}
       style={{
-        left: -w * 0.32,
-        top: -h * 0.16,
-        width: w * 1.64,
-        height: h * 1.32,
-        filter: `blur(${Math.max(48, w * 0.22)}px)`,
-        mixBlendMode: "var(--glow-blend)" as never,
-        opacity: "var(--glow-strength)" as never,
+        left: (pose.width - w) / 2,
+        top: (pose.height - h) / 2,
+        width: w,
+        height: h,
+        transform: `rotate(${rotate}deg)`,
       }}
-    />
+    >
+      <motion.div
+        className="absolute"
+        initial={{ opacity: 0 }}
+        animate={{
+          opacity: 1,
+          background: [
+            `radial-gradient(40% 32% at 32% 26%, ${colors[0]} 0%, transparent 100%)`,
+            `radial-gradient(40% 34% at 70% 40%, ${colors[1]} 0%, transparent 100%)`,
+            `radial-gradient(44% 34% at 62% 78%, ${colors[2]} 0%, transparent 100%)`,
+            `radial-gradient(40% 30% at 30% 70%, ${colors[3]} 0%, transparent 100%)`,
+          ].join(","),
+        }}
+        transition={{ duration: 1.1, ease: [0.32, 0.72, 0, 1] }}
+        style={{
+          left: -w * 0.32,
+          top: -h * 0.16,
+          width: w * 1.64,
+          height: h * 1.32,
+          filter: `blur(${blur}px)`,
+          mixBlendMode: "var(--glow-blend)" as never,
+          opacity: "var(--glow-strength)" as never,
+        }}
+      />
+    </div>
   );
 }
 
