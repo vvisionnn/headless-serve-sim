@@ -100,6 +100,14 @@ final class FrameCapture {
         }
         self.ioClient = io
 
+        // Capture state belongs to captureQueue: the frame callbacks registered
+        // here start firing on it at once, so wiring up from the caller's
+        // thread races them.
+        try captureQueue.sync { try startOnCaptureQueue(deviceUDID: deviceUDID) }
+        print("[capture] Frame callbacks registered (event-driven) + 5fps idle floor")
+    }
+
+    private func startOnCaptureQueue(deviceUDID: String) throws {
         try wireUpFramebuffer()
         let integratedDisplays = descriptors.filter {
             FrameDisplayProperties.read($0, width: 0, height: 0).screenType == 0
@@ -124,7 +132,6 @@ final class FrameCapture {
             for descriptor in integratedDisplays { capturePanel(descriptor, force: true) }
         }
         startIdleTimer()
-        print("[capture] Frame callbacks registered (event-driven) + 5fps idle floor")
     }
 
     /// Find all framebuffer display descriptors, register callbacks on each,
