@@ -1,6 +1,11 @@
 <div align="center">
 
-<a href="https://github.com/vvisionnn/headless-serve-sim/blob/main/design/promo/renders/headless-serve-sim.mp4"><img src="https://raw.githubusercontent.com/vvisionnn/headless-serve-sim/main/design/promo/renders/readme.webp" width="100%" alt="headless-serve-sim: an iPhone simulator rises out of a dark room, the Stage UI assembles around it, other simulators join it on one floor, a terminal drives it, and the wordmark closes the film." /></a>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vvisionnn/headless-serve-sim/main/design/promo/renders/readme-dark.webp" />
+  <img src="https://raw.githubusercontent.com/vvisionnn/headless-serve-sim/main/design/promo/renders/readme-light.webp" width="100%" alt="headless-serve-sim: an iPhone slams in, sheds its simulator window, docks into the Stage UI and records itself, joins iPad, Watch and an unfolding iPhone Duo on one floor, takes commands from a terminal, and hands the frame to the wordmark." />
+</picture>
+
+<sub>Watch it with sound: <a href="https://github.com/vvisionnn/headless-serve-sim/blob/main/design/promo/renders/headless-serve-sim-light.mp4">light</a> · <a href="https://github.com/vvisionnn/headless-serve-sim/blob/main/design/promo/renders/headless-serve-sim-dark.mp4">dark</a></sub>
 
 # headless-serve-sim
 
