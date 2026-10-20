@@ -7,7 +7,7 @@ import {
   decodeBackpressureAction,
   isAvccSupported,
 } from "../avcc-codec.js";
-import { streamLivenessAction } from "../stream-liveness.js";
+import { keyframeRecoveryAction, streamLivenessAction } from "../stream-liveness.js";
 import { FramePresenter } from "../frame-presenter.js";
 
 /** Per-frame telemetry handed to `onFrame` for the Connection Stats panel. */
@@ -114,6 +114,7 @@ export function useAvccStream({
     // decoder config is always the server's forced IDR.
     let awaitingKeyframe = true;
     let lastKeyframeReqAt = -1e9;
+    let configuredAtMs: number | null = null;
 
     // FIFO of in-flight decodes: outputs arrive in decode order (no B-frames in
     // this low-latency P-frame stream), so each output pairs with the oldest
@@ -241,6 +242,7 @@ export function useAvccStream({
         } catch {}
       }
       decoder = null;
+      configuredAtMs = null;
       if (!stopped) dropped += pendingDecodes.length;
       pendingDecodes.length = 0;
       presenter.clear(!stopped);
@@ -253,6 +255,7 @@ export function useAvccStream({
       closeDecoder();
       decoder = makeDecoder(decoderGeneration);
       awaitingKeyframe = true;
+      configuredAtMs = performance.now();
       try {
         decoder.configure({
           codec: currentCodec,
@@ -277,6 +280,7 @@ export function useAvccStream({
       closeDecoder();
       if (currentDescription && currentCodec) {
         decoder = makeDecoder(decoderGeneration);
+        configuredAtMs = performance.now();
         try {
           decoder.configure({
             codec: currentCodec,
@@ -338,7 +342,13 @@ export function useAvccStream({
         createImageBitmap(new Blob([payload as BlobPart], { type: "image/jpeg" }))
           .then((bmp) => {
             try {
-              if (!stopped && !painted && seedGeneration === connectionGeneration) {
+              // Before the first frame, and after a reconnect until its
+              // keyframe decodes: the seed is this connection's picture.
+              if (
+                !stopped &&
+                (!painted || awaitingKeyframe) &&
+                seedGeneration === connectionGeneration
+              ) {
                 paint(bmp, bmp.width, bmp.height, {
                   bytes: seedBytes,
                   decodeMs: null,
@@ -476,6 +486,15 @@ export function useAvccStream({
       });
       if (action === "reconnect") reconnect();
       else if (action === "reset-decoder") resetDecoderForKeyframe();
+      else if (
+        keyframeRecoveryAction({
+          nowMs: performance.now(),
+          awaitingKeyframe,
+          configuredAtMs,
+          lastRequestAtMs: lastKeyframeReqAt,
+        }) === "request"
+      )
+        requestKeyframe();
     }, 250);
 
     const read = async () => {
