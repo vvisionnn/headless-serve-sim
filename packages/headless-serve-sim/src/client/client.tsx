@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import {
+  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -9,7 +10,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { animate, AnimatePresence, motion, useIsPresent, useMotionValue } from "motion/react";
+import { animate, AnimatePresence, motion, useMotionValue, usePresence } from "motion/react";
 import { LoaderCircle, TriangleAlert } from "lucide-react";
 import {
   SimulatorView,
@@ -60,7 +61,11 @@ import {
   DropOverlay,
   ScreenGlow,
   ScreenshotFlight,
+  fittedRegion,
+  largestSurface,
+  screenCaptureAngle,
   Shutter,
+  snapshotCanvas,
   snapshotScreen,
   useScreenColors,
   type Flight,
@@ -89,7 +94,7 @@ import { DeviceMotionTool, type DuoPose } from "./components/device-motion-tool"
 import { createFoldControl } from "./utils/fold-control";
 import { sendDeviceView, type DeviceView } from "./utils/device-view-control";
 import { nativeTouchPoint } from "./utils/native-touch";
-import { switchWhileStarting } from "./utils/device-switch";
+import { deviceConfig, keepDeviceConfigsWarm, switchWhileStarting } from "./utils/device-switch";
 import { observedDuoOrientation, shouldApplyObservedHinge } from "./utils/fold-sync";
 import { duoHardwareCommands } from "./utils/duo-hardware";
 import { type HardwareButtonPress } from "./utils/hardware-buttons";
@@ -111,9 +116,11 @@ import { cn } from "./lib/cn";
 import { sameDuoBounds, type DuoBounds } from "./utils/duo-bounds";
 import { rotationStart, type StagePose } from "./utils/stage-pose";
 import {
+  flightStart,
   handOffStage,
-  primeStageFrame,
   publishStageLayout,
+  stageArrival,
+  stageArrived,
   takeStageHandoff,
 } from "./shell/stage-handoff";
 import {
@@ -210,6 +217,9 @@ function App() {
   const [devicesError, setDevicesError] = useState<string | null>(null);
   const [stoppingUdids, setStoppingUdids] = useState<Set<string>>(new Set());
   const [switching, setSwitching] = useState(false);
+  // The simulator a switch is leaving. Its device recedes at once, so the
+  // click answers before the next one's config is in hand.
+  const [departing, setDeparting] = useState<string | null>(null);
   const [axOverlayEnabled, setAxOverlayEnabled] = useState(false);
   const [selectedDevtoolsTargetId, setSelectedDevtoolsTargetId] = useState<string | null>(null);
 
@@ -232,17 +242,21 @@ function App() {
     initialDevice: lastDevice?.udid ?? null,
   });
 
-  const fetchDevices = useCallback(async () => {
-    setDevicesLoading(true);
-    setDevicesError(null);
+  // `silent` refreshes a list already shown without flipping it to loading.
+  const fetchDevices = useCallback(async (silent = false) => {
+    if (!silent) {
+      setDevicesLoading(true);
+      setDevicesError(null);
+    }
     try {
       const res = await execOnHost("xcrun simctl list devices available -j");
       if (res.exitCode !== 0) throw new Error(res.stderr || "simctl list failed");
       setDevices(parseSimctlList(res.stdout));
+      setDevicesError(null);
     } catch (err) {
       setDevicesError(err instanceof Error ? err.message : "Failed to list devices");
     } finally {
-      setDevicesLoading(false);
+      if (!silent) setDevicesLoading(false);
     }
   }, []);
 
@@ -253,9 +267,12 @@ function App() {
   // Refresh the device list whenever a new simulator is committed, so its name
   // is known (e.g. for the disconnected panel) even if it first appeared
   // out-of-band after load. Guarded on a live device: with no stream there's no
-  // exec token to authenticate the list call.
+  // exec token to authenticate the list call. A switch keeps the list it has
+  // on screen while that runs.
+  const devicesListedRef = useRef(false);
+  devicesListedRef.current = devices.length > 0;
   useEffect(() => {
-    if (config?.device) void fetchDevices();
+    if (config?.device) void fetchDevices(devicesListedRef.current);
   }, [config?.device, fetchDevices]);
 
   useEffect(() => {
@@ -302,27 +319,25 @@ function App() {
     if (!helperAvailable) setStreaming(false);
   }, [helperAvailable]);
 
-  // Switch simulators in place: fetch the target's config first, then swap it
-  // in one render, so the window never blanks the way a page load does.
+  // Switch simulators in place: fetch the target's config first (a hover may
+  // already have), then swap it in one render, so the window never blanks the
+  // way a page load does. The new shell settles in while its stream connects.
   const switchDevice = useCallback(async (udid: string, push = true) => {
-    const url = new URL(simEndpoint("api"), window.location.href);
-    url.searchParams.set("device", udid);
-    const res = await fetch(url.toString(), { cache: "no-store" });
-    const next = selectedPreviewConfig(
-      (await res.json().catch(() => null)) as Partial<PreviewConfig> | null,
-    );
-    if (!next || next.device !== udid) throw new Error("The simulator isn't streaming yet");
-    // A Duo streams its whole composite, not a screen; it arrives on its own.
-    if (!next.deviceTypeIdentifier?.endsWith(".iPhone-Duo")) await primeStageFrame(next.streamUrl);
+    const next = await deviceConfig(udid);
     window.__SIM_PREVIEW__ = next;
     if (push) {
       const location = new URL(window.location.href);
       location.searchParams.set("device", udid);
       window.history.pushState(null, "", location);
     }
-    setStreaming(false);
-    setUrlDevice(udid);
-    setConnection({ config: next, helperAvailable: true });
+    // The new shell mounts in slices, so what's already moving keeps moving.
+    startTransition(() => {
+      setStreaming(false);
+      setUrlDevice(udid);
+      setConnection({ config: next, helperAvailable: true });
+      setSwitching(false);
+      setDeparting(null);
+    });
   }, []);
   // Back and forward walk the same in-place switches.
   useEffect(() => {
@@ -330,6 +345,7 @@ function App() {
       const udid = new URLSearchParams(window.location.search).get("device");
       if (!udid) return;
       handOffStage();
+      setDeparting(selectedDeviceRef.current ?? null);
       void switchDevice(udid, false).catch(() => window.location.reload());
     };
     window.addEventListener("popstate", onPop);
@@ -381,7 +397,7 @@ function App() {
         devices={devices}
         loading={devicesLoading}
         error={devicesError}
-        onRefresh={fetchDevices}
+        onRefresh={() => void fetchDevices()}
       />
     );
   }
@@ -399,6 +415,8 @@ function App() {
           setStoppingUdids={setStoppingUdids}
           switching={switching}
           setSwitching={setSwitching}
+          departing={departing === config.device}
+          setDeparting={setDeparting}
           axOverlayEnabled={axOverlayEnabled}
           setAxOverlayEnabled={setAxOverlayEnabled}
           selectedDevtoolsTargetId={selectedDevtoolsTargetId}
@@ -415,20 +433,45 @@ function App() {
 
 /**
  * One shell per simulator. On a switch the new one mounts in place underneath
- * and the old one fades out over it, so only what differs — the device, the
- * wall closing — appears to move.
+ * and the old one fades out over it once the new device is on the stage, so
+ * only what differs — the device, the wall closing — appears to move.
  */
 function ShellLayer({ children }: { children: React.ReactNode }) {
-  const present = useIsPresent();
+  const [present, safeToRemove] = usePresence();
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (present) return;
+    let stopped = false;
+    let fade: ReturnType<typeof animate> | null = null;
+    const leave = () => {
+      if (stopped) return;
+      if (!ref.current) return safeToRemove?.();
+      fade = animate(ref.current, { opacity: 0 }, { duration: 0.22, ease: [0.32, 0.72, 0, 1] });
+      void fade.then(() => safeToRemove?.());
+    };
+    const arrival = stageArrival();
+    if (!arrival) leave();
+    else {
+      // Never longer than this: a Duo whose first composite is slow.
+      const cap = setTimeout(leave, 800);
+      void arrival.then(() => {
+        clearTimeout(cap);
+        leave();
+      });
+    }
+    return () => {
+      stopped = true;
+      fade?.stop();
+    };
+  }, [present, safeToRemove]);
   return (
-    <motion.div
+    <div
+      ref={ref}
       className="fixed inset-0"
       style={present ? undefined : { zIndex: 1, pointerEvents: "none" }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
     >
       {children}
-    </motion.div>
+    </div>
   );
 }
 
@@ -442,6 +485,9 @@ interface AppWithConfigProps {
   setStoppingUdids: React.Dispatch<React.SetStateAction<Set<string>>>;
   switching: boolean;
   setSwitching: (v: boolean) => void;
+  /** A switch is leaving this simulator. */
+  departing: boolean;
+  setDeparting: (udid: string | null) => void;
   axOverlayEnabled: boolean;
   setAxOverlayEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   selectedDevtoolsTargetId: string | null;
@@ -474,6 +520,8 @@ function AppWithConfig({
   setStoppingUdids,
   switching,
   setSwitching,
+  departing,
+  setDeparting,
   axOverlayEnabled,
   setAxOverlayEnabled,
   selectedDevtoolsTargetId,
@@ -1444,10 +1492,22 @@ function AppWithConfig({
     logEvent,
   ]);
 
+  // `switching` commits a frame later; a second click before then must wait too.
+  const switchingRef = useRef(false);
   const switchToDevice = useCallback(
-    async (d: SimDevice, from?: { rect: DOMRect | null; frame: string | null }) => {
-      if (switching || d.udid === config.device) return;
-      setSwitching(true);
+    /** Resolves whether the window switched. */
+    async (
+      d: SimDevice,
+      from?: { rect: DOMRect | null; frame: HTMLCanvasElement | null },
+    ): Promise<boolean> => {
+      if (switching || switchingRef.current || d.udid === config.device) return false;
+      switchingRef.current = true;
+      // Rendered in the background, so the click's first frame paints now.
+      startTransition(() => {
+        setSwitching(true);
+        // From a tile the wall is up; otherwise this device makes way at once.
+        if (!from) setDeparting(config.device);
+      });
       try {
         const startEndpoint = config.gridStartEndpoint;
         if (!startEndpoint) throw new Error("Simulator start endpoint is unavailable");
@@ -1466,14 +1526,31 @@ function AppWithConfig({
           }
         };
         handOffStage({ from: from?.rect ?? null, frame: from?.frame ?? null });
+        // The swap itself clears `switching` and `departing`.
         await switchWhileStarting(start, () => onSwitchDevice(d.udid));
-      } catch {
-        takeStageHandoff();
-      } finally {
+        return true;
+      } catch (err) {
+        switchingRef.current = false;
         setSwitching(false);
+        setDeparting(null);
+        takeStageHandoff();
+        toast({
+          title: `Couldn't switch to ${d.name}`,
+          detail: err instanceof Error ? err.message : String(err),
+          tone: "danger",
+        });
+        return false;
       }
     },
-    [switching, config.device, config.gridStartEndpoint, setSwitching, onSwitchDevice],
+    [
+      switching,
+      config.device,
+      config.gridStartEndpoint,
+      setSwitching,
+      setDeparting,
+      onSwitchDevice,
+      toast,
+    ],
   );
 
   const uploads = useUploadToasts();
@@ -1561,19 +1638,30 @@ function AppWithConfig({
   const flyFrom = useCallback(
     (tile: DOMRect) => {
       const el = deviceRef.current;
-      if (!el) return;
-      const box = el.getBoundingClientRect();
+      const stage = stageRef.current;
       const v = visibleRef.current;
-      if (!v.width) return;
-      const to = { left: box.left + v.x, top: box.top + v.y, width: v.width, height: v.height };
-      flyX.set(tile.left + tile.width / 2 - (to.left + to.width / 2));
-      flyY.set(tile.top + tile.height / 2 - (to.top + to.height / 2));
-      flyScale.set(tile.width / to.width);
+      if (!el || !stage || !v.width) return;
+      // Layout, not the device's rect: under the wall the stage is scaled.
+      const s = stage.getBoundingClientRect();
+      const box = {
+        left: s.left + el.offsetLeft,
+        top: s.top + el.offsetTop,
+        width: el.offsetWidth,
+        height: el.offsetHeight,
+      };
+      const start = flightStart(tile, box, v);
+      flyX.set(start.x);
+      flyY.set(start.y);
+      flyScale.set(start.scale);
+      // Motion writes these on its next frame; write the start pose now so
+      // the device never paints once at its resting place first.
+      if (turnRef.current)
+        turnRef.current.style.transform = `translateX(${start.x}px) translateY(${start.y}px) scale(${start.scale}) rotate(${flyRotate.get()}deg)`;
       animate(flyX, 0, spring.surface);
       animate(flyY, 0, spring.surface);
       animate(flyScale, 1, spring.surface);
     },
-    [flyX, flyY, flyScale],
+    [flyX, flyY, flyScale, flyRotate],
   );
 
   // The stage's live box — measured, so the device tracks the panels' springs.
@@ -1790,18 +1878,83 @@ function AppWithConfig({
   // Arriving from the wall: fly in from the tile once the device has a place
   // (a Duo has none until its first composite), holding the tile's last
   // frame on the screen until the new stream paints over it.
-  const pendingFlight = useRef(handoff?.from ?? null);
-  const placed = !foldable || duoBounds !== null;
-  useLayoutEffect(() => {
-    const tile = pendingFlight.current;
-    if (!tile || !placed) return;
-    pendingFlight.current = null;
-    flyFrom(tile);
+  // A Duo's tile draws its whole composite contained in the tile; the device
+  // takes off from where that was drawn.
+  const [tileRect] = useState(() => {
+    const from = handoff?.from;
+    const frame = handoff?.frame;
+    if (!from || !frame || !nativeComposition) return from ?? null;
+    const { box } = fittedRegion("contain", from.width, from.height, frame.width, frame.height);
+    return new DOMRect(from.left + box.x, from.top + box.y, box.width, box.height);
   });
+  const pendingFlight = useRef(tileRect);
+  const fromTile = tileRect !== null;
+  const placed = !foldable || duoBounds !== null;
   const [heldFrame, setHeldFrame] = useState(handoff?.frame ?? null);
+  const [arrived, setArrived] = useState(false);
+  // The held frame shows on the screen only from the pass that puts the
+  // device over its tile; before that its screen box is not yet there.
+  const [flown, setFlown] = useState(!fromTile);
   useEffect(() => {
-    if (streaming) setHeldFrame(null);
-  }, [streaming]);
+    if (!streaming) return;
+    setArrived(true);
+    // A Duo's stream runs before its composite is drawn; its frame then
+    // fades out on the flying device rather than vanishing with its tile.
+    if (placed && flown) setHeldFrame(null);
+  }, [streaming, placed, flown]);
+  // Until then the frame waits where the tile was, so the wall can go at once.
+  const holdsTile = fromTile && !placed && heldFrame !== null;
+  useLayoutEffect(() => {
+    // The Duo cross-fades with its tile as it takes off.
+    if (!intro && (placed || holdsTile)) stageArrived({ solid: holdsTile || !nativeComposition });
+    if (!placed) return;
+    const tile = pendingFlight.current;
+    pendingFlight.current = null;
+    if (tile) {
+      flyFrom(tile);
+      setFlown(true);
+    }
+  }, [placed, holdsTile, flyFrom, intro, nativeComposition]);
+  // The stage fades and shrinks back under the wall; what hangs under the
+  // device fades on its own, so a device flying out of its tile stays solid.
+  const stageLayerRef = useRef<HTMLDivElement>(null);
+  const stageFade = useMotionValue(1);
+  const stageShrink = useMotionValue(1);
+  const underFade = useMotionValue(1);
+  const closingOnto = useRef(false);
+  useEffect(() => {
+    if (closingOnto.current) {
+      closingOnto.current = false;
+      return;
+    }
+    if (wallOpen && stageLayerRef.current) stageLayerRef.current.style.zIndex = "";
+    animate(stageFade, wallOpen ? 0 : 1, spring.surface);
+    animate(stageShrink, wallOpen ? 0.96 : 1, spring.surface);
+  }, [wallOpen, stageFade, stageShrink]);
+  // This window's own tile: the device leaves it as itself, opaque and full
+  // size from the first frame, while the wall, shadow and dock crossfade.
+  const closeWallOnto = useCallback(
+    (tileEl: HTMLElement) => {
+      const tile = tileEl.getBoundingClientRect();
+      tileEl.style.visibility = "hidden";
+      closingOnto.current = true;
+      stageFade.jump(1);
+      stageShrink.jump(1);
+      underFade.jump(0);
+      // Motion paints these next frame; the flight's first frame is this one.
+      // The device flies over the wall fading out under it.
+      if (stageLayerRef.current) {
+        stageLayerRef.current.style.opacity = "1";
+        stageLayerRef.current.style.transform = "none";
+        stageLayerRef.current.style.zIndex = "1";
+      }
+      for (const el of [shadowLiftRef.current, dockLiftRef.current]) if (el) el.style.opacity = "0";
+      animate(underFade, 1, spring.surface);
+      flyFrom(tile);
+      setWallOpen(false);
+    },
+    [stageFade, stageShrink, underFade, flyFrom],
+  );
   const glowColors = useScreenColors(simContainerRef, streaming && !wallOpen);
 
   const recording = useScreenRecording({
@@ -1977,6 +2130,22 @@ function AppWithConfig({
   ];
   const toastRight = inspectorOpen && !overlayPanels ? INS_W + 30 : 20;
   const bootedCount = devices.filter((d) => d.state === "Booted").length;
+  // While the pointer is over the navigator or toolbar, or the palette is
+  // open, keep the other running simulators' configs fresh so a pick there
+  // switches without waiting on the server's simulator list.
+  const [switchIntent, setSwitchIntent] = useState(false);
+  const warmOnHover = {
+    onPointerEnter: () => setSwitchIntent(true),
+    onPointerLeave: () => setSwitchIntent(false),
+  };
+  const switchTargets = devices
+    .filter((d) => d.state === "Booted" && d.udid !== config.device)
+    .map((d) => d.udid)
+    .join(" ");
+  useEffect(() => {
+    if ((switchIntent || paletteOpen) && switchTargets)
+      return keepDeviceConfigsWarm(switchTargets.split(" "));
+  }, [switchIntent, paletteOpen, switchTargets]);
 
   // The Duo has no screen on the stage until its first composite lands.
   const screenless = nativeComposition && !duoBounds;
@@ -1984,18 +2153,22 @@ function AppWithConfig({
     <>
       <Shutter count={shutter} />
       {reveal && <AppearanceReveal key={reveal.id} url={reveal.url} onDone={endReveal} />}
-      <AnimatePresence>
-        {heldFrame && (
-          <motion.img
-            key="held"
-            src={heldFrame}
-            alt=""
-            aria-hidden
-            draggable={false}
-            className="pointer-events-none absolute inset-0 z-[72] size-full select-none"
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.25 }}
-          />
+      <AnimatePresence initial={false}>
+        {heldFrame && flown && placed ? (
+          <HeldFrame key="held" frame={heldFrame} />
+        ) : (
+          // A device arrives with its screen dark, and the stream's first
+          // frame lights it, rather than flashing the decoder's placeholder.
+          !arrived &&
+          !nativeComposition && (
+            <motion.div
+              key="dark"
+              aria-hidden
+              className="pointer-events-none absolute inset-0 z-[69] bg-black"
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.25 }}
+            />
+          )
         )}
       </AnimatePresence>
       <AnimatePresence>
@@ -2058,16 +2231,19 @@ function AppWithConfig({
       >
         {screenContent}
       </div>
-      {/* The Duo's first composite settles in, as a device arriving does. */}
+      {/* The Duo's first composite settles in, as a device arriving does;
+          flying from its tile it only cross-fades with it as it takes off. */}
       <motion.div
         className="absolute inset-0"
         initial={false}
         animate={
           screenless
-            ? { opacity: 0, scale: 0.94, filter: "blur(6px)" }
-            : { opacity: 1, scale: 1, filter: "blur(0px)" }
+            ? fromTile
+              ? { opacity: 0 }
+              : { opacity: 0, scale: 0.94, filter: "blur(6px)" }
+            : { opacity: 1, scale: 1, filter: "blur(0px)", transitionEnd: { filter: "none" } }
         }
-        transition={{ ...spring.surface, opacity: { duration: 0.4 } }}
+        transition={{ ...spring.surface, opacity: { duration: fromTile ? 0.2 : 0.4 } }}
       >
         <NativeDuoDevice
           sourceRef={recordingSourceRef}
@@ -2179,6 +2355,7 @@ function AppWithConfig({
                   animate={{ x: 0, opacity: 1 }}
                   exit={{ x: -NAV_W - GAP * 2, opacity: 0.4 }}
                   transition={spring.surface}
+                  {...warmOnHover}
                 >
                   <Navigator
                     devices={devices}
@@ -2225,11 +2402,13 @@ function AppWithConfig({
                 {/* The stage stays mounted under the Wall so the stream (and
                     any recording) keeps running while you look at the others. */}
                 <motion.div
+                  ref={stageLayerRef}
                   className="absolute inset-0"
-                  initial={false}
-                  animate={{ opacity: wallOpen ? 0 : 1, scale: wallOpen ? 0.96 : 1 }}
-                  transition={spring.surface}
-                  style={{ pointerEvents: wallOpen ? "none" : undefined }}
+                  style={{
+                    opacity: stageFade,
+                    scale: stageShrink,
+                    pointerEvents: wallOpen ? "none" : undefined,
+                  }}
                   aria-hidden={wallOpen || undefined}
                 >
                   <motion.div
@@ -2244,7 +2423,19 @@ function AppWithConfig({
                             // settles in place as the old one fades over it.
                             { opacity: 0, scale: 0.94, filter: "blur(6px)" }
                     }
-                    animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+                    animate={
+                      departing
+                        ? // The mirror of the settle-in the next device arrives with.
+                          { opacity: 0.4, y: 0, scale: 0.97, filter: "blur(4px)" }
+                        : {
+                            opacity: 1,
+                            y: 0,
+                            scale: 1,
+                            filter: "blur(0px)",
+                            // A resting filter keeps the device on its own surface.
+                            transitionEnd: { filter: "none" },
+                          }
+                    }
                     transition={{ ...spring.surface, opacity: { duration: 0.4 } }}
                     style={{
                       left: deviceLeft,
@@ -2278,7 +2469,7 @@ function AppWithConfig({
                     ref={shadowLiftRef}
                     aria-hidden
                     className="pointer-events-none absolute top-0 left-0"
-                    style={{ y: dockLift }}
+                    style={{ y: dockLift, opacity: underFade }}
                   >
                     <motion.div
                       className="absolute top-0 left-0 h-[22px]"
@@ -2303,7 +2494,7 @@ function AppWithConfig({
                   <motion.div
                     ref={dockLiftRef}
                     className="absolute top-0 left-0 z-20"
-                    style={{ y: dockLift }}
+                    style={{ y: dockLift, opacity: underFade }}
                   >
                     <div
                       className="flex flex-col items-center gap-2.5"
@@ -2345,12 +2536,13 @@ function AppWithConfig({
                         currentUdid={config.device}
                         insetBottom={insetBottom}
                         onFocus={(udid) => {
-                          const tile = document
-                            .querySelector(`[data-wall-tile="${CSS.escape(udid)}"]`)
-                            ?.getBoundingClientRect();
+                          const tileEl = document.querySelector<HTMLElement>(
+                            `[data-wall-tile="${CSS.escape(udid)}"]`,
+                          );
+                          const tile = tileEl?.getBoundingClientRect();
                           if (udid === config.device) {
-                            setWallOpen(false);
-                            if (tile) requestAnimationFrame(() => flyFrom(tile));
+                            if (tileEl) closeWallOnto(tileEl);
+                            else setWallOpen(false);
                             return;
                           }
                           // Another simulator: the wall stays up until its shell
@@ -2358,14 +2550,35 @@ function AppWithConfig({
                           const screen = document.querySelector<HTMLElement>(
                             `[data-wall-tile="${CSS.escape(udid)}"] [data-wall-screen]`,
                           );
-                          const frame = snapshotScreen(screen)?.url ?? null;
+                          // Sharp at the stage's size, not the tile's.
+                          const frame =
+                            snapshotCanvas(screen, {
+                              width: deviceAvailWidth,
+                              height: deviceAvailHeight,
+                            })?.canvas ?? null;
                           const target = devices.find((d) => d.udid === udid) ?? {
                             udid,
                             name: udid,
                             state: "Booted",
                             runtime: "",
                           };
-                          void switchToDevice(target, { rect: tile ?? null, frame });
+                          // The wall answers at once: all but the chosen tile
+                          // starts to go, and comes back if the switch fails.
+                          const rest = [
+                            ...document.querySelectorAll<HTMLElement>("[data-wall-tile]"),
+                          ]
+                            .map((el) => (el === tileEl ? el.nextElementSibling : el.parentElement))
+                            .filter((el): el is HTMLElement => el instanceof HTMLElement);
+                          const leaving = animate(rest, { opacity: 0 }, { duration: 0.2 });
+                          void switchToDevice(target, { rect: tile ?? null, frame }).then((ok) => {
+                            if (ok) return;
+                            leaving.stop();
+                            animate(rest, { opacity: 1 }, { duration: 0.2 });
+                          });
+                          // The device lifts off its tile as its flight starts.
+                          void stageArrival()?.then(({ solid }) => {
+                            if (tileEl && solid) tileEl.style.visibility = "hidden";
+                          });
                         }}
                       />
                     </motion.div>
@@ -2373,7 +2586,7 @@ function AppWithConfig({
                 </AnimatePresence>
               </div>
 
-              <div className="absolute inset-x-0 top-0 z-20 pt-[6px]">
+              <div className="absolute inset-x-0 top-0 z-20 pt-[6px]" {...warmOnHover}>
                 <Toolbar
                   devices={devices}
                   fpsSinkRef={fpsSinkRef}
@@ -2410,6 +2623,8 @@ function AppWithConfig({
                 )}
               </AnimatePresence>
             </motion.main>
+
+            {holdsTile && tileRect && <HeldFrame frame={heldFrame} at={tileRect} />}
 
             <Toasts
               items={toastItems}
@@ -2476,6 +2691,59 @@ async function pngSize(blob: Blob): Promise<{ width: number; height: number } | 
   } catch {
     return null;
   }
+}
+
+/**
+ * A switched-from tile's last frame, held on the screen until the new stream
+ * paints — or, given `at`, where the tile was until the device has a place.
+ */
+function HeldFrame({ frame, at }: { frame: HTMLCanvasElement; at?: DOMRect }) {
+  const attach = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (!node) return;
+      // The wall draws every device upright, from the stream's portrait
+      // buffer. On a screen that is (or turns) sideways the frame is turned
+      // the way the stream beside it is, or the screen stays dark until then.
+      const shape = (w: number, h: number) => (w > h * 1.15 ? 1 : h > w * 1.15 ? -1 : 0);
+      const fit = () => {
+        const across =
+          shape(frame.width, frame.height) * shape(node.clientWidth, node.clientHeight) < 0;
+        if (!across) {
+          frame.style.cssText = "display:block;width:100%;height:100%";
+          node.style.background = "";
+          if (frame.parentNode !== node) node.replaceChildren(frame);
+          return;
+        }
+        node.replaceChildren();
+        const stream = largestSurface(node.parentElement);
+        const angle = stream ? screenCaptureAngle(getComputedStyle(stream).transform) : 0;
+        if (Math.abs(Math.abs(angle) - 90) > 1) {
+          node.style.background = "#000";
+          return;
+        }
+        frame.style.cssText = `position:absolute;left:50%;top:50%;width:${node.clientHeight}px;height:${node.clientWidth}px;transform:translate(-50%,-50%) rotate(${angle}deg)`;
+        node.style.background = "";
+        node.replaceChildren(frame);
+      };
+      fit();
+      // Before paint, on the same frame the screen changes shape.
+      const observer = new ResizeObserver(fit);
+      observer.observe(node);
+      return () => observer.disconnect();
+    },
+    [frame],
+  );
+  return (
+    <motion.div
+      ref={attach}
+      aria-hidden
+      data-held-frame
+      className={cn("pointer-events-none z-[72] select-none", at ? "fixed" : "absolute inset-0")}
+      style={at && { left: at.left, top: at.top, width: at.width, height: at.height }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.25 }}
+    />
+  );
 }
 
 /**
