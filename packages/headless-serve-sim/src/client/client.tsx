@@ -2125,12 +2125,15 @@ function AppWithConfig({
         onDecoderRecover={onDecoderRecover}
         onStreamScroll={onStreamScroll}
       />
-      {axOverlayEnabled && !nativeComposition && (
-        <AxDomOverlay
-          interfaceOrientation={liveStreamConfig?.interfaceOrientation}
-          displayOrientation={activeStreamConfig.orientation}
-        />
-      )}
+      <AnimatePresence>
+        {axOverlayEnabled && !nativeComposition && (
+          <AxDomOverlay
+            key="ax"
+            interfaceOrientation={liveStreamConfig?.interfaceOrientation}
+            displayOrientation={activeStreamConfig.orientation}
+          />
+        )}
+      </AnimatePresence>
       {!nativeComposition && screenOverlays}
     </>
   );

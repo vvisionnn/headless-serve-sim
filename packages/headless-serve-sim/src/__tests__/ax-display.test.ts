@@ -48,6 +48,20 @@ test("a landscape interface on an upright device turns back", () => {
   expect(shown.elements[0]!.frame).toEqual({ x: 20, y: 126, width: 133, height: 41 });
 });
 
+test("a landscape snapshot isn't transposed by a stale portrait orientation", () => {
+  // The app turned with the device; the stream's interface orientation hasn't
+  // caught up yet. The snapshot's own screen says it's landscape.
+  const landscape: AxSnapshot = {
+    screen: { width: 912, height: 420 },
+    elements: [element({ x: 126, y: 267, width: 41, height: 133 })],
+  };
+  expect(axSnapshotForDisplay(landscape, "portrait", "landscape_left")).toBe(landscape);
+  // Stale the other way: a portrait snapshot still turns from its own shape.
+  const shown = axSnapshotForDisplay(portraitSettings, "landscape_left", "landscape_right");
+  expect(shown.screen).toEqual({ width: 912, height: 420 });
+  expect(shown.elements[0]!.frame).toEqual({ x: 126, y: 267, width: 41, height: 133 });
+});
+
 test("without both orientations the snapshot is drawn as is", () => {
   expect(axSnapshotForDisplay(portraitSettings, undefined, "landscape_left")).toBe(
     portraitSettings,
