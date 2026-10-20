@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { axSnapshotForDisplay } from "../client/utils/ax-display";
+import { axSnapshotForDisplay, axStaleAfterTurn } from "../client/utils/ax-display";
 import type { AxSnapshot } from "../ax-shared";
 
 const element = (frame: { x: number; y: number; width: number; height: number }) => ({
@@ -66,4 +66,25 @@ test("without both orientations the snapshot is drawn as is", () => {
   expect(axSnapshotForDisplay(portraitSettings, undefined, "landscape_left")).toBe(
     portraitSettings,
   );
+});
+
+test("a sideways layout walked before a turn is stale: the app turns with the device", () => {
+  const landscape: AxSnapshot = {
+    screen: { width: 912, height: 420 },
+    elements: [element({ x: 126, y: 267, width: 41, height: 133 })],
+  };
+  expect(axStaleAfterTurn(landscape, "landscape_left", "portrait")).toBe(true);
+  // Safari flips between the two landscapes.
+  expect(axStaleAfterTurn(landscape, "landscape_right", "landscape_left")).toBe(true);
+});
+
+test("an upright layout rides the turn: most iPhone apps stay portrait", () => {
+  // Settings is portrait-only; its boxes stay right, turned with the glass.
+  expect(axStaleAfterTurn(portraitSettings, "portrait", "landscape_left")).toBe(false);
+  expect(axStaleAfterTurn(portraitSettings, "landscape_left", "portrait")).toBe(false);
+});
+
+test("no turn, nothing stale", () => {
+  const landscape: AxSnapshot = { screen: { width: 912, height: 420 }, elements: [] };
+  expect(axStaleAfterTurn(landscape, "landscape_left", "landscape_left")).toBe(false);
 });
