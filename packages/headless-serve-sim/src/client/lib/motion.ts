@@ -17,8 +17,17 @@ export const spring = {
   surface: { type: "spring", duration: 0.5, bounce: 0 },
   /** Only after a flick or drag release — carries a little overshoot. */
   momentum: { type: "spring", duration: 0.45, bounce: 0.18 },
-  /** Rotation reads physical: Apple ships damping 0.8 / response 0.4. */
-  rotate: { type: "spring", duration: 0.6, bounce: 0.12 },
+  /**
+   * Rotation reads physical: Apple ships damping 0.8 / response 0.4. Runs
+   * until it settles; a timed spring is cut off still moving, and snaps.
+   */
+  rotate: {
+    type: "spring",
+    visualDuration: 0.37,
+    bounce: 0.12,
+    restDelta: 0.0001,
+    restSpeed: 0.001,
+  },
 } satisfies Record<string, Transition>;
 
 /** Apple's momentum projection (Designing Fluid Interfaces). */

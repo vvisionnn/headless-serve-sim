@@ -71,3 +71,18 @@ export function axSnapshotForDisplay(
     })),
   };
 }
+
+/**
+ * Whether a snapshot walked before the device turned from `from` to `to` no
+ * longer describes the screen. An app laid out sideways turns with the device
+ * (or flips, if it only runs sideways), so its old layout is gone until the
+ * next walk. One laid out upright is drawn turned with the glass: most iPhone
+ * apps are portrait-only, and a walk that says otherwise replaces it.
+ */
+export function axStaleAfterTurn(
+  snapshot: AxSnapshot,
+  from: SimulatorOrientation,
+  to: SimulatorOrientation,
+): boolean {
+  return from !== to && snapshot.screen.width > snapshot.screen.height;
+}

@@ -10,7 +10,14 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { animate, AnimatePresence, motion, useMotionValue, usePresence } from "motion/react";
+import {
+  animate,
+  AnimatePresence,
+  frameData,
+  motion,
+  useMotionValue,
+  usePresence,
+} from "motion/react";
 import { LoaderCircle, TriangleAlert } from "lucide-react";
 import {
   SimulatorView,
@@ -113,7 +120,15 @@ import {
 import { rotateLeft } from "./utils/rotate";
 import { cn } from "./lib/cn";
 import { sameDuoBounds, type DuoBounds } from "./utils/duo-bounds";
-import { resizeStart, rotationStart, type StagePose, type TurnOffsets } from "./utils/stage-pose";
+import {
+  resizeStart,
+  rotationStart,
+  turnTransition,
+  type StagePose,
+  type TurnOffsets,
+} from "./utils/stage-pose";
+import { dockHoldLeft } from "./utils/dock-hold";
+import { createTurnTouchGate } from "./utils/turn-touch-gate";
 import { confirmsOrientation } from "./utils/orientation-confirm";
 import {
   flightStart,
@@ -976,6 +991,12 @@ function AppWithConfig({
   // the whole thing once on release. Logging every move would bury every other
   // event in the window and make the panel useless during a scroll.
   const dragRef = useRef<{ x: number; y: number; moves: number } | null>(null);
+  // A press on the screen while the device is turning was meant for something
+  // that moved (a second Rotate); it never reaches the simulator. Set below,
+  // where the device turns.
+  const turningRef = useRef<() => boolean>(() => false);
+  const [admitTouch] = useState(() => createTurnTouchGate(() => turningRef.current()));
+  const [admitMultiTouch] = useState(() => createTurnTouchGate(() => turningRef.current()));
 
   // A failed input event is worth a word, not the stream's error screen, which
   // nothing clears while the stream itself is fine. One word: a failing drag
@@ -1010,6 +1031,7 @@ function AppWithConfig({
   );
   const onStreamTouch = useCallback(
     (data: any) => {
+      if (!admitTouch(data?.type)) return;
       if (deviceType === "ipad") {
         queueKeyboard(async () => {
           const handled = await hostDeviceTouchRequest({
@@ -1045,10 +1067,11 @@ function AppWithConfig({
         });
       }
     },
-    [deviceType, config.device, queueKeyboard, sendWs, logEvent],
+    [admitTouch, deviceType, config.device, queueKeyboard, sendWs, logEvent],
   );
   const onStreamMultiTouch = useCallback(
     (data: any) => {
+      if (!admitMultiTouch(data?.type)) return;
       sendWs(0x05, data);
       if (data?.type === "begin") {
         logEvent({
@@ -1057,7 +1080,7 @@ function AppWithConfig({
         });
       }
     },
-    [sendWs, logEvent],
+    [admitMultiTouch, sendWs, logEvent],
   );
   const sendHardwareButton = useCallback(
     (press: HardwareButtonPress) => {
@@ -1665,8 +1688,33 @@ function AppWithConfig({
   const flyY = useMotionValue(0);
   const flyScale = useMotionValue(1);
   const flyRotate = useMotionValue(0);
-  // What hangs under the device (shadow, dock) rides with a turn.
+  turningRef.current = () => Math.abs(flyRotate.get()) > 0.5;
+  // The contact shadow under the device rides with a turn.
   const dockLift = useMotionValue(0);
+  // The dock rides on its own: under the pointer, or just pressed, it stays
+  // put so a second press lands where the first did, and follows the device
+  // once the pointer is gone.
+  const dockY = useMotionValue(0);
+  const dockHovered = useRef(false);
+  const dockPressedAt = useRef(0);
+  const dockParked = useRef(false);
+  const dockReleaseTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const releaseDock = useCallback(
+    function release() {
+      clearTimeout(dockReleaseTimer.current);
+      const left = dockHoldLeft(dockHovered.current, dockPressedAt.current, Date.now());
+      if (left === Infinity) return;
+      if (left > 0) {
+        dockReleaseTimer.current = setTimeout(release, left);
+        return;
+      }
+      if (!dockParked.current) return;
+      dockParked.current = false;
+      animate(dockY, 0, spring.surface);
+    },
+    [dockY],
+  );
+  useEffect(() => () => clearTimeout(dockReleaseTimer.current), []);
   // The contact shadow widens or narrows with the turn instead of snapping.
   const shadowWidth = useMotionValue(1);
   // The visible device within the device box (the Duo draws inside a larger one).
@@ -1875,6 +1923,16 @@ function AppWithConfig({
     const prev = poseRef.current;
     poseRef.current = pose;
     if (!prev.width || !pose.width) return;
+    // The dock starts where it is drawn, as the shadow does (`lift`), then
+    // follows — unless it's held under the pointer, where it waits.
+    const moveDock = (start: TurnOffsets, drawn: TurnOffsets, follow: () => void) => {
+      const from = start.lift - drawn.lift + dockY.get();
+      if (dockLiftRef.current) dockLiftRef.current.style.transform = `translateY(${from}px)`;
+      dockY.jump(from);
+      dockParked.current = dockHoldLeft(dockHovered.current, dockPressedAt.current, Date.now()) > 0;
+      if (dockParked.current) releaseDock();
+      else follow();
+    };
     if (prev.rotation === pose.rotation) {
       // A one-step resize (the bezel, zoom to fit) glides from the old size;
       // anything else (a drag, the window, the console's spring) tracks.
@@ -1893,10 +1951,11 @@ function AppWithConfig({
       // As for a turn: write the start now so it lands with the new geometry.
       if (turnRef.current)
         turnRef.current.style.transform = `translateX(${start.x}px) translateY(${start.y}px) scale(${start.scale}) rotate(${start.rotate}deg)`;
-      for (const el of [shadowLiftRef.current, dockLiftRef.current])
-        if (el) el.style.transform = `translateY(${start.lift}px)`;
+      if (shadowLiftRef.current)
+        shadowLiftRef.current.style.transform = `translateY(${start.lift}px)`;
       if (shadowWidthRef.current)
         shadowWidthRef.current.style.transform = `scaleX(${start.footprint})`;
+      moveDock(start, drawn, () => animate(dockY, 0, spring.surface));
       // The turn, if one is running, carries on untouched.
       for (const [key, value, rest] of [
         ["scale", flyScale, 1],
@@ -1927,8 +1986,8 @@ function AppWithConfig({
     // one. Write the start pose now so the two land together.
     if (turnRef.current)
       turnRef.current.style.transform = `translateX(${start.x}px) translateY(${start.y}px) scale(${start.scale}) rotate(${start.rotate}deg)`;
-    for (const el of [shadowLiftRef.current, dockLiftRef.current])
-      if (el) el.style.transform = `translateY(${start.lift}px)`;
+    if (shadowLiftRef.current)
+      shadowLiftRef.current.style.transform = `translateY(${start.lift}px)`;
     if (shadowWidthRef.current)
       shadowWidthRef.current.style.transform = `scaleX(${start.footprint})`;
     // Keep a running turn's speed. The ratios (rest 1) are rescaled to the new
@@ -1951,25 +2010,24 @@ function AppWithConfig({
           value.getVelocity() * (rest === 1 ? start[key] / (drawn[key] || 1) : 1),
         ] as const,
     );
+    const dockVelocity = dockY.getVelocity();
     // The body turns at once, the way a real phone's hardware turns first and
-    // iOS swings the picture inside it, on a physical spring that lands with a
-    // touch of settle; a half turn takes a little longer than a quarter.
-    // Motion's duration springs drop a moving device's speed, so picking one
-    // up mid-turn uses the response and damping spring.rotate stands for.
+    // iOS swings the picture inside it. Picked up mid-turn, the start was read
+    // at the last frame, so the new spring's clock starts there too.
     const moving = channels.some(([, , , velocity]) => velocity !== 0);
-    const response = (2 * Math.PI) / 0.4;
-    const transition = moving
-      ? { type: "spring" as const, stiffness: response ** 2, damping: 2 * 0.8 * response }
-      : {
-          ...spring.rotate,
-          duration: spring.rotate.duration * Math.sqrt(Math.max(Math.abs(start.rotate), 90) / 90),
-        };
+    const transition = turnTransition(start.rotate, moving ? frameData.timestamp : null);
     for (const [key, value, rest, velocity] of channels) {
       // jump(), not set(): set() leaves the old animation running.
       value.jump(start[key]);
       animate(value, rest, { ...transition, velocity });
     }
-  }, [pose, flyRotate, flyScale, flyX, flyY, dockLift, shadowWidth]);
+    moveDock(start, drawn, () =>
+      animate(dockY, 0, {
+        ...turnTransition(start.rotate, dockVelocity !== 0 ? frameData.timestamp : null),
+        velocity: dockVelocity,
+      }),
+    );
+  }, [pose, flyRotate, flyScale, flyX, flyY, dockLift, shadowWidth, dockY, releaseDock]);
 
   // Arriving from the wall: fly in from the tile once the device has a place
   // (a Duo has none until its first composite), holding the tile's last
@@ -2610,7 +2668,17 @@ function AppWithConfig({
                   <motion.div
                     ref={dockLiftRef}
                     className="absolute top-0 left-0 z-20"
-                    style={{ y: dockLift, opacity: underFade }}
+                    style={{ y: dockY, opacity: underFade }}
+                    onPointerEnter={(e) => {
+                      if (e.pointerType !== "touch") dockHovered.current = true;
+                    }}
+                    onPointerLeave={() => {
+                      dockHovered.current = false;
+                      releaseDock();
+                    }}
+                    onPointerDown={() => {
+                      dockPressedAt.current = Date.now();
+                    }}
                   >
                     <div
                       className="flex flex-col items-center gap-2.5"

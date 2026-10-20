@@ -1,3 +1,5 @@
+import { spring } from "../lib/motion";
+
 /** Where the visible device sits on the stage, and how it is turned (degrees, clockwise). */
 export interface StagePose {
   rotation: number;
@@ -80,5 +82,31 @@ export function resizeStart(
     y: prev.cy + drawn.scale * (from.cy - prev.cy) + drawn.y - next.cy - scale * (to.cy - next.cy),
     lift: prev.cy + prev.height / 2 + drawn.lift - (next.cy + next.height / 2),
     footprint: (prev.width * drawn.footprint) / next.width,
+  };
+}
+
+/**
+ * The spring a turn springs back to rest on. From rest it lands with a touch
+ * of settle, a half turn a little slower than a quarter. Picked up mid-turn
+ * (`lastFrame`: the frame its start was read from) it keeps the device's
+ * speed: Motion's timed springs drop it, so this uses the response and damping
+ * spring.rotate stands for, and starts its clock at that frame so the time up
+ * to the click isn't lost.
+ */
+export function turnTransition(rotate: number, lastFrame: number | null) {
+  const { restDelta, restSpeed } = spring.rotate;
+  if (lastFrame === null)
+    return {
+      ...spring.rotate,
+      visualDuration: spring.rotate.visualDuration * Math.sqrt(Math.max(Math.abs(rotate), 90) / 90),
+    };
+  const response = (2 * Math.PI) / 0.4;
+  return {
+    type: "spring" as const,
+    stiffness: response ** 2,
+    damping: 2 * 0.8 * response,
+    restDelta,
+    restSpeed,
+    startTime: lastFrame,
   };
 }
