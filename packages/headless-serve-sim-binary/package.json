@@ -1,6 +1,7 @@
 {
   "name": "headless-serve-sim-binary",
   "version": "0.0.0",
+  "description": "Native side of headless-serve-sim: the per-device Swift stream helper (SimulatorKit capture, H.264/MJPEG, HID input) plus the camera, accessibility and motion tools.",
   "private": true,
   "license": "Apache-2.0",
   "scripts": {

@@ -1,12 +1,18 @@
 {
   "name": "headless-serve-sim",
   "version": "0.0.42",
+  "description": "Boot, stream and drive Apple simulators (iPhone, iPad, Apple Watch) headlessly from the browser, the command line and AI agents.",
   "type": "module",
   "author": {
-    "name": "Evan Bacon",
-    "email": "baconbrix@gmail.com",
-    "url": "https://evanbacon.dev"
+    "name": "vvisionnn",
+    "url": "https://github.com/vvisionnn"
   },
+  "contributors": [
+    {
+      "name": "Evan Bacon",
+      "url": "https://evanbacon.dev"
+    }
+  ],
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

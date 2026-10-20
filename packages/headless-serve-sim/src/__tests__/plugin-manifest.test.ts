@@ -39,7 +39,7 @@ describe("claude plugin manifest", () => {
     expect(readJson(PLUGIN).version).toBe(readJson(PACKAGE).version);
   });
 
-  test("the plugin points at this fork, not upstream", () => {
+  test("the plugin points at vvisionnn/headless-serve-sim, not upstream", () => {
     const plugin = readJson(PLUGIN);
     for (const field of ["homepage", "repository"] as const) {
       expect(plugin[field]).toContain("vvisionnn/headless-serve-sim");
