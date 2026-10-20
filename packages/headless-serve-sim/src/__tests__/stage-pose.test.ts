@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   AT_REST,
+  resizeStart,
   rotationStart,
   unturnedSize,
   type StagePose,
@@ -79,4 +80,56 @@ test("turning back mid-turn takes the short way to the old rest", () => {
 
 test("from rest a turn starts from the rest pose", () => {
   expect(rotationStart(portrait, landscape, AT_REST)).toEqual(rotationStart(portrait, landscape));
+});
+
+// Where a pose's screen is drawn under offsets that turn nothing: the turning
+// element scales about the device box's centre.
+const drawnScreen = (pose: StagePose, at: TurnOffsets) => {
+  const screen = pose.screen ?? { cx: pose.cx, cy: pose.cy, width: pose.width };
+  return {
+    cx: pose.cx + at.scale * (screen.cx - pose.cx) + at.x,
+    cy: pose.cy + at.scale * (screen.cy - pose.cy) + at.y,
+    width: screen.width * at.scale,
+  };
+};
+
+test("a resize starts with the new screen drawn over the old one", () => {
+  // Bezel on: the screen sits a little off the body's centre (side buttons).
+  const framed = {
+    rotation: 0,
+    cx: 600,
+    cy: 420,
+    width: 500,
+    height: 800,
+    screen: { cx: 604, cy: 420, width: 440 },
+  };
+  // Bezel off: the bare screen fills the box and is bigger.
+  const bare = { rotation: 0, cx: 600, cy: 430, width: 520, height: 820 };
+  const start = resizeStart(framed, bare);
+  const before = drawnScreen(framed, AT_REST);
+  const after = drawnScreen(bare, start);
+  for (const key of Object.keys(before) as (keyof typeof before)[])
+    expect(after[key]).toBeCloseTo(before[key]);
+  expect(start.rotate).toBe(0);
+  // The dock starts at the old bottom edge (820) instead of the new one (840).
+  expect(start.lift).toBe(-20);
+  expect(start.footprint).toBeCloseTo(500 / 520);
+  // And back: the framed screen starts drawn over the bare one.
+  const back = resizeStart(bare, framed);
+  const from = drawnScreen(bare, AT_REST);
+  const to = drawnScreen(framed, back);
+  for (const key of Object.keys(from) as (keyof typeof from)[])
+    expect(to[key]).toBeCloseTo(from[key]);
+});
+
+test("a resize begun mid-resize starts from where the screen is drawn", () => {
+  const small = { rotation: 0, cx: 600, cy: 400, width: 300, height: 600 };
+  const big = { rotation: 0, cx: 600, cy: 420, width: 450, height: 900 };
+  const live = { ...AT_REST, scale: 0.8, x: 4, y: -10, lift: -30, footprint: 0.8 };
+  const start = resizeStart(small, big, live);
+  const before = drawnScreen(small, live);
+  const after = drawnScreen(big, start);
+  for (const key of Object.keys(before) as (keyof typeof before)[])
+    expect(after[key]).toBeCloseTo(before[key]);
+  expect(big.cy + big.height / 2 + start.lift).toBeCloseTo(small.cy + small.height / 2 + live.lift);
 });
