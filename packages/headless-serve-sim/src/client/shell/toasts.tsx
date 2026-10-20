@@ -3,7 +3,7 @@ import { CircleAlert, CircleCheck, LoaderCircle } from "lucide-react";
 import { useLayoutEffect, useState } from "react";
 import { cn } from "../lib/cn";
 import { project, spring } from "../lib/motion";
-import { TOAST_BOTTOM, toastBottom } from "../utils/toast-placement";
+import { createClearanceTracker, TOAST_BOTTOM, toastPlacement } from "../utils/toast-placement";
 
 export interface ToastItem {
   id: string | number;
@@ -14,43 +14,78 @@ export interface ToastItem {
 }
 
 const STACK_W = 320;
+// Frames the dock and screen must hold still before a placed stack moves.
+const STILL_FRAMES = 4;
 
 /**
- * How far up the stack sits to stay clear of the device dock. The dock moves
- * with the device (fits, turns, the console opening), so while any toast is
- * up it's measured each frame and the stack springs to follow. The first
- * toast lands in place: the empty stack jumps there before it paints.
+ * Where the stack sits to stay clear of the device dock and the live screen.
+ * They move with the device (fits, turns, the console opening), so while any
+ * toast is up they're measured each frame and the stack springs to follow.
+ * The first toast lands in place: the empty stack jumps there before it
+ * paints. The targets outlive the effect re-running (the inspector opening
+ * moves `right`), so a toast already up springs rather than jumps. While the
+ * dock or screen is still moving (the stage sliding as the inspector opens)
+ * the stack keeps its place: mid-slide they can call for a lift that's gone
+ * a moment later, and following it would send the stack up and back.
  */
-function useDockClearance(active: boolean, right: number): MotionValue<number> {
+function useClearance(
+  active: boolean,
+  right: number,
+): { bottom: MotionValue<number>; width: MotionValue<number> } {
   const bottom = useMotionValue(TOAST_BOTTOM);
+  const width = useMotionValue(STACK_W);
+  const [trackers] = useState(() => ({
+    bottom: createClearanceTracker(),
+    width: createClearanceTracker(),
+  }));
   useLayoutEffect(() => {
-    if (!active) return;
+    if (!active) {
+      trackers.bottom.reset();
+      trackers.width.reset();
+      return;
+    }
     let frame = 0;
-    let target: number | null = null;
-    let anim: { stop: () => void } | null = null;
+    // A spring in flight is left running when the effect re-runs: the held
+    // target is still its destination. A new one replaces it.
+    const follow = (
+      value: MotionValue<number>,
+      tracker: ReturnType<typeof createClearanceTracker>,
+      next: number,
+    ) => {
+      const move = tracker.reach(next);
+      if (move === "jump") value.jump(next);
+      else if (move === "spring") animate(value, next, spring.surface);
+    };
+    // Counted afresh each run: what changed `right` (the inspector) may only
+    // set the stage moving a frame or two later.
+    let last = "";
+    let still = 0;
     const measure = () => {
-      const dock = document.querySelector("[data-device-dock]")?.getBoundingClientRect() ?? null;
-      const next = toastBottom({
+      frame = requestAnimationFrame(measure);
+      const box = (el: Element) => el.getBoundingClientRect();
+      const dockEl = document.querySelector("[data-device-dock]");
+      const dock = dockEl ? box(dockEl) : null;
+      const screens = [...document.querySelectorAll("[data-device-screen]")].map(box);
+      const key = [dock, ...screens]
+        .map((r) => (r ? `${r.left},${r.top},${r.right},${r.bottom}` : "-"))
+        .join(" ");
+      still = key === last ? still + 1 : 0;
+      last = key;
+      if (still < STILL_FRAMES && trackers.bottom.placed) return;
+      const next = toastPlacement({
         viewport: { width: window.innerWidth, height: window.innerHeight },
         right,
         width: STACK_W,
         dock,
+        screens,
       });
-      if (target === null) bottom.jump(next);
-      else if (next !== target) {
-        anim?.stop();
-        anim = animate(bottom, next, spring.surface);
-      }
-      target = next;
-      frame = requestAnimationFrame(measure);
+      follow(bottom, trackers.bottom, next.bottom);
+      follow(width, trackers.width, next.width);
     };
     measure();
-    return () => {
-      cancelAnimationFrame(frame);
-      anim?.stop();
-    };
-  }, [active, right, bottom]);
-  return bottom;
+    return () => cancelAnimationFrame(frame);
+  }, [active, right, bottom, width, trackers]);
+  return { bottom, width };
 }
 
 /**
@@ -70,14 +105,14 @@ export function Toasts({
 }) {
   const [hover, setHover] = useState(false);
   const list = [...items].reverse();
-  const bottom = useDockClearance(items.length > 0, right);
+  const { bottom, width } = useClearance(items.length > 0, right);
   return (
     <motion.div
-      className="fixed z-[60] w-[320px]"
+      className="fixed z-[60]"
       initial={false}
       animate={{ right }}
       transition={spring.surface}
-      style={{ bottom }}
+      style={{ bottom, width }}
       onHoverStart={() => setHover(true)}
       onHoverEnd={() => setHover(false)}
     >

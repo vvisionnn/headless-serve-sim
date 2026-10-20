@@ -122,6 +122,34 @@ export function preloadScreenMasks(spec: DeviceFrameSpec) {
   }
 }
 
+// The bezel's fade, which the screen's own look follows.
+const FADE_MS = 300;
+const FADE = `${FADE_MS / 1000}s var(--ease-out-quint)`;
+const BARE_RADIUS = 22;
+
+/**
+ * The screen's corners and mask. Bare, it's rounded at once. As the bezel
+ * fades back in the corners ease to the profile's radii — an exact mask
+ * can't be eased, so it waits until the fade has ended, by when the radii
+ * already match it.
+ */
+export function screenLook({
+  showFrame,
+  fading,
+  masked,
+}: {
+  showFrame: boolean;
+  /** The bezel's fade is still running. */
+  fading: boolean;
+  masked: boolean;
+}): { radius: "bare" | "frame" | "none"; mask: boolean; transition: boolean } {
+  if (!showFrame) return { radius: "bare", mask: false, transition: false };
+  if (fading) return { radius: "frame", mask: false, transition: true };
+  return masked
+    ? { radius: "none", mask: true, transition: false }
+    : { radius: "frame", mask: false, transition: false };
+}
+
 export function DeviceBezel({
   spec,
   geometry,
@@ -152,6 +180,32 @@ export function DeviceBezel({
   const framedScreenWidth =
     (sideways ? spec.nativeScreen.height : spec.nativeScreen.width) * geometry.scale;
   const bare = framedScreenWidth ? screen.width / framedScreenWidth : 1;
+
+  // The frame setting whose fade has finished; while it differs from
+  // `showFrame`, the bezel is still fading.
+  const [settledFrame, setSettledFrame] = useState(showFrame);
+  useEffect(() => {
+    if (settledFrame === showFrame) return;
+    const timer = setTimeout(() => setSettledFrame(showFrame), FADE_MS);
+    return () => clearTimeout(timer);
+  }, [settledFrame, showFrame]);
+  const look = screenLook({
+    showFrame,
+    fading: settledFrame !== showFrame,
+    masked: !!spec.screenMask,
+  });
+  const radius =
+    look.radius === "bare"
+      ? BARE_RADIUS
+      : look.radius === "frame"
+        ? `${screenRadii.topLeft}px ${screenRadii.topRight}px ${screenRadii.bottomRight}px ${screenRadii.bottomLeft}px`
+        : undefined;
+  const screenBox = {
+    left: showFrame ? screen.x : 0,
+    top: showFrame ? screen.y : 0,
+    width: screen.width,
+    height: screen.height,
+  };
 
   return (
     <div
@@ -225,26 +279,36 @@ export function DeviceBezel({
         )}
       </div>
 
+      {/* The bare screen's drop shadow, on a layer of its own under the
+          screen so it crossfades with the bezel on the same curve: one rises
+          as the other falls, and no frame shows the screen with neither. */}
+      <div
+        aria-hidden
+        data-screen-shadow=""
+        className="pointer-events-none absolute bg-black"
+        style={{
+          ...screenBox,
+          borderRadius: radius,
+          filter: SHADOW,
+          opacity: showFrame ? 0 : 1,
+          transition: look.transition
+            ? `opacity ${FADE}, border-radius ${FADE}`
+            : `opacity ${FADE}`,
+        }}
+      />
+
       {/* The screen, composited over the body and clipped to the profile's own
           corner radii so the stream stops exactly where the glass does. */}
       <div
         key="screen"
         ref={screenRef}
-        className={
-          showFrame
-            ? "absolute overflow-hidden bg-black"
-            : "absolute overflow-hidden rounded-[22px] bg-black [filter:var(--device-shadow)]"
-        }
+        data-device-screen=""
+        className="absolute overflow-hidden bg-black"
         style={{
-          left: showFrame ? screen.x : 0,
-          top: showFrame ? screen.y : 0,
-          width: screen.width,
-          height: screen.height,
-          borderRadius:
-            !showFrame || spec.screenMask
-              ? undefined
-              : `${screenRadii.topLeft}px ${screenRadii.topRight}px ${screenRadii.bottomRight}px ${screenRadii.bottomLeft}px`,
-          ...(showFrame && spec.screenMask
+          ...screenBox,
+          borderRadius: radius,
+          transition: look.transition ? `border-radius ${FADE}` : undefined,
+          ...(look.mask
             ? {
                 maskImage: `url(${orientedScreenMask(spec, rotation)})`,
                 maskSize: "100% 100%",
@@ -399,6 +463,7 @@ export function BareScreen({
   return (
     <div
       ref={screenRef}
+      data-device-screen=""
       className="relative shrink-0 overflow-hidden rounded-[22px] bg-black [filter:var(--device-shadow)]"
       style={{ width, height } as CSSProperties}
       {...dropProps}

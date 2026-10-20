@@ -98,7 +98,7 @@ describe("device config prefetch", () => {
       asked.push(udid);
       return { device: udid };
     };
-    const stop = keepDeviceConfigsWarm(["a", "b"], load, 10);
+    const stop = keepDeviceConfigsWarm(["a", "b"], load, 10, () => {});
     expect(asked).toEqual(["a", "b"]);
     await new Promise((r) => setTimeout(r, 25));
     stop();
@@ -106,5 +106,20 @@ describe("device config prefetch", () => {
     expect(warmed).toBeGreaterThanOrEqual(4);
     await new Promise((r) => setTimeout(r, 25));
     expect(asked.length).toBe(warmed);
+  });
+
+  test("a device kept warm has its settings warmed once its config is in hand", async () => {
+    const warmed: string[] = [];
+    const load = async (udid: string) => {
+      if (udid === "down") throw new Error("The simulator isn't streaming yet");
+      return { device: udid };
+    };
+    const stop = keepDeviceConfigsWarm(["up", "down"], load, 60_000, (udid) => {
+      warmed.push(udid);
+    });
+    expect(warmed).toEqual([]);
+    await new Promise((r) => setTimeout(r, 0));
+    stop();
+    expect(warmed).toEqual(["up"]);
   });
 });

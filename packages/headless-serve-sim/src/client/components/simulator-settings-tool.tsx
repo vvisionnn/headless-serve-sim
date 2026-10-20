@@ -2,20 +2,23 @@ import { Contrast, Eye, Moon, SquareDashed, Sun, Volume2, Waves } from "lucide-r
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { ErrorNote, Hold, LiveSlider, SliderRow } from "../inspector/device-rows";
+import { ErrorNote, LiveSlider, SliderRow } from "../inspector/device-rows";
 import { Button } from "../ui/button";
 import { Row, Section } from "../ui/group";
 import { Segmented } from "../ui/segmented";
 import { Select } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { hostUiRequest } from "../utils/exec";
+import { latestWins } from "../utils/latest-wins";
 import {
   cachedSimulatorSettings,
+  confirmSimulatorSetting,
   patchSimulatorSettings,
   settingsRevision,
   storeSimulatorSettings,
@@ -45,7 +48,7 @@ const TEXT_SIZE_DEBOUNCE_MS = 250;
 
 type SettingsState = SimulatorSettings;
 
-// Stock values rendered (disabled) until a simulator's first read arrives, so
+// Stock values rendered (inert) until a simulator's first read arrives, so
 // the section keeps its full height instead of swapping a "Loading…" line for
 // the controls.
 const DEFAULT_STATE: SettingsState = {
@@ -106,15 +109,7 @@ export function textSizeLabel(index: number): string {
   return TEXT_SIZE_LABELS[index] ?? TEXT_SIZE_LABELS[3];
 }
 
-function TextSizeSlider({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: number;
-  disabled: boolean;
-  onChange: (index: number) => void;
-}) {
+function TextSizeSlider({ value, onChange }: { value: number; onChange: (index: number) => void }) {
   // Local value while dragging so prop round-trips can't interrupt the
   // gesture. Changes apply live but debounced; release flushes immediately.
   const [drag, setDrag] = useState<number | null>(null);
@@ -163,7 +158,6 @@ function TextSizeSlider({
         max={max}
         step={1}
         ticks
-        disabled={disabled}
         onChange={(v) => handleInput(Math.round(v))}
         onCommit={flush}
         leading={<span className="w-3 text-center text-caption font-semibold">A</span>}
@@ -191,13 +185,11 @@ function SettingSelect({
   label,
   value,
   options,
-  disabled,
   onChange,
 }: {
   label: string;
   value: string;
   options: Array<{ value: string; label: string }>;
-  disabled: boolean;
   onChange: (next: string) => void;
 }) {
   return (
@@ -208,18 +200,16 @@ function SettingSelect({
           className="w-[160px]"
           value={value}
           onChange={onChange}
-          items={options.map((o) => ({ ...o, icon: SEGMENT_ICONS[o.value], disabled }))}
+          items={options.map((o) => ({ ...o, icon: SEGMENT_ICONS[o.value] }))}
         />
       ) : (
-        <Hold when={disabled}>
-          <Select
-            label={label}
-            value={value}
-            options={options}
-            onChange={onChange}
-            className={disabled ? "w-[148px] min-w-0 text-label-3" : "w-[148px] min-w-0"}
-          />
-        </Hold>
+        <Select
+          label={label}
+          value={value}
+          options={options}
+          onChange={onChange}
+          className="w-[148px] min-w-0"
+        />
       )}
     </Row>
   );
@@ -238,9 +228,6 @@ export function SimulatorSettingsTool({
   // devices, so a refresh never blanks the controls.
   const readCache = useCallback(() => cachedSimulatorSettings(udid), [udid]);
   const state = useSyncExternalStore(subscribeSimulatorSettings, readCache, readCache);
-  // Options with a set in flight. A repeat click on one is ignored, but the
-  // control keeps its optimistic value at full colour meanwhile.
-  const pending = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null);
 
   // Hydration can fail outright (server restarted under the tab, control
@@ -273,53 +260,42 @@ export function SimulatorSettingsTool({
     void refresh();
   }, [refresh, execToken, refreshKey]);
 
-  const apply = useCallback(
-    async (option: string, value: string) => {
-      if (pending.current.has(option)) return;
-      pending.current.add(option);
-      setError(null);
-      patchSimulatorSettings(udid, { [option]: value });
+  const send = useCallback(
+    async (device: string, option: string, value: string) => {
       try {
-        await hostUiRequest(
-          { device: udid, option, value },
-          { signal: AbortSignal.timeout(15_000) },
-        );
+        await hostUiRequest({ device, option, value }, { signal: AbortSignal.timeout(15_000) });
+        confirmSimulatorSetting(device, option, value);
       } catch (e) {
         setError(e instanceof Error ? e.message : `Failed to set ${option}`);
         // Re-sync from the simulator rather than restoring a snapshot — with
         // rapid queued updates (slider drags) a snapshot can predate several
         // successful sets and would yank the control backwards.
         void refresh();
-      } finally {
-        pending.current.delete(option);
       }
     },
-    [udid, refresh],
+    [refresh],
   );
-
-  // Rapid slider movements queue latest-wins: one exec in flight at a time,
-  // intermediate values dropped, so out-of-order completions can't leave the
-  // simulator on a stale size.
-  const textSizeQueue = useRef<{ running: boolean; next: number | null }>({
-    running: false,
-    next: null,
-  });
-  const applyRef = useRef(apply);
-  applyRef.current = apply;
-  const applyTextSize = useCallback((index: number) => {
-    const queue = textSizeQueue.current;
-    queue.next = index;
-    if (queue.running) return;
-    queue.running = true;
-    void (async () => {
-      while (queue.next !== null) {
-        const next = queue.next;
-        queue.next = null;
-        await applyRef.current("text-size", TEXT_SIZE_CATEGORIES[next]!);
-      }
-      queue.running = false;
-    })();
-  }, []);
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  // Each click moves its control at once; the sets queue latest-wins per
+  // option, so a second click while one is in flight lands after it, and
+  // out-of-order completions can't leave the simulator on a stale value.
+  const queue = useMemo(
+    () => latestWins((option: string, value: string) => sendRef.current(udid, option, value)),
+    [udid],
+  );
+  const apply = useCallback(
+    (option: string, value: string) => {
+      setError(null);
+      patchSimulatorSettings(udid, { [option]: value });
+      queue(option, value);
+    },
+    [udid, queue],
+  );
+  const applyTextSize = useCallback(
+    (index: number) => apply("text-size", TEXT_SIZE_CATEGORIES[index]!),
+    [apply],
+  );
 
   const ready = state !== null;
   const shown = state ?? DEFAULT_STATE;
@@ -345,43 +321,44 @@ export function SimulatorSettingsTool({
         />
       )}
 
-      <Section title="Appearance">
-        <SettingSelect
-          label="Appearance"
-          value={shown.appearance ?? "light"}
-          options={SELECT_OPTIONS.appearance!}
-          disabled={!ready}
-          onChange={(v) => apply("appearance", v)}
-        />
-        <SettingSelect
-          label="Liquid Glass"
-          value={shown["liquid-glass"] ?? "clear"}
-          options={SELECT_OPTIONS["liquid-glass"]!}
-          disabled={!ready}
-          onChange={(v) => apply("liquid-glass", v)}
-        />
-        <SettingSelect
-          label="Color filter"
-          value={shown["color-filter"] ?? "none"}
-          options={SELECT_OPTIONS["color-filter"]!}
-          disabled={!ready}
-          onChange={(v) => apply("color-filter", v)}
-        />
-        <TextSizeSlider value={textSizeIndex} disabled={!ready} onChange={applyTextSize} />
-      </Section>
+      {/* Until the first read the stock values show at full colour, held
+          inert: dimming them would snap back to full colour when the read
+          lands a moment later. */}
+      <div inert={!ready} aria-busy={!ready || undefined} className="contents">
+        <Section title="Appearance">
+          <SettingSelect
+            label="Appearance"
+            value={shown.appearance ?? "light"}
+            options={SELECT_OPTIONS.appearance!}
+            onChange={(v) => apply("appearance", v)}
+          />
+          <SettingSelect
+            label="Liquid Glass"
+            value={shown["liquid-glass"] ?? "clear"}
+            options={SELECT_OPTIONS["liquid-glass"]!}
+            onChange={(v) => apply("liquid-glass", v)}
+          />
+          <SettingSelect
+            label="Color filter"
+            value={shown["color-filter"] ?? "none"}
+            options={SELECT_OPTIONS["color-filter"]!}
+            onChange={(v) => apply("color-filter", v)}
+          />
+          <TextSizeSlider value={textSizeIndex} onChange={applyTextSize} />
+        </Section>
 
-      <Section title="Accessibility">
-        {TOGGLE_OPTIONS.map(({ key, label, icon }) => (
-          <Row key={key} label={label} icon={icon}>
-            <Switch
-              label={label}
-              checked={shown[key] === "on"}
-              disabled={!ready}
-              onChange={(next) => apply(key, next ? "on" : "off")}
-            />
-          </Row>
-        ))}
-      </Section>
+        <Section title="Accessibility">
+          {TOGGLE_OPTIONS.map(({ key, label, icon }) => (
+            <Row key={key} label={label} icon={icon}>
+              <Switch
+                label={label}
+                checked={shown[key] === "on"}
+                onChange={(next) => apply(key, next ? "on" : "off")}
+              />
+            </Row>
+          ))}
+        </Section>
+      </div>
     </>
   );
 }

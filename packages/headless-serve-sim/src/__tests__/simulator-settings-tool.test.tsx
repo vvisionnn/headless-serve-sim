@@ -45,17 +45,15 @@ describe("fitsSegments", () => {
 });
 
 describe("SimulatorSettingsTool", () => {
-  test("renders Appearance and Accessibility, disabled until real state loads", () => {
+  test("renders Appearance and Accessibility, held inert at full colour until real state loads", () => {
     const html = renderToStaticMarkup(<SimulatorSettingsTool udid="U" />);
     expect(html).toContain(">Appearance</h3>");
     expect(html).toContain(">Accessibility</h3>");
     expect(html).toContain('role="radiogroup" aria-label="Appearance"');
     expect(html).toContain('role="radiogroup" aria-label="Liquid Glass"');
-    expect(html).toMatch(
-      /aria-disabled="true"[^>]*>(<[^>]*>)*?<button[^>]*aria-label="Color filter"/,
-    );
-    expect(html).toMatch(
-      /aria-disabled="true"[^>]*><div[^>]*>(<span[^>]*>A<\/span>)?<div role="slider" aria-label="Text size" aria-valuemin="0" aria-valuemax="6" aria-valuenow="3"/,
+    expect(html).toMatch(/^<div inert="" aria-busy="true" class="contents">/);
+    expect(html).toContain(
+      '<div role="slider" aria-label="Text size" aria-valuemin="0" aria-valuemax="6" aria-valuenow="3"',
     );
     for (const label of [
       "Reduce motion",
@@ -64,9 +62,10 @@ describe("SimulatorSettingsTool", () => {
       "Reduce transparency",
       "VoiceOver",
     ])
-      expect(html).toContain(
-        `role="switch" aria-checked="false" aria-label="${label}" disabled=""`,
-      );
+      expect(html).toContain(`role="switch" aria-checked="false" aria-label="${label}"`);
+    // Nothing dims: dimmed stock values would snap to full colour on the read.
+    expect(html).not.toContain('disabled=""');
+    expect(html).not.toContain("aria-disabled");
   });
 
   test("a simulator read before renders its last values, enabled, at once", () => {
@@ -75,5 +74,6 @@ describe("SimulatorSettingsTool", () => {
     expect(html).toContain('role="switch" aria-checked="true" aria-label="VoiceOver"');
     expect(html).not.toContain('aria-label="VoiceOver" disabled=""');
     expect(html).not.toContain('disabled=""');
+    expect(html).not.toContain("inert");
   });
 });

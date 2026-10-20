@@ -1,8 +1,8 @@
-import { expect, spyOn, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { DeviceFrameSpec } from "headless-serve-sim-client/simulator";
-import { DeviceBezel, preloadScreenMasks } from "../client/components/device-bezel";
+import { DeviceBezel, preloadScreenMasks, screenLook } from "../client/components/device-bezel";
 import { fitDeviceBezel } from "../client/utils/bezel-geometry";
 
 const spec: DeviceFrameSpec = {
@@ -169,4 +169,61 @@ test("every turn's screen mask is decoded before the device turns", () => {
   } finally {
     (globalThis as { Image?: unknown }).Image = original;
   }
+});
+
+describe("screenLook", () => {
+  test("bare, the screen is rounded at once", () => {
+    for (const masked of [false, true])
+      for (const fading of [false, true])
+        expect(screenLook({ showFrame: false, fading, masked })).toEqual({
+          radius: "bare",
+          mask: false,
+          transition: false,
+        });
+  });
+
+  test("while the bezel fades in, the corners ease to the profile's radii with no mask yet", () => {
+    for (const masked of [false, true])
+      expect(screenLook({ showFrame: true, fading: true, masked })).toEqual({
+        radius: "frame",
+        mask: false,
+        transition: true,
+      });
+  });
+
+  test("once framed, a masked screen uses only its exact mask", () => {
+    expect(screenLook({ showFrame: true, fading: false, masked: true })).toEqual({
+      radius: "none",
+      mask: true,
+      transition: false,
+    });
+    expect(screenLook({ showFrame: true, fading: false, masked: false })).toEqual({
+      radius: "frame",
+      mask: false,
+      transition: false,
+    });
+  });
+});
+
+test("the bare screen's shadow is its own layer, crossfading with the bezel", () => {
+  const geometry = fitDeviceBezel({
+    spec,
+    rotation: 0,
+    availWidth: 1000,
+    availHeight: 1000,
+    maxScreenWidth: 1000,
+    maxScale: 1,
+  });
+  const shadow = (showFrame: boolean) =>
+    renderToStaticMarkup(
+      <DeviceBezel spec={spec} geometry={geometry} showFrame={showFrame}>
+        <span>stream</span>
+      </DeviceBezel>,
+    ).match(/<div aria-hidden="true" data-screen-shadow=""[^>]*style="([^"]*)"/)?.[1];
+  // The same 0.3s curve as the bezel layer's opacity, so one rises as the
+  // other falls and no frame shows the screen with neither.
+  expect(shadow(true)).toContain("opacity:0");
+  expect(shadow(false)).toContain("opacity:1");
+  expect(shadow(true)).toContain("filter:var(--device-shadow)");
+  expect(shadow(true)).toContain("opacity 0.3s var(--ease-out-quint)");
 });

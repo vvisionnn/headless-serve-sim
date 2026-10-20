@@ -1,11 +1,16 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import {
   cachedSimulatorSettings,
   clearSimulatorSettingsCache,
+  confirmSimulatorSetting,
+  freshSimulatorSetting,
   patchSimulatorSettings,
+  SETTINGS_FRESH_MS,
+  SETTINGS_WARM_MS,
   settingsRevision,
   storeSimulatorSettings,
   subscribeSimulatorSettings,
+  warmSimulatorSettings,
 } from "../client/utils/simulator-settings-cache";
 
 beforeEach(() => clearSimulatorSettingsCache());
@@ -55,5 +60,76 @@ describe("simulator settings cache", () => {
     off();
     patchSimulatorSettings("A", { appearance: "light" });
     expect(heard).toBe(2);
+  });
+});
+
+describe("fresh settings", () => {
+  afterEach(() => setSystemTime());
+
+  test("a read is trusted for a few seconds, then no longer", () => {
+    setSystemTime(new Date(1_000_000));
+    storeSimulatorSettings("A", { appearance: "dark" }, settingsRevision("A"));
+    expect(freshSimulatorSetting("A", "appearance")).toBe("dark");
+    setSystemTime(new Date(1_000_000 + SETTINGS_FRESH_MS + 1));
+    expect(freshSimulatorSetting("A", "appearance")).toBeUndefined();
+  });
+
+  test("an optimistic change isn't fresh until the simulator confirms it", () => {
+    storeSimulatorSettings("A", { appearance: "light", voiceover: "off" }, settingsRevision("A"));
+    patchSimulatorSettings("A", { appearance: "dark" });
+    expect(freshSimulatorSetting("A", "appearance")).toBeUndefined();
+    expect(freshSimulatorSetting("A", "voiceover")).toBe("off");
+    confirmSimulatorSetting("A", "appearance", "dark");
+    expect(freshSimulatorSetting("A", "appearance")).toBe("dark");
+  });
+
+  test("a confirmation that a later change overtook isn't trusted", () => {
+    storeSimulatorSettings("A", { appearance: "light" }, settingsRevision("A"));
+    patchSimulatorSettings("A", { appearance: "dark" });
+    patchSimulatorSettings("A", { appearance: "light" });
+    confirmSimulatorSetting("A", "appearance", "dark");
+    expect(freshSimulatorSetting("A", "appearance")).toBeUndefined();
+  });
+});
+
+describe("warmSimulatorSettings", () => {
+  afterEach(() => setSystemTime());
+
+  test("reads a switch target once, then not again for a few seconds", async () => {
+    setSystemTime(new Date(5_000_000));
+    let reads = 0;
+    const read = async () => {
+      reads++;
+      return { appearance: "dark" };
+    };
+    await warmSimulatorSettings("W", read);
+    await warmSimulatorSettings("W", read);
+    expect(reads).toBe(1);
+    expect(cachedSimulatorSettings("W")).toEqual({ appearance: "dark" });
+    setSystemTime(new Date(5_000_000 + SETTINGS_WARM_MS + 1));
+    await warmSimulatorSettings("W", read);
+    expect(reads).toBe(2);
+  });
+
+  test("never runs two reads for one simulator at once", async () => {
+    setSystemTime(new Date(6_000_000));
+    let reads = 0;
+    let finish: (v: Record<string, string>) => void = () => {};
+    const read = () => {
+      reads++;
+      return new Promise<Record<string, string>>((r) => (finish = r));
+    };
+    const first = warmSimulatorSettings("X", read);
+    setSystemTime(new Date(6_000_000 + SETTINGS_WARM_MS + 1));
+    void warmSimulatorSettings("X", read);
+    expect(reads).toBe(1);
+    finish({ voiceover: "on" });
+    await first;
+    expect(cachedSimulatorSettings("X")).toEqual({ voiceover: "on" });
+  });
+
+  test("a failed read is swallowed", async () => {
+    await warmSimulatorSettings("Y", () => Promise.reject(new Error("socket closed")));
+    expect(cachedSimulatorSettings("Y")).toBeNull();
   });
 });
