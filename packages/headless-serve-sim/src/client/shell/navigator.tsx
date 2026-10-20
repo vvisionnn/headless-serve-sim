@@ -10,8 +10,8 @@ import {
   Tv,
   Watch,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { useGridDevices } from "../hooks/use-grid-devices";
+import { useMemo, useState } from "react";
+import { GRID_MAX_PAGE_SIZE, useGridDevices } from "../hooks/use-grid-devices";
 import { useGridMemory } from "../hooks/use-grid-memory";
 import { cn } from "../lib/cn";
 import { spring } from "../lib/motion";
@@ -116,11 +116,9 @@ export function Navigator(props: NavigatorProps) {
 
   const config = typeof window === "undefined" ? undefined : window.__SIM_PREVIEW__;
   const busy = switching || stoppingUdids.size > 0;
-  const grid = useGridDevices(config?.gridApiEndpoint, true, busy);
-  const memory = useGridMemory(config?.gridMemoryEndpoint, true);
-  const { loadAll } = grid;
   // Every row needs its helper port, not just the first page's.
-  useEffect(() => loadAll(), [loadAll]);
+  const grid = useGridDevices(config?.gridApiEndpoint, true, busy, GRID_MAX_PAGE_SIZE);
+  const memory = useGridMemory(config?.gridMemoryEndpoint, true);
 
   const helpers = useMemo(
     () => new Map((grid.devices ?? []).map((g) => [g.device, g.helper] as const)),

@@ -1,9 +1,19 @@
 import { motion } from "motion/react";
 import { Play, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { DeviceBezel } from "../components/device-bezel";
-import { useFrameSpec } from "../hooks/use-frame-spec";
-import { useGridDevices } from "../hooks/use-grid-devices";
+import {
+  DeviceBezel,
+  loadFrameArtwork,
+  preloadScreenMasks,
+  useFrameArtwork,
+} from "../components/device-bezel";
+import { prefetchFrameSpec, useFrameSpecState } from "../hooks/use-frame-spec";
+import {
+  GRID_MAX_PAGE_SIZE,
+  fetchGrid,
+  gridPageUrl,
+  useGridDevices,
+} from "../hooks/use-grid-devices";
 import { useMjpegStream } from "../hooks/use-mjpeg-stream";
 import { spring } from "../lib/motion";
 import { StatusDot } from "../ui/badge";
@@ -11,6 +21,7 @@ import { Button, IconButton } from "../ui/button";
 import { Tip } from "../ui/tooltip";
 import { fitDeviceBezel } from "../utils/bezel-geometry";
 import { simEndpoint } from "../utils/sim-endpoint";
+import { WALL_TILE_REVEAL_CAP_MS, wallTileReady } from "../utils/wall-tile-reveal";
 import type { GridDevice } from "../utils/grid";
 
 export interface WallSceneProps {
@@ -58,6 +69,41 @@ export function wallDevices(devices: GridDevice[]): GridDevice[] {
     .sort((a, b) => Number(!a.helper) - Number(!b.helper));
 }
 
+function isDuo(spec: { deviceTypeIdentifier?: string } | null): boolean {
+  return spec?.deviceTypeIdentifier?.endsWith(".iPhone-Duo") ?? false;
+}
+
+/**
+ * Fetch what the wall will draw — the device list, each running device's
+ * frame spec, its composited bezel and screen masks — so opening it paints
+ * whole tiles at once instead of waiting on the network and the compositor.
+ */
+export async function prewarmWall(endpoint: string): Promise<void> {
+  const answer = await fetchGrid(gridPageUrl(endpoint, GRID_MAX_PAGE_SIZE));
+  for (const device of wallDevices(answer?.devices ?? [])) {
+    void prefetchFrameSpec(device.device).then((spec) => {
+      // A streaming Duo draws its own body from the stream.
+      if (!spec || (isDuo(spec) && device.helper)) return;
+      void loadFrameArtwork(spec);
+      preloadScreenMasks(spec);
+    });
+  }
+}
+
+// Once the page has settled, warm the wall in idle time.
+if (typeof window !== "undefined") {
+  const endpoint = window.__SIM_PREVIEW__?.gridApiEndpoint;
+  const idle = (run: () => void) =>
+    typeof requestIdleCallback === "function"
+      ? requestIdleCallback(run, { timeout: 2000 })
+      : setTimeout(run, 200);
+  const warm = () => idle(() => void prewarmWall(endpoint!));
+  if (endpoint && window.__SIM_PREVIEW__?.mode !== "phone") {
+    if (document.readyState === "complete") warm();
+    else window.addEventListener("load", warm, { once: true });
+  }
+}
+
 /** Columns for `count` tiles in a box `width` wide. */
 export function wallColumns(count: number, width: number): number {
   const max = width > 1100 ? 4 : width > 560 ? 2 : 1;
@@ -75,13 +121,16 @@ export function WallScene({ currentUdid, insetBottom, onFocus }: WallSceneProps)
   const [pending, setPending] = useState<Record<string, "start" | "stop">>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const busy = Object.keys(pending).length > 0;
-  const grid = useGridDevices(config?.gridApiEndpoint, true, busy);
-  const { loadAll, refresh } = grid;
-  useEffect(() => loadAll(), [loadAll]);
+  const grid = useGridDevices(config?.gridApiEndpoint, true, busy, GRID_MAX_PAGE_SIZE);
+  const { refresh } = grid;
 
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    // Measure before the first paint, so tiles never lay out against the
+    // default box and resize a frame later.
+    const rect = el.getBoundingClientRect();
+    setBox({ w: rect.width, h: rect.height });
     const ro = new ResizeObserver(([e]) =>
       setBox({ w: e!.contentRect.width, h: e!.contentRect.height }),
     );
@@ -163,6 +212,21 @@ export function WallScene({ currentUdid, insetBottom, onFocus }: WallSceneProps)
   );
 }
 
+const TILE_HIDDEN = { opacity: 0, y: 24, filter: "blur(8px)" };
+const TILE_SHOWN = { opacity: 1, y: 0, filter: "blur(0px)" };
+
+/** True once `ready`, or after the reveal cap — a slow stream never holds a tile back. */
+function useReveal(ready: boolean): boolean {
+  const [timedOut, setTimedOut] = useState(false);
+  const [shown, setShown] = useState(ready);
+  if (ready && !shown) setShown(true);
+  useEffect(() => {
+    const id = setTimeout(() => setTimedOut(true), WALL_TILE_REVEAL_CAP_MS);
+    return () => clearTimeout(id);
+  }, []);
+  return shown || timedOut;
+}
+
 function Tile({
   device,
   index,
@@ -186,10 +250,34 @@ function Tile({
   onStart: () => void;
   onShutdown: () => void;
 }) {
-  const spec = useFrameSpec(device.device);
+  const { spec, loaded: specLoaded } = useFrameSpecState(device.device);
   const kind = kindOf(device.name);
-  const nativeComposite = spec?.deviceTypeIdentifier?.endsWith(".iPhone-Duo") ?? false;
+  const nativeComposite = isDuo(spec);
   const live = !!device.helper;
+  const needsArtwork = !!spec?.artwork && !(nativeComposite && live);
+  const artwork = useFrameArtwork(needsArtwork ? spec : null);
+  const [frameReady, setFrameReady] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+  // An MJPEG <img> fires no event per part; watch for its first picture.
+  useEffect(() => {
+    if (!live || nativeComposite || frameReady) return;
+    let id = 0;
+    const check = () => {
+      if (imgRef.current?.naturalWidth) setFrameReady(true);
+      else id = requestAnimationFrame(check);
+    };
+    check();
+    return () => cancelAnimationFrame(id);
+  }, [live, nativeComposite, frameReady]);
+  const revealed = useReveal(
+    wallTileReady({
+      specLoaded,
+      needsArtwork,
+      artworkReady: artwork !== null,
+      live,
+      frameReady,
+    }),
+  );
   const [hover, setHover] = useState(false);
   // Ask for the device's config as the pointer arrives, so the server's
   // simulator inventory is fresh by the time the click switches to it.
@@ -217,6 +305,7 @@ function Tile({
 
   const screen = live ? (
     <img
+      ref={imgRef}
       src={device.helper!.streamUrl}
       alt={device.name}
       // The helper allows any origin; asking for CORS keeps the pixels
@@ -224,7 +313,11 @@ function Tile({
       crossOrigin="anonymous"
       draggable={false}
       data-wall-screen
-      className="pointer-events-none absolute inset-0 size-full object-cover select-none"
+      // A tile shown before its first frame (the reveal cap) fades the
+      // picture in rather than cutting from black.
+      className={`pointer-events-none absolute inset-0 size-full object-cover transition-opacity duration-200 select-none ${
+        frameReady || nativeComposite ? "opacity-100" : "opacity-0"
+      }`}
     />
   ) : (
     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#0b0b0d] text-white">
@@ -235,8 +328,8 @@ function Tile({
   return (
     <motion.div
       className="flex flex-col items-center justify-center gap-4"
-      initial={{ opacity: 0, y: 24, filter: "blur(8px)" }}
-      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+      initial={TILE_HIDDEN}
+      animate={revealed ? TILE_SHOWN : TILE_HIDDEN}
       transition={{ ...spring.surface, delay: 0.06 * index }}
     >
       <motion.button
@@ -265,7 +358,11 @@ function Tile({
             // The Duo streams a native composite that already draws the
             // device; crop it to the device itself so it sits on the wall
             // like every other phone, with no second bezel and no backdrop.
-            <DuoCompositeScreen streamUrl={device.helper!.streamUrl} label={device.name} />
+            <DuoCompositeScreen
+              streamUrl={device.helper!.streamUrl}
+              label={device.name}
+              onFirstFrame={() => setFrameReady(true)}
+            />
           ) : spec && geometry ? (
             <DeviceBezel spec={spec} geometry={geometry}>
               {screen}
@@ -338,9 +435,19 @@ function Tile({
  * A Duo's composited stream, cropped to the device and clipped to its
  * silhouette — the same paint the stage does, without the 3D interaction.
  */
-function DuoCompositeScreen({ streamUrl, label }: { streamUrl: string; label: string }) {
+function DuoCompositeScreen({
+  streamUrl,
+  label,
+  onFirstFrame,
+}: {
+  streamUrl: string;
+  label: string;
+  onFirstFrame: () => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { subscribeFrame } = useMjpegStream(streamUrl);
+  const firstFrame = useRef(onFirstFrame);
+  firstFrame.current = onFirstFrame;
   useEffect(() => {
     let busy = false;
     return subscribeFrame((blobUrl, _bytes, composition) => {
@@ -380,6 +487,7 @@ function DuoCompositeScreen({ streamUrl, label }: { streamUrl: string; label: st
           crop.height,
         );
         context.restore();
+        firstFrame.current();
       };
       image.onerror = () => {
         busy = false;

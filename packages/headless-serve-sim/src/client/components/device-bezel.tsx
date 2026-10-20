@@ -24,7 +24,12 @@ import type { BezelGeometry } from "../utils/bezel-geometry";
 // device, not a mask with a hole punched in it — putting it on top would let
 // its nine-slice edges cover the live screen.
 
-const dataUrls = new Map<string, string>();
+// Composited bodies as decoded object URLs, readable synchronously so a bezel
+// mounted after a prefetch paints its skin on the first frame.
+const artworkUrls = new Map<string, string>();
+const artworkLoads = new Map<string, Promise<string | null>>();
+// Kept alive so the browser holds the decoded bitmaps in its image cache.
+const decodedArtwork = new Set<HTMLImageElement>();
 
 // Theme-aware: deeper on the dark stage, softer on the light one.
 const SHADOW = "var(--device-shadow)";
@@ -33,38 +38,58 @@ function artworkKey(spec: DeviceFrameSpec): string {
   return `${spec.deviceTypeIdentifier}:${spec.chromeIdentifier}:${spec.artwork?.width}x${spec.artwork?.height}`;
 }
 
-/** Composite the device's frame artwork once, then reuse the PNG. */
-function useFrameArtwork(spec: DeviceFrameSpec | null): string | null {
+/**
+ * Composite the device's frame artwork once and decode it. The PNG is encoded
+ * with `toBlob`, off the main thread: a synchronous `toDataURL` here stalled
+ * the page for 50–120ms per device, mid-animation.
+ */
+export function loadFrameArtwork(spec: DeviceFrameSpec): Promise<string | null> {
+  if (!spec.artwork) return Promise.resolve(null);
+  const key = artworkKey(spec);
+  const ready = artworkUrls.get(key);
+  if (ready) return Promise.resolve(ready);
+  let load = artworkLoads.get(key);
+  if (load) return load;
+  // Composite the body WITHOUT its controls: they are drawn separately below
+  // so each one can move under the pointer and be pressed.
+  load = prepareDeviceFrameArtwork(spec, undefined, false)
+    .then(async (prepared) => {
+      const canvas = prepared?.source as HTMLCanvasElement | undefined;
+      if (typeof canvas?.toBlob !== "function") return null;
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) return null;
+      const url = URL.createObjectURL(blob);
+      const image = new Image();
+      image.src = url;
+      await image.decode().catch(() => {});
+      decodedArtwork.add(image);
+      artworkUrls.set(key, url);
+      return url;
+    })
+    .catch(() => null)
+    .finally(() => artworkLoads.delete(key));
+  artworkLoads.set(key, load);
+  return load;
+}
+
+/** The device's composited frame artwork, once it is decoded. */
+export function useFrameArtwork(spec: DeviceFrameSpec | null): string | null {
   const key = spec?.artwork ? artworkKey(spec) : null;
-  const [url, setUrl] = useState<string | null>(() => (key ? (dataUrls.get(key) ?? null) : null));
+  const [loaded, setLoaded] = useState<{ key: string; url: string } | null>(null);
 
   useEffect(() => {
-    if (!spec?.artwork || !key) {
-      setUrl(null);
-      return;
-    }
-    const cached = dataUrls.get(key);
-    if (cached) {
-      setUrl(cached);
-      return;
-    }
+    if (!spec?.artwork || !key || artworkUrls.has(key)) return;
     let cancelled = false;
-    // Composite the body WITHOUT its controls: they are drawn separately below
-    // so each one can move under the pointer and be pressed.
-    void prepareDeviceFrameArtwork(spec, undefined, false).then((prepared) => {
-      if (cancelled || !prepared) return;
-      const canvas = prepared.source as HTMLCanvasElement;
-      if (typeof canvas.toDataURL !== "function") return;
-      const next = canvas.toDataURL("image/png");
-      dataUrls.set(key, next);
-      setUrl(next);
+    void loadFrameArtwork(spec).then((url) => {
+      if (!cancelled && url) setLoaded({ key, url });
     });
     return () => {
       cancelled = true;
     };
   }, [spec, key]);
 
-  return url;
+  if (!key) return null;
+  return artworkUrls.get(key) ?? (loaded?.key === key ? loaded.url : null);
 }
 
 function orientedScreenMask(spec: DeviceFrameSpec, rotation: number): string {
