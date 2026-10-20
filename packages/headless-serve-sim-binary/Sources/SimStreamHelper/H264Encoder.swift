@@ -15,7 +15,7 @@ final class H264Encoder {
         /// avcC parameter-set blob — emitted once on the first IDR per session.
         let description: Data?
         let kind: Kind
-        /// Complete serve-sim envelope ready for the socket queue.
+        /// Complete headless-serve-sim envelope ready for the socket queue.
         let envelope: Data
         /// Temporal enhancement frame that future frames do not reference.
         let disposable: Bool

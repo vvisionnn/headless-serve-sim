@@ -39,7 +39,7 @@ async function build() {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>serve-sim — Design Preview</title>
+<title>headless-serve-sim — Design Preview</title>
 <script>try{var p=JSON.parse(localStorage.getItem("serve-sim-design")||"{}").theme||"auto";document.documentElement.dataset.theme=p==="auto"?(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):p}catch(e){}</script>
 <style>${style}</style>
 </head>

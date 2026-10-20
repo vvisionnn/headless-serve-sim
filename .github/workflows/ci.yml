@@ -1,3 +1,9 @@
+# CI and release pipeline for headless-serve-sim.
+# Every push to main and every PR runs the checks and the macOS build + tests.
+# A v* tag also packages headless-serve-sim-darwin-arm64.tar.gz (the compiled CLI plus
+# simcam/, simax/, simmotion/ and native-sources/) and attaches it to a GitHub Release.
+# That release asset is what end users install with mise's github backend.
+
 name: ci
 
 on:

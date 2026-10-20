@@ -1,6 +1,7 @@
-# serve-sim — "Stage" design
+# headless-serve-sim — "Stage" design
 
-Preview: `serve-sim-design.html` (self-contained; open from disk). Rebuild with
+The visual design of the headless-serve-sim web UI. Preview: `serve-sim-design.html`
+(self-contained; open from disk. The file name is historical). Rebuild with
 `bun run build.ts` (`--watch` to iterate). All data is mocked.
 
 ## Idea

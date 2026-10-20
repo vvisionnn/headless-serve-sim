@@ -173,7 +173,8 @@ export interface SimulatorRecordingSource {
 }
 
 /**
- * Renders a headless-serve-sim MJPEG stream with touch and gesture input.
+ * Renders a headless-serve-sim stream (H.264 via WebCodecs, or the MJPEG
+ * fallback) with touch and gesture input.
  * Connects directly to the headless-serve-sim server (not through the gateway).
  *
  * Touch input is forwarded as normalized (0–1) coordinates over WebSocket.

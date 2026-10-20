@@ -1,7 +1,8 @@
 import Foundation
 import Swifter
 
-/// Manages WebSocket clients for input and MJPEG stream clients for video.
+/// Manages WebSocket clients for input, and the video clients for the H.264
+/// (AVCC) stream and the MJPEG fallback.
 final class ClientManager {
     private var wsSessions: [ObjectIdentifier: WebSocketSession] = [:]
     private let queue = DispatchQueue(label: "client-manager")

@@ -5,6 +5,9 @@
  * Bumps packages/headless-serve-sim/package.json, commits a `chore(release): X.Y.Z`,
  * creates a lightweight `vX.Y.Z` tag, and pushes the branch + tag to the remote.
  *
+ * NOTE: real releases also bump .claude-plugin/plugin.json and bun.lock (see SKILL.md,
+ * "Known gap"). This engine does not do that yet, so a commit it makes fails CI.
+ *
  * It ALWAYS operates on `main`, in whichever worktree has `main` checked out (pass it
  * via --repo). It never switches branches. Publishing is left entirely to GitHub Actions
  * (the push of the branch/tag is what triggers the workflows).

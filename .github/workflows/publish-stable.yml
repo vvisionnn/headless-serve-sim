@@ -1,3 +1,8 @@
+# Legacy workflow inherited from the upstream serve-sim project (npm publishing).
+# headless-serve-sim is NOT published to npm: releases ship as a GitHub Release built
+# by ci.yml on a v* tag. The publish job below is gated on the upstream repository
+# (EvanBacon/serve-sim), so it never runs here. Kept until the maintainer removes it.
+
 name: Publish stable to npm
 
 on:

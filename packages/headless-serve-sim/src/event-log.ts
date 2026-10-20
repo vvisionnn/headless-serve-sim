@@ -2,7 +2,7 @@
  * Ring buffer of simulator input events, plus the pure helpers for describing
  * them.
  *
- * Input in this fork travels from the browser straight to the Swift helper's
+ * Input in headless-serve-sim travels from the browser straight to the Swift helper's
  * WebSocket — the preview server never sees it. So events are reported to the
  * server rather than observed by it, and the server owns the buffer so the CLI
  * (`headless-serve-sim events`) and the in-page panel read the same history

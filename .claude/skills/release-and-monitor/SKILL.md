@@ -15,10 +15,36 @@ allowed-tools: Bash(git fetch:*), Bash(git status:*), Bash(git worktree list:*),
 
 # release-and-monitor
 
-Release the `headless-serve-sim` package the way this repo already does it: a version bump
-commit + a lightweight `vX.Y.Z` tag on **main**, pushed to `origin`. The push is the only
-trigger — **GitHub Actions owns publishing the GitHub Release from the tag push**. This
-skill never publishes anything itself.
+Release headless-serve-sim the way this repo already does it: a version-bump commit and a
+lightweight `vX.Y.Z` tag on **main**, pushed to `origin`. The push is the only trigger.
+**GitHub Actions publishes the GitHub Release from the tag push**, and this skill never
+publishes anything itself. headless-serve-sim is not on npm. Users install the release asset
+with mise (`mise use -g github:vvisionnn/headless-serve-sim`), so "released" means
+"the GitHub Release exists with its tarball".
+
+## What a release is
+
+Every recent `chore(release): X.Y.Z` commit (0.0.32 onward) changes the same three version strings,
+and nothing else:
+
+| File | Field |
+| --- | --- |
+| `packages/headless-serve-sim/package.json` | `"version"` |
+| `.claude-plugin/plugin.json` | `"version"`. The `plugin-manifest` test requires it to equal the package version. |
+| `bun.lock` | `"version"` under `"packages/headless-serve-sim"`. CI installs with `--frozen-lockfile`. |
+
+That commit gets the tag `vX.Y.Z`, and both are pushed to `origin`. `.github/workflows/ci.yml`
+then runs:
+
+1. The `check` job on Linux: static checks and client tests.
+2. The `build-test` job on `macos-26`: build, headless-serve-sim tests and Swift self-tests.
+   On a `v*` tag this job also packages `headless-serve-sim-darwin-arm64.tar.gz`, which
+   contains `headless-serve-sim`, `simcam/`, `simax/`, `simmotion/` and `native-sources/`.
+3. The `release` job (`softprops/action-gh-release`): attaches the tarball to the GitHub
+   Release for the tag.
+
+`publish.yml` and `publish-stable.yml` are leftover npm workflows from the upstream project.
+They are gated on the upstream repository, so their publish jobs never run here. Ignore them.
 
 Then it stays with the release: it polls CI every 5 minutes and, if a run fails, fixes the
 cause and cuts another version, repeating until the release is green.
@@ -44,7 +70,8 @@ them in how you drive it:
 - **Never bump/tag on a non-main branch or worktree.**
 - **Publishing is 100% GitHub Actions.** Do not publish manually or run
   `gh workflow run` — pushing the branch and tag is the whole job.
-- Only `packages/headless-serve-sim/package.json` is bumped (matches the repo's history).
+- A release commit bumps exactly the three files in "What a release is". It bumps them
+  together and changes nothing else.
 
 `$version` is optional. If the user gave one, release exactly that `X.Y.Z`. If it's empty,
 auto-bump the patch. An explicit version applies to the **first** release only; any
@@ -70,8 +97,24 @@ on main, otherwise pass `--repo <main-worktree-path>`.
 
 ## Step 1 — Bump, commit, tag, push
 
-The bundled engine does the whole deterministic release atomically (preflight → bump →
-commit → tag → push). Preview first, then run for real.
+The bundled engine runs the whole release in order (preflight → bump → commit → tag → push).
+Preview first, then run for real.
+
+> **Known gap:** `scripts/bump-tag-release.ts` currently bumps and commits only
+> `packages/headless-serve-sim/package.json` (`PKG_REL`). A commit made that way leaves
+> `.claude-plugin/plugin.json` and `bun.lock` behind, and CI then fails. Until the engine
+> also bumps those two files, follow these steps:
+>
+> 1. Use the engine only with `--dry-run`, for its preflight checks and the next version.
+> 2. Tell the user you are releasing by hand.
+> 3. Edit the three version strings.
+> 4. Run `git add packages/headless-serve-sim/package.json .claude-plugin/plugin.json bun.lock`.
+> 5. Run `git commit -m "chore(release): X.Y.Z"`, then `git tag vX.Y.Z`.
+> 6. Run `git push origin main`, then `git push origin vX.Y.Z`.
+> 7. Take `sha` from `git rev-parse HEAD` for Step 2.
+>
+> The manual git commands are not in `allowed-tools`, so expect permission prompts. Every
+> recent release commit (0.0.32 through 0.0.42) has this shape.
 
 **Preview** (no changes made):
 
@@ -135,8 +178,11 @@ failures mean the fix needs a human decision.
 
 ## Notes
 
-- Tags are lightweight `vX.Y.Z`, commit message `chore(release): X.Y.Z` (no `[skip ci]` — CI
-  must run). This matches the repo's existing releases exactly.
+- Tags are lightweight `vX.Y.Z`, and the commit message is `chore(release): X.Y.Z` with no
+  `[skip ci]`, because CI must run. This matches the repo's existing releases exactly.
+- A release is green when `ci.yml` passes for the tag and the GitHub Release has
+  `headless-serve-sim-darwin-arm64.tar.gz` attached. That asset is what mise's `github:` backend
+  installs.
 - Everything mutating lives in `scripts/bump-tag-release.ts`; monitoring lives in
   `scripts/check-release.ts`. Both run under `bun` and re-check their own preconditions, so
   they're safe to re-run.

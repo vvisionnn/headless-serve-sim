@@ -14,13 +14,13 @@ description: >-
   (caption2 … large) with every number in mono. Motion is springs (spring.ui / snappy /
   surface / momentum / rotate from lib/motion.ts). Auto/Light/Dark themes via [data-theme].
   Use this skill whenever building, restyling, reviewing, or laying out ANY part of the
-  serve-sim web UI: files under packages/headless-serve-sim/src/client/**; choosing
+  headless-serve-sim web UI: files under packages/headless-serve-sim/src/client/**; choosing
   colours, radius, spacing, fonts, materials or motion; adding a control, panel, inspector
   section, console view, toast, or palette command. Trigger it even when the request just
   says "match the design" or "use the design tokens".
 ---
 
-# serve-sim web design system — "Stage"
+# headless-serve-sim web design system — "Stage"
 
 The approved reference is the self-contained preview in [`design/`](../../../design/)
 (`design/serve-sim-design.html`, source in `design/src`, rationale in `design/DESIGN.md`).

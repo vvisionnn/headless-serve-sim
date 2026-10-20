@@ -2340,7 +2340,9 @@ program
   // the default port instead of the one asked for.
   .enablePositionalOptions()
   .name("headless-serve-sim")
-  .description("Stream iOS Simulator to the browser")
+  .description(
+    "Boot, stream and drive Apple simulators (iPhone, iPad, Watch) in the browser, headless",
+  )
   .helpOption("-h, --help", "Show this help")
   // The default command: start the preview server (or stream / list / kill).
   .argument("[devices...]", "Simulator(s) to target (udid or name); omit to choose in the preview")
@@ -2466,7 +2468,7 @@ Examples:
     }
   });
 
-const deviceOpt = ["-d, --device <udid>", "Target a specific simulator (udid or name)"] as const;
+const deviceOpt = ["-d, --device <udid>", "Target a specific simulator by udid"] as const;
 
 program
   .command("gesture")

@@ -16,9 +16,9 @@ zero torn frames, zero invalid frames, and zero intervals over 50 ms.
   AVCC socket-write time.
 - `scripts/stream-performance-report.ts` compares one baseline with any number of
   progressive stages and scores each metric in its desired direction.
-- The browser pass uses the production preview and Connection Stats panel to
-  measure presented FPS, decoder time, jitter, dropped frames, queue time, and
-  recoveries. Native and browser results are kept separate.
+- The browser pass uses the production preview and the stream stats in the
+  Inspector's Activity tab to measure presented FPS, decoder time, jitter,
+  dropped frames, queue time, and recoveries. Native and browser results are kept separate.
 
 Example:
 

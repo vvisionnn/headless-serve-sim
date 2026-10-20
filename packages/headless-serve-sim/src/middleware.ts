@@ -2064,7 +2064,7 @@ export function createSimMiddleware(hostCommands: HostCommands, options?: SimMid
     // Content-Type + Origin checks to block CORS-simple CSRF (a malicious
     // page POSTing `text/plain` JSON to a dev server bound to a public iface)
     // and LAN attackers who can reach the port but can't read the token.
-    // Input events are reported here by the preview page: this fork's input
+    // Input events are reported here by the preview page: headless-serve-sim's input
     // WebSocket goes browser → helper directly, so the server never sees the
     // events itself. Token-gated like /exec, since anything that can write here
     // can forge history the CLI will print.

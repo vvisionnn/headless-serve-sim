@@ -5,6 +5,7 @@
 //   - placeholder : programmatically rendered moving frames (default)
 //   - webcam      : live AVCaptureDevice (front Mac camera, Continuity, …)
 //   - image       : a single PNG/JPEG, written once
+//   - video       : a looping video file
 //
 // A UNIX-domain control socket lets the CLI (and the in-page Camera tool)
 // switch sources at runtime without relaunching the simulator app — the
@@ -12,8 +13,8 @@
 //
 // Command line:
 //   headless-serve-sim-camera-helper --shm <name> [--socket <path>]
-//                           [--source placeholder|webcam|image]
-//                           [--arg <value>]   # webcam name / image path
+//                           [--source placeholder|webcam|image|video]
+//                           [--arg <value>]   # webcam name / image or video path
 //                           [--width 1280] [--height 720]
 //   headless-serve-sim-camera-helper --list
 //
@@ -885,7 +886,7 @@ int main(int argc, const char *argv[]) {
             else if (!strcmp(a, "--height") && i+1 < argc) gHeight = (uint32_t)atoi(argv[++i]);
             else if (!strcmp(a, "--list")) list = YES;
             else if (!strcmp(a, "--help") || !strcmp(a, "-h")) {
-                printf("Usage: %s --shm <name> [--socket <path>] [--source placeholder|webcam|image] [--arg <value>] [--width N --height N]\n"
+                printf("Usage: %s --shm <name> [--socket <path>] [--source placeholder|webcam|image|video] [--arg <value>] [--width N --height N]\n"
                        "       %s --list\n", argv[0], argv[0]);
                 return 0;
             }

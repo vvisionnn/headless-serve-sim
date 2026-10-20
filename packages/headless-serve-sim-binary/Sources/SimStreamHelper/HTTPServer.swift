@@ -2,7 +2,9 @@ import Foundation
 import Swifter
 
 /// HTTP + WebSocket server using Swifter library.
-/// Serves MJPEG stream on /stream.mjpeg, WebSocket on /ws for input.
+/// Serves H.264 (AVCC) on /stream.avcc and the MJPEG fallback on /stream.mjpeg,
+/// WebSocket input on /ws, plus /health, /config, /foreground, /ax, /metrics
+/// and /stream-metrics.
 final class HTTPServer {
     let clientManager = ClientManager()
     var onStreamMetrics: (() -> [String: Any])?

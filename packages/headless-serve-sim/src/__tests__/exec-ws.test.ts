@@ -10,7 +10,7 @@ import { createScriptedHostCommands } from "../test-support/scripted-host-comman
 // flushes raw handshake bytes, which is why the channel is built on `ws`
 // (Bun substitutes its native implementation).
 //
-// NOTE: this fork wires the channel with an EMPTY SSE allowlist
+// NOTE: headless-serve-sim wires the channel with an EMPTY SSE allowlist
 // (`ssePrefixes: []`) — we deliberately do NOT bridge SSE over the socket and
 // keep our EventSource side-channels — so every `{sub, path}` request is
 // rejected. The rejection test below guards that decision.
@@ -159,7 +159,7 @@ describe("exec-ws control channel", () => {
   test("SSE-over-WS is disabled in this build (empty allowlist)", async () => {
     const channel = await connect(TOKEN);
     await channel.next(); // ready
-    // Even a plausible middleware route is refused: this fork keeps SSE on its
+    // Even a plausible middleware route is refused: headless-serve-sim keeps SSE on its
     // own EventSource channels and does not bridge them over the control socket.
     channel.send({ sub: 9, path: "/api/events" });
     const reply = await channel.next();
