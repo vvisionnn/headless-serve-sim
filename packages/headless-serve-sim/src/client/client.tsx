@@ -2343,7 +2343,7 @@ function AppWithConfig({
       )}
       <AnimatePresence initial={false}>
         {heldFrame && flown && placed ? (
-          <HeldFrame key="held" frame={heldFrame} />
+          <HeldFrame key="held" frame={heldFrame} angle={poseRotation} />
         ) : (
           // A device arrives with its screen dark, and the stream's first
           // frame lights it, rather than flashing the decoder's placeholder.
@@ -2744,6 +2744,7 @@ function AppWithConfig({
                         currentUdid={config.device}
                         insetBottom={insetBottom}
                         currentStill={() => snapshotCanvas(simContainerRef.current)?.canvas ?? null}
+                        currentOrientation={foldable ? undefined : activeStreamConfig.orientation}
                         onFocus={(udid) => {
                           const tileEl = document.querySelector<HTMLElement>(
                             `[data-wall-tile="${CSS.escape(udid)}"]`,
@@ -2833,7 +2834,9 @@ function AppWithConfig({
               </AnimatePresence>
             </motion.main>
 
-            {holdsTile && tileRect && <HeldFrame frame={heldFrame} at={tileRect} />}
+            {holdsTile && tileRect && (
+              <HeldFrame frame={heldFrame} at={tileRect} angle={poseRotation} />
+            )}
 
             <Toasts
               items={toastItems}
@@ -2906,13 +2909,22 @@ async function pngSize(blob: Blob): Promise<{ width: number; height: number } | 
  * A switched-from tile's last frame, held on the screen until the new stream
  * paints — or, given `at`, where the tile was until the device has a place.
  */
-function HeldFrame({ frame, at }: { frame: HTMLCanvasElement; at?: DOMRect }) {
+function HeldFrame({
+  frame,
+  at,
+  angle: held,
+}: {
+  frame: HTMLCanvasElement;
+  at?: DOMRect;
+  /** The angle the stage draws the stream at, known before the stream is. */
+  angle: number;
+}) {
   const attach = useCallback(
     (node: HTMLDivElement | null) => {
       if (!node) return;
       // The wall draws every device upright, from the stream's portrait
       // buffer. On a screen that is (or turns) sideways the frame is turned
-      // the way the stream beside it is, or the screen stays dark until then.
+      // the way the stream beside it is (or will be), or the screen stays dark.
       const shape = (w: number, h: number) => (w > h * 1.15 ? 1 : h > w * 1.15 ? -1 : 0);
       const fit = () => {
         const across =
@@ -2925,7 +2937,8 @@ function HeldFrame({ frame, at }: { frame: HTMLCanvasElement; at?: DOMRect }) {
         }
         node.replaceChildren();
         const stream = largestSurface(node.parentElement);
-        const angle = stream ? screenCaptureAngle(getComputedStyle(stream).transform) : 0;
+        const drawn = stream ? screenCaptureAngle(getComputedStyle(stream).transform) : 0;
+        const angle = Math.abs(Math.abs(drawn) - 90) < 1 ? drawn : held;
         if (Math.abs(Math.abs(angle) - 90) > 1) {
           node.style.background = "#000";
           return;
@@ -2940,7 +2953,7 @@ function HeldFrame({ frame, at }: { frame: HTMLCanvasElement; at?: DOMRect }) {
       observer.observe(node);
       return () => observer.disconnect();
     },
-    [frame],
+    [frame, held],
   );
   return (
     <motion.div

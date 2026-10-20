@@ -21,7 +21,12 @@ import { Button, IconButton } from "../ui/button";
 import { Tip } from "../ui/tooltip";
 import { fitDeviceBezel } from "../utils/bezel-geometry";
 import { stillFitsScreen, wallTileReady, wallTileRevealCap } from "../utils/wall-tile-reveal";
-import { keepDeviceConfigsWarm, prefetchDeviceConfig } from "../utils/device-switch";
+import {
+  rotationDegreesForOrientation,
+  type SimulatorOrientation,
+} from "headless-serve-sim-client/simulator";
+import { deviceConfig, keepDeviceConfigsWarm, prefetchDeviceConfig } from "../utils/device-switch";
+import { unturnedScreenBox } from "../utils/wall-tile-orientation";
 import type { GridDevice } from "../utils/grid";
 
 export interface WallSceneProps {
@@ -36,6 +41,8 @@ export interface WallSceneProps {
    * connection.
    */
   currentStill?: () => HTMLCanvasElement | null;
+  /** How the stage holds this window's device, so its tile is drawn the same way. */
+  currentOrientation?: SimulatorOrientation;
 }
 
 type Kind = "phone" | "tablet" | "watch";
@@ -120,7 +127,13 @@ export function wallColumns(count: number, width: number): number {
  * Wall: every running simulator side by side, each live. Click one and it
  * flies forward into the stage — the same object, not a new screen.
  */
-export function WallScene({ currentUdid, insetBottom, onFocus, currentStill }: WallSceneProps) {
+export function WallScene({
+  currentUdid,
+  insetBottom,
+  onFocus,
+  currentStill,
+  currentOrientation,
+}: WallSceneProps) {
   const config = typeof window === "undefined" ? undefined : window.__SIM_PREVIEW__;
   const ref = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 1000, h: 700 });
@@ -205,6 +218,7 @@ export function WallScene({ currentUdid, insetBottom, onFocus, currentStill }: W
                 cellH={cellH}
                 current={d.device === currentUdid}
                 still={d.device === currentUdid ? currentStill : undefined}
+                orientation={d.device === currentUdid ? currentOrientation : undefined}
                 pending={pending[d.device]}
                 error={errors[d.device]}
                 onFocus={() => onFocus(d.device)}
@@ -241,6 +255,7 @@ function Tile({
   cellH,
   current,
   still: takeStill,
+  orientation: heldAs,
   pending,
   error,
   onFocus,
@@ -253,6 +268,7 @@ function Tile({
   cellH: number;
   current: boolean;
   still?: () => HTMLCanvasElement | null;
+  orientation?: SimulatorOrientation;
   pending: "start" | "stop" | undefined;
   error: string | undefined;
   onFocus: () => void;
@@ -290,12 +306,32 @@ function Tile({
   useEffect(() => {
     if (hover && live && !current) return keepDeviceConfigsWarm([device.device]);
   }, [hover, live, current, device.device]);
+  // Drawn the way the device is held, so the flight into the stage starts
+  // from the same shape it lands as. The stage knows its own device's; any
+  // other's comes with its config (which a click switches on anyway).
+  const [orientation, setOrientation] = useState<SimulatorOrientation | null | undefined>(
+    heldAs ?? (live && !nativeComposite ? undefined : null),
+  );
+  useEffect(() => {
+    if (heldAs) return setOrientation(heldAs);
+    if (!live) return setOrientation(null);
+    let alive = true;
+    deviceConfig(device.device).then(
+      (config) => alive && setOrientation(config.screenConfig?.orientation ?? null),
+      () => alive && setOrientation(null),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [heldAs, live, device.device, device.helper?.port]);
+  const rotation = nativeComposite ? 0 : rotationDegreesForOrientation(orientation ?? undefined);
+  const sideways = Math.abs(rotation) === 90;
   const availW = cellW * 0.86;
   const availH = wallLineupHeight(cellW, cellH) * LINEUP_SHARE[kind];
   const geometry = spec
     ? fitDeviceBezel({
         spec,
-        rotation: 0,
+        rotation,
         availWidth: availW,
         availHeight: availH,
         maxScreenWidth: Number.POSITIVE_INFINITY,
@@ -303,14 +339,13 @@ function Tile({
       })
     : null;
   const aspect = FALLBACK_ASPECT[kind];
-  const w = geometry?.width ?? Math.min(availW, availH * aspect);
-  const h = geometry?.height ?? w / aspect;
+  const turnedAspect = sideways ? 1 / aspect : aspect;
+  const w = geometry?.width ?? Math.min(availW, availH * turnedAspect);
+  const h = geometry?.height ?? w / turnedAspect;
+  const glass = unturnedScreenBox(geometry?.screen ?? { width: w, height: h }, rotation);
   // A Duo's tile draws its own composite; any other holds the still on its
   // screen until the stream's first frame fades in over it.
-  const seed =
-    still && !nativeComposite && stillFitsScreen(still, geometry?.screen ?? { width: w, height: h })
-      ? still
-      : null;
+  const seed = still && !nativeComposite && stillFitsScreen(still, glass) ? still : null;
   const holdStill = useCallback(
     (el: HTMLDivElement | null) => {
       if (!el || !seed) return;
@@ -321,7 +356,7 @@ function Tile({
   );
   const revealed = useReveal(
     wallTileReady({
-      specLoaded,
+      specLoaded: specLoaded && orientation !== undefined,
       needsArtwork,
       artworkReady: artwork !== null,
       live,
@@ -332,7 +367,16 @@ function Tile({
   );
 
   const screen = live ? (
-    <>
+    <div
+      className="pointer-events-none absolute"
+      style={{
+        left: glass.left,
+        top: glass.top,
+        width: glass.width,
+        height: glass.height,
+        transform: glass.transform,
+      }}
+    >
       {seed && (
         <div ref={holdStill} data-wall-still className="pointer-events-none absolute inset-0" />
       )}
@@ -351,7 +395,7 @@ function Tile({
           frameReady || nativeComposite ? "opacity-100" : "opacity-0"
         }`}
       />
-    </>
+    </div>
   ) : (
     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#0b0b0d] text-white">
       <span className="text-footnote font-semibold">Not streaming</span>
