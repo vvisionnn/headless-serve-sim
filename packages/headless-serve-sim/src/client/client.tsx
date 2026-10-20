@@ -1039,6 +1039,7 @@ function AppWithConfig({
       prev.width === next.width &&
       prev.height === next.height &&
       prev.orientation === next.orientation &&
+      prev.interfaceOrientation === next.interfaceOrientation &&
       prev.displayId === next.displayId &&
       prev.deviceComposition === next.deviceComposition
         ? prev
@@ -2025,7 +2026,12 @@ function AppWithConfig({
         onDecoderRecover={onDecoderRecover}
         onStreamScroll={onStreamScroll}
       />
-      {axOverlayEnabled && !nativeComposition && <AxDomOverlay />}
+      {axOverlayEnabled && !nativeComposition && (
+        <AxDomOverlay
+          interfaceOrientation={liveStreamConfig?.interfaceOrientation}
+          displayOrientation={activeStreamConfig.orientation}
+        />
+      )}
       {!nativeComposition && screenOverlays}
     </>
   );

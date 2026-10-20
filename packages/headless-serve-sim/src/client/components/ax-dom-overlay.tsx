@@ -1,9 +1,19 @@
+import type { SimulatorOrientation } from "headless-serve-sim-client/simulator";
 import { useAxSelectionContext, useAxSnapshotContext } from "../hooks/use-ax-snapshot";
 import { axElementKey } from "../utils/ax";
+import { axSnapshotForDisplay } from "../utils/ax-display";
 import { AxTarget } from "./ax-target";
 
-export function AxDomOverlay() {
-  const { snapshot } = useAxSnapshotContext();
+export function AxDomOverlay({
+  interfaceOrientation,
+  displayOrientation,
+}: {
+  interfaceOrientation?: SimulatorOrientation;
+  displayOrientation?: SimulatorOrientation;
+}) {
+  const { snapshot: laidOut } = useAxSnapshotContext();
+  const snapshot =
+    laidOut && axSnapshotForDisplay(laidOut, interfaceOrientation, displayOrientation);
   const { highlightedKey, selectedKey, setHighlightedKey, setSelectedKey } =
     useAxSelectionContext();
 
