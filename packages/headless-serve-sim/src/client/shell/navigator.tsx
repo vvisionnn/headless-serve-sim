@@ -10,7 +10,7 @@ import {
   Tv,
   Watch,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { GRID_MAX_PAGE_SIZE, useGridDevices } from "../hooks/use-grid-devices";
 import { useGridMemory } from "../hooks/use-grid-memory";
 import { cn } from "../lib/cn";
@@ -22,6 +22,7 @@ import { Tip } from "../ui/tooltip";
 import { deviceKind, runtimeLabel, runtimeOrder, type SimDevice } from "../utils/devices";
 import { formatGridBytes, type GridDevice, type MemoryReport } from "../utils/grid";
 import { useOptionalShell } from "./shell-context";
+import { publishNavigatorLayout, type NavigatorLayout } from "./stage-handoff";
 
 export interface NavigatorProps {
   devices: SimDevice[];
@@ -34,6 +35,8 @@ export interface NavigatorProps {
   /** Boot (if needed), start streaming and switch the page to this simulator. */
   onSelect: (device: SimDevice) => void;
   onStop: (udid: string) => void;
+  /** The search and scroll a switch carried over from the last shell. */
+  initial?: NavigatorLayout;
 }
 
 export type SimRowState =
@@ -111,7 +114,22 @@ const MAX_SEGMENTS = 12;
 export function Navigator(props: NavigatorProps) {
   const { devices, loading, error, currentUdid, stoppingUdids, switching } = props;
   const shell = useOptionalShell();
-  const [query, setQuery] = useState("");
+  // A switch carries the search and scroll over, so the list stays put.
+  const [initial] = useState(props.initial);
+  const [query, setQuery] = useState(initial?.query ?? "");
+  const listRef = useRef<HTMLDivElement>(null);
+  const [owner] = useState(() => ({}));
+  useLayoutEffect(() => {
+    if (listRef.current && initial) listRef.current.scrollTop = initial.scrollTop;
+    return () => publishNavigatorLayout(owner, null);
+  }, [owner, initial]);
+  // Only on the user's own changes: a leaving navigator that re-renders
+  // mustn't take back what the next one now holds.
+  const publish = () =>
+    publishNavigatorLayout(owner, { query, scrollTop: listRef.current?.scrollTop ?? 0 });
+  useLayoutEffect(() => {
+    publishNavigatorLayout(owner, { query, scrollTop: listRef.current?.scrollTop ?? 0 });
+  }, [owner, query]);
   const [pendingUdid, setPendingUdid] = useState<string | null>(null);
 
   const config = typeof window === "undefined" ? undefined : window.__SIM_PREVIEW__;
@@ -158,7 +176,11 @@ export function Navigator(props: NavigatorProps) {
           className="[&_input]:h-[30px] [&_input]:rounded-[10px] [&_input]:bg-fill-3 [&_input]:shadow-none"
         />
       </div>
-      <div className="thin-scrollbar scroll-fade flex-1 overflow-y-auto px-2 pt-1 pb-3">
+      <div
+        ref={listRef}
+        onScroll={publish}
+        className="thin-scrollbar scroll-fade flex-1 overflow-y-auto px-2 pt-1 pb-3"
+      >
         {error && <p className="px-2.5 py-2 text-footnote break-words text-red">{error}</p>}
         {groups.length === 0 && !error && (
           <p

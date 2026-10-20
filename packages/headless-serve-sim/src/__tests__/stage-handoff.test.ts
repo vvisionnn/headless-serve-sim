@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   flightStart,
   handOffStage,
+  publishNavigatorLayout,
   publishStageLayout,
   stageArrival,
   stageArrived,
@@ -29,7 +30,30 @@ test("a switch that knows nothing else still carries the published layout", () =
   expect(takeStageHandoff()).toBeNull();
   publishStageLayout(layout);
   handOffStage();
-  expect(takeStageHandoff()).toEqual({ from: null, frame: null, layout });
+  expect(takeStageHandoff()).toEqual({
+    from: null,
+    frame: null,
+    layout: { ...layout, navigator: { query: "", scrollTop: 0 } },
+  });
+});
+
+test("the navigator's search and scroll ride along to the next shell", () => {
+  publishStageLayout(layout);
+  const leaving = {};
+  publishNavigatorLayout(leaving, { query: "duo", scrollTop: 120 });
+  handOffStage();
+  expect(takeStageHandoff()?.layout.navigator).toEqual({ query: "duo", scrollTop: 120 });
+  // The next shell's navigator takes over before the old one unmounts, so
+  // the old one's leaving doesn't clear what the new one carries.
+  const arriving = {};
+  publishNavigatorLayout(arriving, { query: "duo", scrollTop: 120 });
+  publishNavigatorLayout(leaving, null);
+  handOffStage();
+  expect(takeStageHandoff()?.layout.navigator).toEqual({ query: "duo", scrollTop: 120 });
+  // Closing the navigator drops its search, as reopening it starts fresh.
+  publishNavigatorLayout(arriving, null);
+  handOffStage();
+  expect(takeStageHandoff()?.layout.navigator).toEqual({ query: "", scrollTop: 0 });
 });
 
 test("the leaving shell waits until the next one has placed its device", async () => {

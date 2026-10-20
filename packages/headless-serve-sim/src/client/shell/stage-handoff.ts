@@ -17,11 +17,32 @@ export interface StageHandoff {
     consoleOpen: boolean;
     consoleTab: ConsoleTab;
     consoleHeight: number;
+    /** The navigator's search and scroll, so its list doesn't jump on a switch. */
+    navigator?: NavigatorLayout;
   };
 }
 
+export interface NavigatorLayout {
+  query: string;
+  scrollTop: number;
+}
+
+const NAVIGATOR_FRESH: NavigatorLayout = { query: "", scrollTop: 0 };
+
 let pending: StageHandoff | null = null;
 let current: StageHandoff["layout"] | null = null;
+let navigatorNow: { owner: object; layout: NavigatorLayout } | null = null;
+
+/**
+ * The open navigator keeps its search and scroll here; null as it closes.
+ * The next shell's navigator mounts before the old one leaves, so only the
+ * one that published last may clear it.
+ */
+export function publishNavigatorLayout(owner: object, layout: NavigatorLayout | null) {
+  if (layout) navigatorNow = { owner, layout };
+  else if (navigatorNow?.owner === owner) navigatorNow = null;
+}
+
 /**
  * The leaving shell stays until the next one has put its device on the stage
  * (a Duo has no place until its first composite), so the window never shows
@@ -45,7 +66,10 @@ export function handOffStage(handoff: Partial<StageHandoff> = {}) {
   pending = {
     from: handoff.from ?? null,
     frame: handoff.frame ?? null,
-    layout: handoff.layout ?? current!,
+    layout: handoff.layout ?? {
+      ...current!,
+      navigator: navigatorNow?.layout ?? NAVIGATOR_FRESH,
+    },
   };
   let resolve: (how: Arrival) => void = () => {};
   const promise = new Promise<Arrival>((r) => (resolve = r));
