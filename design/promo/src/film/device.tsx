@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from "react";
-import { screens, sizeOf, type Screen } from "./assets";
+import { ease, mix } from "../lib/time";
+import { FOLD, FOLD_STEP } from "./assets";
 import { artwork, RealDevice, type Kind } from "./real-device";
 
 /** Each kind is drawn once at this scale, then transformed: crisp at any size. */
@@ -7,12 +8,56 @@ const BASE: Record<Kind, number> = { iphone: 0.32, air: 0.31, ipad: 0.26, watch:
 /** The Duo's renders are taken at 2×; this maps them onto the others' scale. */
 const DUO_PX = 0.9;
 
-export type Body = { kind: Kind } | { duo: Screen };
+/** The Duo's body is its hinge angle, 0 (closed) to 180 (flat). */
+export type Body = { kind: Kind } | { duo: number };
+
+/** The Duo is laid out by its flat-open frame; the others by their artwork. */
+const OPEN = () => FOLD.at(-1)!;
 
 export function size(body: Body, s: number) {
   if ("kind" in body) return { w: artwork(body.kind).w * s, h: artwork(body.kind).h * s };
-  const n = sizeOf(body.duo);
-  return { w: n.w * DUO_PX * s, h: n.h * DUO_PX * s };
+  return { w: OPEN().w * DUO_PX * s, h: OPEN().h * DUO_PX * s };
+}
+
+/**
+ * The iPhone Duo at a hinge angle, in the stream pixels the Stage drew it in.
+ * From 5° on, each angle is the real render nearest to it. Below that the
+ * Stage shows the cover display face-on, so the closed device turns on its
+ * hinge to meet the first edge-on frame, the way it would in a hand.
+ */
+function DuoFold({ angle }: { angle: number }) {
+  const ref = OPEN();
+  const a = Math.min(180, Math.max(0, angle));
+  const place = (f: (typeof FOLD)[number], extra?: React.CSSProperties) => (
+    <img
+      key={f.angle}
+      src={f.src}
+      alt=""
+      className="absolute max-w-none"
+      style={{ left: f.x - ref.x, top: f.y - ref.y, width: f.w, height: f.h, ...extra }}
+    />
+  );
+  if (a >= FOLD_STEP) return place(FOLD[Math.min(FOLD.length - 1, Math.round(a / FOLD_STEP))]!);
+  const cover = FOLD[0]!;
+  const edge = FOLD[1]!;
+  const k = a / FOLD_STEP;
+  // The cover grows into the edge-on frame's box while it turns on its hinge (its right edge).
+  const grow = edge.h / cover.h;
+  const right = mix(cover.x + cover.w, edge.x + edge.w, k);
+  const top = mix(cover.y, edge.y, k);
+  const sc = mix(1, grow, k);
+  return (
+    <div className="absolute" style={{ left: 0, top: 0, perspective: 2400 }}>
+      {place(cover, {
+        left: right - cover.w - ref.x,
+        top: top - ref.y,
+        transformOrigin: "100% 0",
+        transform: `scale(${sc}) rotateY(${k * 82}deg)`,
+        opacity: 1 - ease(k, 0.85, 0.15),
+      })}
+      {k > 0.85 && place(edge, { opacity: ease(k, 0.85, 0.15) })}
+    </div>
+  );
 }
 
 export interface Pose {
@@ -137,11 +182,17 @@ export function Device({
               </RealDevice>
             </div>
           ) : (
-            <img
-              src={screens[body.duo]}
-              alt=""
-              style={{ width: w, height: h, filter: "var(--device-shadow)" }}
-            />
+            <div
+              style={{
+                width: OPEN().w,
+                height: OPEN().h,
+                transform: `scale(${s * DUO_PX})`,
+                transformOrigin: "0 0",
+                filter: "var(--device-shadow)",
+              }}
+            >
+              <DuoFold angle={body.duo} />
+            </div>
           )}
         </div>
       </div>

@@ -11,7 +11,7 @@ export function Words({
   t,
   at,
   out = Infinity,
-  stagger = 0.07,
+  stagger = 0.05,
   className,
   style,
 }: {
@@ -23,12 +23,12 @@ export function Words({
   className?: string;
   style?: CSSProperties;
 }) {
-  const leave = ease(t, out, 0.55, curve.in);
+  const leave = ease(t, out, 0.3, curve.in);
   if (t < at || leave >= 1) return null;
   return (
     <span className={className} style={{ ...style, display: "block" }}>
       {text.split(" ").map((word, i) => {
-        const p = spring(t, at + i * stagger, 1.0, 0.12);
+        const p = spring(t, at + i * stagger, 0.6, 0.14);
         const seen = clamp(p);
         return (
           <span
@@ -37,8 +37,8 @@ export function Words({
               display: "inline-block",
               whiteSpace: "pre",
               opacity: seen * (1 - leave),
-              transform: `translateY(${mix(0.42, 0, p) - leave * 0.22}em)`,
-              filter: `blur(${mix(14, 0, seen) + leave * 8}px)`,
+              transform: `translateY(${mix(0.5, 0, p) - leave * 0.3}em) scale(${mix(1.08, 1, seen)})`,
+              filter: `blur(${mix(16, 0, seen) + leave * 10}px)`,
             }}
           >
             {i ? ` ${word}` : word}

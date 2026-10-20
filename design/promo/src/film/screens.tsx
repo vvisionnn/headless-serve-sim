@@ -1,5 +1,7 @@
 import { axNodes, screens, type Screen } from "./assets";
 import { clamp, mix } from "../lib/time";
+import type { Pose } from "./device";
+import { spec } from "./real-device";
 
 /** iPhone 17 Pro: 1206 × 2622 pixels, 402 × 874 points. */
 const PX = 3;
@@ -9,6 +11,20 @@ const H = 2622;
 /** The Settings icon on the real Home Screen, in points. */
 export const SETTINGS_ICON = { x: 312.7, y: 391.3, w: 64, h: 64 };
 export const settingsCenter = { x: SETTINGS_ICON.x + 32, y: SETTINGS_ICON.y + 32 };
+
+/** Where a point on the hero's screen (in points) is in the film, for a device at `pose`. */
+export function screenPoint(pose: Pose, pt: { x: number; y: number }) {
+  const sp = spec("iphone");
+  const a = sp.artwork;
+  const left = pose.x - (a.width * pose.s) / 2;
+  const top = pose.y - (a.height * pose.s) / 2;
+  return {
+    x: left + (a.chromeRectPx.x + sp.insetsPx.left + pt.x * PX) * pose.s,
+    y: top + (a.chromeRectPx.y + sp.insetsPx.top + pt.y * PX) * pose.s,
+  };
+}
+/** The Settings icon, in the film, for a device at `pose`. */
+export const settingsPoint = (pose: Pose) => screenPoint(pose, settingsCenter);
 
 function Shot({ src, style }: { src: Screen; style?: React.CSSProperties }) {
   return <img src={screens[src]} alt="" className="absolute inset-0 size-full" style={style} />;
@@ -28,6 +44,7 @@ export function HeroScreen({
   dark = 0,
   open = 0,
   ax = 0,
+  hot = -1,
   touch,
   flash = 0,
   glare = -1,
@@ -37,6 +54,8 @@ export function HeroScreen({
   dark?: number;
   open?: number;
   ax?: number;
+  /** The element the console has selected: its box goes orange. */
+  hot?: number;
   touch?: { x: number; y: number; p: number };
   flash?: number;
   glare?: number;
@@ -126,8 +145,9 @@ export function HeroScreen({
                 width: n.frame[2] * PX,
                 height: n.frame[3] * PX,
                 borderRadius: 18,
-                border: "4px solid #0a84ff",
-                background: "rgba(10,132,255,0.10)",
+                border: `4px solid ${i === hot ? "#ff9f0a" : "#0a84ff"}`,
+                background: i === hot ? "rgba(255,159,10,0.22)" : "rgba(10,132,255,0.10)",
+                boxShadow: i === hot ? "0 0 40px rgba(255,159,10,0.5)" : undefined,
                 opacity: p,
                 transform: `scale(${mix(1.05, 1, p)})`,
               }}

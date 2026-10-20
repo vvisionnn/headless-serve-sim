@@ -1,5 +1,5 @@
-import "./env";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { reseed, setClock, tickIntervals } from "./env";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { AppProvider } from "../../src/lib/store";
@@ -13,7 +13,7 @@ import { renderScore, toWav } from "./score/score";
  * Two modes. `?render` is for the capture script: no chrome, and a
  * `window.__promo.seek(frame)` that paints exactly that frame. Without it, the
  * page is a player for previewing the film, with its score, while editing it
- * (`?t=12.5` opens at a time).
+ * (`?t=12.5` opens at a time). `?scheme=light` plays the light-scheme cut.
  */
 const params = new URLSearchParams(location.search);
 const rendering = params.has("render");
@@ -23,8 +23,11 @@ let frame = Math.round(Number(params.get("t") ?? 0) * FPS);
 const listeners = new Set<() => void>();
 const setFrame = (f: number) => {
   frame = Math.max(0, Math.min(FRAMES - 1, f));
+  setClock(frame / FPS);
+  reseed(Math.round(frame));
   listeners.forEach((l) => l());
 };
+setClock(frame / FPS);
 const useFrame = () =>
   useSyncExternalStore(
     (l) => {
@@ -45,6 +48,8 @@ function Root() {
   useEffect(() => {
     if (loaded) markMounted();
   }, [loaded]);
+  // The Stage's own timers read the playhead once the frame is on screen.
+  useLayoutEffect(() => tickIntervals(), [f, loaded]);
   if (!loaded) return null;
   return <AppProvider>{rendering ? <Film t={f / FPS} /> : <Player f={f} />}</AppProvider>;
 }
@@ -162,6 +167,8 @@ window.__promo = {
   ready,
   async seek(f) {
     flushSync(() => setFrame(f));
+    // A timer that started on this frame registers after it commits; run it too.
+    flushSync(() => tickIntervals());
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   },
   async score() {

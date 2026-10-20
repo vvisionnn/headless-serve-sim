@@ -1,5 +1,5 @@
 import { clamp, curve, ease, mix, spring } from "../../lib/time";
-import { buttonLabels } from "../assets";
+import { buttonLabels, screens, type Screen } from "../assets";
 import { axProgress } from "../beats";
 import { commands, cue, keyTimes, land } from "../cues";
 import { COMMAND_PLACE } from "../layout";
@@ -13,30 +13,40 @@ const VIEW = BOX.height - 40 - PAD * 2;
 const THUMB = { w: 42, h: 42 * (2622 / 1206) };
 const CHIP = THUMB.h + 14;
 
-/** What the hero's screen shows during act V. */
+/** The loop's screenshots: every running simulator, one after another. */
+export const LOOP_SHOTS: { screen: Screen; udid: string }[] = [
+  { screen: "settings", udid: "4C374F09" },
+  { screen: "ipad", udid: "1F725059" },
+  { screen: "watch", udid: "9A0D7E12" },
+  { screen: "air", udid: "D2B71C3A" },
+];
+export const loopShotAt = (i: number) => land(commands.loopBody) + 0.12 + i * 0.26;
+
+/** What the hero's screen shows during act VI. */
 export function commandScreen(t: number) {
   const tapAt = land(commands.tap);
   const shotAt = land(commands.shot);
+  const flash = (at: number) => (t > at ? 0.85 * (1 - ease(t, at, 0.4)) : 0);
   return {
-    open: spring(t, tapAt + 0.06, 0.8, 0.06),
-    ax: axProgress(t) * (1 - ease(t, shotAt - 0.35, 0.3)),
+    open: spring(t, tapAt + 0.06, 0.6, 0.06),
+    ax: axProgress(t) * (1 - ease(t, shotAt - 0.3, 0.25)),
     touch:
-      t > tapAt - 0.05 ? { ...settingsCenter, p: clamp((t - tapAt + 0.05) / 0.55) } : undefined,
-    flash: t > shotAt ? 0.85 * (1 - ease(t, shotAt, 0.45)) : 0,
+      t > tapAt - 0.05 ? { ...settingsCenter, p: clamp((t - tapAt + 0.05) / 0.5) } : undefined,
+    flash: Math.max(flash(shotAt), flash(loopShotAt(0))),
   };
 }
 
 type Row = { at: number; h: number; node: (t: number) => React.ReactNode };
 
-function prompt(c: { text: string; at: number }): Row {
+function prompt(c: { text: string; at: number }, cont = false): Row {
   const times = keyTimes(c.text, c.at);
-  const split = c.text.indexOf(" ");
+  const split = c.text.indexOf(" ", c.text.search(/\S/));
   return {
     at: c.at - 0.25,
     h: LINE,
     node: (t) => (
       <>
-        <span className="text-label-3">$ </span>
+        <span className="text-label-3">{cont ? "> " : "$ "}</span>
         {t < c.at ? (
           <span className="inline-block h-[1.05em] w-[0.55em] translate-y-[0.18em] bg-current opacity-85" />
         ) : (
@@ -74,7 +84,37 @@ const rows: Row[] = [
   })),
   prompt(commands.shot),
   { at: land(commands.shot) + 0.15, h: CHIP + 8, node: () => null },
+  prompt(commands.loop),
+  prompt(commands.loopBody, true),
+  { at: loopShotAt(0) - 0.05, h: 78, node: (t) => <LoopChips t={t} /> },
 ];
+const SHOT_CHIP = rows.findIndex((r) => r.h === CHIP + 8);
+
+/** A row of thumbnails, one per simulator, each landing as its screenshot is taken. */
+function LoopChips({ t }: { t: number }) {
+  return (
+    <span className="flex items-start gap-2 pt-1.5">
+      {LOOP_SHOTS.map((s, i) => {
+        const p = spring(t, loopShotAt(i), 0.45, 0.2);
+        if (p <= 0) return null;
+        return (
+          <span
+            key={s.udid}
+            className="flex w-[118px] flex-col items-center gap-1"
+            style={{ opacity: clamp(p * 2), transform: `translateY(${mix(10, 0, p)}px) scale(${mix(0.8, 1, p)})` }}
+          >
+            <img
+              src={screens[s.screen]}
+              alt=""
+              className="h-[46px] w-auto rounded-[5px] shadow-[0_0_0_1px_var(--separator)]"
+            />
+            <span className="text-caption text-label">{s.udid}….png</span>
+          </span>
+        );
+      })}
+    </span>
+  );
+}
 
 /** Where each row sits, and how far the terminal has scrolled, at time t. */
 function layout(t: number) {
@@ -100,7 +140,7 @@ export function Commands({ t }: { t: number }) {
   const inP = spring(t, cue.terminal, 0.9, 0.08);
   const outP = ease(t, cue.terminalOut, 0.6, curve.in);
   const { placed, scroll } = layout(t);
-  const chipIndex = rows.length - 1;
+  const chipIndex = SHOT_CHIP;
   const chipTop = BOX.top + 40 + PAD + placed[chipIndex]! - scroll;
   return (
     <>
