@@ -27,11 +27,37 @@ test("fits the open device's width on a narrow stage", () => {
   expect(open.width).toBeGreaterThan(660);
 });
 
-test("swaps the extent when the device is turned to landscape", () => {
+test("swaps the extent when the composite is turned a quarter", () => {
   const turned = [0.19, 0.1, 0.62, 0.8];
-  const view = duoViewport(turned, 3420, 3420, 1400, 800, 1, true);
+  const view = duoViewport(turned, 3420, 3420, 1400, 800, 1, 90);
   expect(view.height).toBeLessThanOrEqual(800);
   expect(view.height).toBeGreaterThan(760);
+  for (const rotation of [-90, 270, 450])
+    expect(duoViewport(turned, 3420, 3420, 1400, 800, 1, rotation)).toEqual(view);
+  expect(duoViewport(FOLDED, 3420, 3420, 1400, 800, 1, 180).width).toBeCloseTo(
+    duoViewport(FOLDED, 3420, 3420, 1400, 800).width,
+    6,
+  );
+});
+
+test("changes the display scale continuously through a turn", () => {
+  const scaleAt = (rotation: number) => {
+    const view = duoViewport(OPEN, 3420, 3420, 1400, 800, 1, rotation);
+    return view.width / view.crop.width;
+  };
+  const portrait = scaleAt(0),
+    landscape = scaleAt(90),
+    half = scaleAt(45);
+  expect(landscape).toBeLessThan(portrait);
+  expect(half).toBeLessThan(portrait);
+  expect(half).toBeGreaterThan(landscape);
+  // No step anywhere: one degree of roll moves the scale by a small fraction of the full change.
+  for (let rotation = 0; rotation < 90; rotation++)
+    expect(Math.abs(scaleAt(rotation + 1) - scaleAt(rotation))).toBeLessThan(
+      (portrait - landscape) / 30,
+    );
+  expect(scaleAt(0.01)).toBeCloseTo(portrait, 4);
+  expect(scaleAt(89.99)).toBeCloseTo(landscape, 4);
 });
 
 test("scale shrinks the device but never past the fit", () => {
@@ -49,5 +75,11 @@ test("requests the output side the viewer actually displays", () => {
   expect(duoOutputSide(1400, 800, 1, 1)).toBe(Math.ceil(side));
   expect(duoOutputSide(1400, 800, 0.5, 2)).toBe(Math.ceil(side));
   expect(duoOutputSide(1400, 800, 9, 2)).toBe(Math.ceil(side * 2));
-  expect(duoOutputSide(800, 1400, 1, 1, true)).toBe(Math.ceil(side));
+});
+
+test("requests one output side for either orientation so a turn never resizes the encoder", () => {
+  const portrait = Math.min(700 / 0.82, 900 / 0.63),
+    landscape = Math.min(700 / 0.63, 900 / 0.82);
+  expect(duoOutputSide(700, 900, 1, 1)).toBe(Math.ceil(Math.max(portrait, landscape)));
+  expect(duoOutputSide(800, 1400, 1, 1)).toBe(duoOutputSide(1400, 800, 1, 1));
 });

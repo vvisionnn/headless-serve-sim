@@ -51,6 +51,7 @@ test("native composition paints mask holes and records its fitted canvas aspect"
     );
     let encodedSubscriptions = 0,
       keyframeRequests = 0;
+    let rotation = 0;
     const source: SimulatorRecordingSource = {
       subscribe(listener) {
         repaint = listener;
@@ -73,7 +74,7 @@ test("native composition paints mask holes and records its fitted canvas aspect"
         touches: [],
         composition: {
           angle: 180,
-          rotation: 0,
+          rotation,
           scale: 1,
           displayId: 3,
           rawWidth: 2007,
@@ -179,6 +180,13 @@ test("native composition paints mask holes and records its fitted canvas aspect"
       snapshot.surfaceWidth / snapshot.surfaceHeight,
     );
     expect(clips[0]?.[1]).toBe("evenodd");
+    // The fit follows the turn each composite carries, so the scale moves with the picture.
+    rotation = 90;
+    repaint();
+    expect(outputRef.current!.snapshot()!.surfaceWidth).toBeCloseTo(450 / 0.82);
+    rotation = 0;
+    repaint();
+    expect(outputRef.current!.snapshot()!.surfaceWidth).toBeCloseTo(450 / 0.63);
     const event = {
       clientX: 160,
       clientY: 180,
