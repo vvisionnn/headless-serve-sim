@@ -2081,7 +2081,6 @@ function AppWithConfig({
           axEnabled={axOverlayEnabled}
           includeFrame={showBezels}
           scale={deviceScale}
-          landscape={duoOrientation?.startsWith("landscape") ?? false}
           streaming={streaming}
           onBoundsChange={updateDuoBounds}
           onOutputSide={changeOutputSide}
