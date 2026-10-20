@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
-# Ensure a headless-serve-sim helper is running for the booted simulator.
-# Idempotent: if one is already running, prints its URL JSON and exits 0.
-# Otherwise starts a detached one and prints the spawn JSON.
-# Usage: ensure-running.sh [device-name-or-udid]
+# Ensure a headless-serve-sim stream helper is running for a simulator, and
+# print its JSON ({url, streamUrl, wsUrl, port, device}).
+# Usage: ensure-running.sh <UDID or device name>
+#
+# Always pass a device. With a device, an existing helper is reused, and
+# otherwise one is started with `headless-serve-sim --detach`, which boots the
+# simulator if needed. Without a device, the script can print nothing: the
+# CLI refuses to start a stream for an unspecified device.
+# Equivalent one-liner: headless-serve-sim --detach -q "<UDID>" (also idempotent).
 
 set -u
 
 DEVICE="${1:-}"
 
-# If a helper is already running for any device, return it
+# Reuse a helper that is already running
 EXISTING="$(headless-serve-sim --list -q 2>/dev/null || echo '[]')"
 if [[ "$EXISTING" != "[]" && -n "$EXISTING" ]]; then
   if [[ -n "$DEVICE" ]]; then
@@ -32,7 +37,7 @@ if [[ "$EXISTING" != "[]" && -n "$EXISTING" ]]; then
   fi
 fi
 
-# Start a new detached helper
+# Start (or reuse) a detached helper; --detach is idempotent per device
 if [[ -n "$DEVICE" ]]; then
   headless-serve-sim --detach -q "$DEVICE"
 else

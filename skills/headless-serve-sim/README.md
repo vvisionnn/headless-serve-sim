@@ -1,103 +1,117 @@
 # headless-serve-sim agent skill
 
-A portable [Agent Skill](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview) that teaches AI coding agents to drive an Apple Simulator via the [headless-serve-sim](https://github.com/vvisionnn/headless-serve-sim) CLI.
+An [Agent Skill](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview) that teaches AI coding agents to boot, see and drive Apple simulators with the [headless-serve-sim](https://github.com/vvisionnn/headless-serve-sim) CLI. Supported devices are iPhone (including the foldable iPhone Duo), iPad and Apple Watch, and no Simulator.app window is needed.
 
-Works in Claude Code, Cursor, Codex CLI, Gemini CLI, GitHub Copilot, and any other tool that implements the open Agent Skills standard. The same `SKILL.md` works across all of them without modification.
+The skill is general purpose and works in any project. It follows the open Agent Skills format, so the same folder works in Claude Code, Codex CLI, Cursor, Gemini CLI, GitHub Copilot and other compatible agents.
 
-## What it does
+## What the agent learns
 
-Once installed, your agent knows how to:
+- **The mental model:**
+  - the per-device helper, its state file (`$TMPDIR/headless-serve-sim/server-<UDID>.json`) and the preview server;
+  - which commands need a helper and which work on any booted simulator;
+  - why every call should carry `-d <UDID>`.
+- **Input:**
+  - `tap` (single-shot) versus `gesture` (one WebSocket per call, so a split begin/end becomes a long press);
+  - swipes, edge gestures, a one-socket WebSocket client for flicks, and pinch;
+  - typing;
+  - the eight hardware buttons;
+  - rotation, with verification through `/config`;
+  - the foldable hinge and physical pose (`motion`).
+- **Seeing the screen:**
+  - `screenshot`;
+  - the accessibility tree (`/ax`, normalized in points);
+  - the foreground app (`/foreground`);
+  - video recording with `simctl`.
+- **Device state:**
+  - privacy permissions, including push notifications;
+  - `ui` (dark mode, text size, VoiceOver, reduce motion, …);
+  - status-bar overrides;
+  - user defaults;
+  - deep links;
+  - test pushes;
+  - keychain reset;
+  - Files-app imports;
+  - camera injection (image, video, webcam);
+  - CoreAnimation debug overlays;
+  - memory warnings.
+- **Humans in the loop:** starting the browser preview, handing its URL to the host's preview tool, and phone viewing via QR.
+- **Parallel work:** one simulator per agent, port blocks, and scoped `--kill` and cleanup.
 
-- Tap at normalized coordinates (`headless-serve-sim tap`).
-- Send multi-touch / drag / swipe gestures with the correct JSON shape and edge flags.
-- Press the six valid hardware buttons (`home`, `swipe_home`, `app_switcher`, `lock`, `siri`, `side_button`).
-- Rotate the simulator (`portrait`, `portrait_upside_down`, `landscape_left`, `landscape_right`).
-- Inject a synthetic camera feed (placeholder, image, video, or live webcam) with mirror-mode control.
-- Toggle CoreAnimation debug overlays (blended layers, off-screen rendering, slow animations, …).
-- Simulate a memory warning.
-- Discover the running stream's URL and read the simulator's accessibility tree to find UI elements.
-- Hand the stream URL off to the host agent's preview pane (`preview_start` in Claude Code, equivalents elsewhere) so the user sees the simulator inline.
+## Install the skill
 
-It also teaches the agent the **gotchas** (use `tap`, not `gesture`, for plain taps), the **prerequisites** (Apple Silicon Mac, Xcode CLI tools, Node 18+, macOS 14+ for camera), and **anti-patterns** to avoid.
+### Claude Code plugin
 
-## Install
+This repository is also a Claude Code plugin marketplace:
 
-The skill lives in this repo under `skills/headless-serve-sim/`, so it is discoverable by the Agent Skills tooling directly from the headless-serve-sim repository.
+```text
+/plugin marketplace add vvisionnn/headless-serve-sim
+/plugin install headless-serve-sim@headless-serve-sim
+```
 
-### Agents that support the Agent Skills standard (Claude Code, Cursor, Codex CLI, Gemini CLI, …)
+### Manual copy (any agent)
 
 ```sh
-bunx add-skill vvisionnn/headless-serve-sim
+git clone https://github.com/vvisionnn/headless-serve-sim
+cp -R headless-serve-sim/skills/headless-serve-sim ~/.claude/skills/        # Claude Code
+# other agents: ~/.agents/skills/, ~/.codex/skills/, ~/.cursor/skills/, …
 ```
 
-### Manual install
+To share it with a team, copy the folder into a repository's `.claude/skills/` or `.agents/skills/` instead. The skill is plain Markdown plus two shell scripts, with no build step.
 
-Copy this folder into your agent's skills directory:
+## Install the CLI
+
+The skill drives the `headless-serve-sim` binary, which is distributed as GitHub release assets. It is not published to npm. With [mise](https://mise.jdx.dev):
 
 ```sh
-# from a clone of this repo
-cp -r skills/headless-serve-sim ~/.claude/skills/headless-serve-sim
-# or for other agents: ~/.agents/skills/headless-serve-sim, ~/.cursor/skills/headless-serve-sim, etc.
+mise use -g github:vvisionnn/headless-serve-sim
 ```
 
-The skill is a folder with a `SKILL.md` file plus reference documents. No build step.
+To pin it for one project, add it to that project's `mise.toml`:
 
-## Prerequisites on the user's machine
-
-The agent checks these for you, but for reference:
-
-- Apple Silicon Mac (arm64).
-- Xcode command line tools (`xcode-select --install`).
-- Node.js 18+ for the skill's helper scripts.
-- The `headless-serve-sim` binary from the latest GitHub release, available on `PATH`.
-- macOS 14+ if you want camera injection.
-- At least one booted iOS, iPad, or Apple Watch simulator.
-
-Download the CLI from the repository's [latest GitHub release](https://github.com/vvisionnn/headless-serve-sim/releases/latest).
-
-## How it's structured
-
+```toml
+[tools]
+"github:vvisionnn/headless-serve-sim" = "latest"
 ```
-headless-serve-sim/
-├── SKILL.md                          (loaded when the skill triggers)
+
+Alternatively, download `headless-serve-sim-darwin-arm64.tar.gz` from the [latest release](https://github.com/vvisionnn/headless-serve-sim/releases/latest) and extract it somewhere on your `PATH`. Keep every folder from the archive (`simcam/`, `simax/`, `simmotion/` and `native-sources/`) next to the binary.
+
+## Requirements
+
+- An Apple Silicon Mac.
+- Xcode 26 or newer, the full app rather than only the command line tools, with at least one simulator runtime installed. Xcode 27 is supported. The CLI boots simulators itself, so none needs to be running.
+- macOS 14 or newer (normally already satisfied, since Xcode 26 requires a newer macOS).
+- Node.js 18 or newer for this skill's helper scripts; `scripts/check-prereqs.sh` fails without it. The CLI itself does not need it.
+
+## Layout
+
+```text
+skills/headless-serve-sim/
+├── SKILL.md                      loaded when the skill triggers: model, decision table, gotchas
 ├── references/
-│   ├── gestures.md                   (gesture JSON, edges, multi-touch, recipes)
-│   ├── buttons-rotation.md           (the six buttons, the four orientations)
-│   ├── camera.md                     (camera injection: sources, mirroring, hot-swap)
-│   ├── ca-debug.md                   (CoreAnimation debug flags)
-│   ├── endpoints.md                  (HTTP + WebSocket surface)
-│   └── workflows.md                  (end-to-end recipes incl. preview handoff)
+│   ├── gestures.md               touch JSON, edges, swipes, one-socket client, pinch
+│   ├── buttons-rotation.md       the eight buttons, four orientations, verifying rotation
+│   ├── device-settings.md        screenshot/recording, ui, status-bar, defaults, app-actions, document, motion, logs
+│   ├── permissions.md            privacy permissions incl. push notifications
+│   ├── camera.md                 synthetic camera feeds, mirroring, hot-swap
+│   ├── ca-debug.md               CoreAnimation debug overlays
+│   ├── endpoints.md              helper and preview HTTP/WebSocket surface, state file, security
+│   ├── parallel-agents.md        several simulators, parallel agents, ports, cleanup
+│   └── workflows.md              end-to-end recipes incl. showing the preview to a human
 ├── scripts/
-│   ├── check-prereqs.sh              (verify host satisfies requirements)
-│   └── ensure-running.sh             (idempotent start of the helper)
+│   ├── check-prereqs.sh          verify the host before the first command
+│   └── ensure-running.sh         start (or reuse) the stream helper for a device
 └── evals/
-    └── evals.json                    (6 test prompts for agent quality)
+    └── evals.json                prompts with expected agent behaviour
 ```
 
-Following Anthropic's recommended structure: short `SKILL.md`, references one level deep, executable scripts that the agent can run without loading their source into context.
+The skill uses progressive disclosure: only the frontmatter `description` is loaded at startup, `SKILL.md` is loaded when the skill triggers, and each reference file is read only when its task comes up.
 
-## Designed around progressive disclosure
+## Keeping it accurate
 
-- **Discovery**: only the `name` and `description` from the frontmatter cost tokens at startup.
-- **Activation**: when the agent decides the task matches, it reads `SKILL.md`.
-- **Execution**: it reads only the reference files relevant to the current task.
+Every command, flag, button name, orientation, endpoint and JSON shape in this skill was checked against the headless-serve-sim source. When the CLI changes, update the skill and `evals/evals.json` in the same change. To add a recipe, put it in `references/workflows.md`, explain when an agent should reach for it, and add a matching eval.
 
-This keeps context usage low across hundreds of installed skills.
-
-## Source of truth
-
-Every claim in this skill — the six button names, the four orientations, the gesture JSON shape, the edge values, the HTTP endpoints — was verified against the headless-serve-sim source at the time of authoring. The skill does not invent behavior the CLI does not expose. When the CLI changes, update the skill and the `evals/` alongside it.
-
-## Evals
-
-`evals/evals.json` contains six representative prompts with expected behaviors, suitable for running through Anthropic's `skill-creator` eval framework. When changing the skill, re-run the evals to catch regressions.
-
-## Contributing
-
-Found a divergence between this skill and headless-serve-sim's actual behavior? Open an issue or PR on this repo.
-
-Want to add a workflow recipe? Add it to `references/workflows.md` with an explanation of when an agent would use it, and add a matching eval to `evals/evals.json`.
+Found a mismatch between the skill and the CLI's actual behaviour? Open an issue or a pull request at [vvisionnn/headless-serve-sim](https://github.com/vvisionnn/headless-serve-sim).
 
 ## License
 
-Apache-2.0, same as the rest of the headless-serve-sim repository.
+Apache-2.0, the same as the rest of the repository.

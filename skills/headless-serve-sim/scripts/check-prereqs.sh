@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Verify the host satisfies headless-serve-sim's prerequisites.
-# Exits 0 if everything is OK, 1 with a human message otherwise.
-# Intended to be sourced by an agent before any other headless-serve-sim command.
+# Exits 0 if everything is OK, 1 with a human-readable message otherwise.
+# Run it once per session, before the first headless-serve-sim command.
+# Missing optional pieces (macOS 14 for camera, a booted simulator) only warn.
 
 set -u
 
@@ -16,29 +17,31 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 if ! /usr/bin/arch -arm64 /usr/bin/true 2>/dev/null; then
-  fail "The released headless-serve-sim CLI requires an Apple Silicon Mac (arm64)."
+  fail "headless-serve-sim release builds require an Apple Silicon Mac (arm64)."
 fi
 
-# Xcode CLI tools (simctl)
+# Xcode (simctl). headless-serve-sim also loads SimulatorKit from the active
+# Xcode, so the full app (26 or newer) is needed, not just the command line tools.
 if ! command -v xcrun >/dev/null 2>&1; then
-  fail "xcrun not found. Install Xcode command line tools: xcode-select --install"
+  fail "xcrun not found. Install Xcode 26 or newer from the App Store or developer.apple.com, then run: sudo xcode-select -s /Applications/Xcode.app"
 fi
 if ! xcrun --find simctl >/dev/null 2>&1; then
-  fail "simctl not found via xcrun. Install Xcode command line tools."
+  fail "simctl not found via xcrun. Install full Xcode 26 or newer (not just the command line tools) and select it: sudo xcode-select -s /Applications/Xcode.app"
 fi
 
-# Node 18+
+# Node 18+ (used only by this skill's helper scripts; the CLI itself is a
+# self-contained binary)
 if ! command -v node >/dev/null 2>&1; then
-  fail "node not found. Install Node.js 18 or newer (https://nodejs.org)."
+  fail "node not found. This skill's helper scripts need Node.js 18 or newer (e.g. mise use -g node@lts). The headless-serve-sim CLI itself does not."
 fi
 NODE_MAJOR="$(node -e 'console.log(process.versions.node.split(".")[0])')"
 if [[ "$NODE_MAJOR" -lt 18 ]]; then
-  fail "node $NODE_MAJOR detected. The headless-serve-sim skill requires Node.js 18+."
+  fail "node $NODE_MAJOR detected. This skill's helper scripts need Node.js 18+ (e.g. mise use -g node@lts)."
 fi
 
-# Released CLI
+# The headless-serve-sim CLI (GitHub release, installed via mise; not on npm)
 if ! command -v headless-serve-sim >/dev/null 2>&1; then
-  fail "headless-serve-sim not found. Download the latest GitHub release and add it to PATH."
+  fail "headless-serve-sim not found on PATH. Install it with mise: mise use -g github:vvisionnn/headless-serve-sim (or download headless-serve-sim-darwin-arm64.tar.gz from https://github.com/vvisionnn/headless-serve-sim/releases/latest)."
 fi
 
 # macOS 14+ is optional (camera-only), so warn rather than fail
@@ -47,9 +50,9 @@ if [[ "$MACOS_MAJOR" -lt 14 ]]; then
   echo "warning: macOS $(sw_vers -productVersion) detected. The 'camera' subcommand requires macOS 14+." >&2
 fi
 
-# A booted simulator is required for most commands
+# No simulator needs to be booted up front: headless-serve-sim boots one itself.
 if ! xcrun simctl list devices booted 2>/dev/null | grep -q "Booted"; then
-  echo "warning: no booted simulator detected. Boot one with Xcode > Simulator or 'xcrun simctl boot <UDID>'." >&2
+  echo "note: no booted simulator yet. headless-serve-sim boots one on demand: headless-serve-sim --detach \"<UDID or name>\"" >&2
 fi
 
 echo "headless-serve-sim prereqs OK."

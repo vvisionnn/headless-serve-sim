@@ -1,6 +1,6 @@
 # CoreAnimation debug flags reference
 
-The `headless-serve-sim ca-debug <option> <on|off>` command toggles CoreAnimation render-debug overlays on the running simulator. These are the same flags Simulator.app exposes under **Debug → Color Blended Layers**, etc. Each maps to a private `-[SimDevice setCADebugOption:enabled:]` call.
+The `headless-serve-sim ca-debug <option> <on|off>` command toggles CoreAnimation render-debug overlays on the running simulator. These are the same flags Simulator.app exposes under **Debug → Color Blended Layers**, etc. Each maps to a private `-[SimDevice setCADebugOption:enabled:]` call, made by the stream helper. The command therefore needs a running helper (`headless-serve-sim --detach "$UDID"`) and accepts `-d <UDID>` (names are not resolved).
 
 ## Valid options and aliases
 
@@ -20,14 +20,15 @@ The CLI accepts any of these for the second argument, case-insensitive: `on`, `o
 
 ```sh
 # Find blended layers in your app
-headless-serve-sim ca-debug blended on
-# ... interact with the app, screenshot the preview ...
-headless-serve-sim ca-debug blended off
+headless-serve-sim ca-debug blended on -d "$UDID"
+headless-serve-sim screenshot /tmp/blended.png -d "$UDID"
+headless-serve-sim ca-debug blended off -d "$UDID"
 
-# Slow animations 10x to inspect a transition
-headless-serve-sim ca-debug slow-animations on
-# ... drive the app, record video of the preview ...
-headless-serve-sim ca-debug slow-animations off
+# Slow animations ~10x to inspect a transition frame by frame
+headless-serve-sim ca-debug slow-animations on -d "$UDID"
+xcrun simctl io "$UDID" recordVideo /tmp/transition.mp4 &   # stop with: kill -INT $!
+# ... trigger the transition ...
+headless-serve-sim ca-debug slow-animations off -d "$UDID"
 ```
 
 Toggle individually — combining `offscreen` and `blended` makes the screen unreadable.

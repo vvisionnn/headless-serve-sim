@@ -2,60 +2,71 @@
 
 ## Contents
 
-- Valid button names
-- Button behavior details
-- Valid orientations
-- Rotation gotchas
+- Button names
+- Button notes
+- Orientations
+- Verifying a rotation
+- Rotation notes
 
-## Valid button names
+Both commands need a running helper (`headless-serve-sim --detach "$UDID"`) and accept `-d <UDID>` (names are not resolved).
 
-These are the **only** values accepted by `headless-serve-sim button <name>`. Anything else prints `[hid] Unknown button: <name>` and does nothing.
+## Button names
+
+`headless-serve-sim button [name]` defaults to `home`. These are the only names the helper understands:
 
 | Name | Effect |
 |---|---|
-| `home` | Single Home button press (down + up). Falls back to launching SpringBoard via `simctl launch` if the HID symbol is not available. |
-| `swipe_home` | Synthesizes a swipe-up-from-bottom gesture with `edge=3` — the canonical "go home" gesture on Face ID devices. Use this on iPhone X+ and modern iPads. |
-| `app_switcher` | Double Home press with a 150ms delay between presses. Opens the multitasking switcher. Requires the HID symbol. |
-| `lock` | Power / Sleep button press (down + up). Locks the device. |
-| `siri` | Holds the side button for ~300ms. A tap is ignored — the simulator only recognizes the long-press for Siri invocation. |
-| `side_button` | Single side-button press (down + up). On modern iPhones this is the wake/sleep button; double-click invokes Apple Pay. |
+| `home` | Home button press. Goes home, or wakes the device. |
+| `swipe_home` | A bottom-edge swipe up (`edge=3`), the go-home gesture on Face ID devices. |
+| `app_switcher` | Double Home press, about 150 ms apart. Opens the multitasking switcher. |
+| `lock` | Power/sleep press. Locks or wakes the device. |
+| `side_button` | Side button press (the same usage as `lock`). |
+| `siri` | Holds the Siri button for about 300 ms, because Siri ignores a short tap. |
+| `volume_up` | Volume up press. |
+| `volume_down` | Volume down press. |
 
-## Button behavior details
+The CLI does not validate the name. An unknown name is sent anyway, and the helper logs `[hid] Unknown button: <name>` and does nothing, so the command appears to succeed. Check spelling against this table.
 
-### `home` vs `swipe_home`
+## Button notes
 
-- Devices with a physical Home button (iPhone SE, classic iPad layouts): use `home`.
-- Face ID devices (iPhone X and later, modern iPads): both work, but `swipe_home` matches the gesture a real user performs and exercises iOS's edge-gesture recognizer. Use `swipe_home` for fidelity with real-user behavior.
+- **`home` vs `swipe_home`:** both go home on modern devices. `swipe_home` exercises the same edge-gesture recognizer a real user triggers on Face ID devices. `home` is the right choice on devices with a Home button.
+- **Lock and wake:** `lock` locks the device, and a second `lock` (or `home`) wakes it to the Lock Screen, which is useful for testing Lock Screen widgets and notifications.
+- **iPhone Duo:** on the foldable, hardware buttons go through the device's own HID services, so they behave like the physical buttons.
+- **Apple Watch:** the CLI has no Digital Crown rotation command. In the preview UI, the mouse scroll wheel turns the crown.
 
-### `siri` requires the hold
+## Orientations
 
-Tapping the side button briefly does **not** trigger Siri. The CLI command holds for 300ms automatically — you do not need to script it.
+`headless-serve-sim rotate <orientation>` accepts:
 
-### `app_switcher` availability
-
-`app_switcher` depends on the `IndigoHIDMessageForButton` symbol being resolvable in the simulator's private framework. If the simulator was launched from an older Xcode, the command may log `App switcher not available` and do nothing. Fall back to a `gesture` that swipes up to the middle of the screen and pauses, then continues — but this is fragile across iOS versions.
-
-### Lock screen capture
-
-A common test pattern: `lock` → wait → `lock` again wakes the device into the lock screen, which is useful for testing widget and lock-screen UI.
-
-## Valid orientations
-
-These are the **only** values accepted by `headless-serve-sim rotate <orientation>`:
-
-| Value | Description |
+| Value | Meaning |
 |---|---|
-| `portrait` | Home indicator / Home button at the bottom |
-| `portrait_upside_down` | Home indicator at the top |
-| `landscape_left` | Device rotated so its right side is up; status bar on the left |
-| `landscape_right` | Device rotated so its left side is up; status bar on the right |
+| `portrait` | Upright |
+| `portrait_upside_down` | Upside down |
+| `landscape_left` | Rotated 90° (landscape) |
+| `landscape_right` | Rotated 90° the other way |
 
-These correspond to `UIDeviceOrientation` values 1, 2, 4, and 3 respectively in iOS's internal enum.
+`rotate` works in headless mode with no Simulator.app window needed. On the iPhone Duo it sets the physical device orientation through the motion service. On other devices it sends an orientation event to the helper (WebSocket opcode `0x07`).
 
-## Rotation gotchas
+## Verifying a rotation
 
-- **`portrait_upside_down` is not honored by many apps.** Apple's HIG discourages it, and most apps lock orientation in their `Info.plist`. The simulator dispatches the event regardless, but the app may not visibly rotate.
-- **`landscape_*` requires app support.** If the target app declares `UISupportedInterfaceOrientations = ["UIInterfaceOrientationPortrait"]` only, the device rotates internally but the app keeps its portrait layout.
-- **Apple Watch does not rotate.** Sending `rotate` to a watchOS simulator has no effect.
-- **Touch coordinates auto-compensate after rotation.** The headless-serve-sim client tracks the last-set orientation and rotates incoming `x`/`y` from "logical display" to "raw HID" coordinates. You can continue to think in `(0,0) = top-left` of the screen as the user sees it, regardless of orientation.
-- **`rotate` depends on `PurpleWorkspacePort`.** The orientation event is delivered via Mach IPC through that port. When the port isn't registered on the device, the CLI prints a warning and returns non-zero; attaching the GUI app (Simulator.app, or DeviceHub.app on Xcode 27+) registers it. On Xcode 27 the port was present on a plain `xcrun simctl boot` with no GUI app attached, and `rotate` worked headless.
+`rotate` returns as soon as the request is sent. It does **not** report whether iOS actually rotated, so check:
+
+```sh
+HELPER=$(jq -r .url "$TMPDIR/headless-serve-sim/server-$UDID.json")
+headless-serve-sim rotate landscape_left -d "$UDID"
+for i in $(seq 1 20); do
+  O=$(curl -s "$HELPER/config" | jq -r '.interfaceOrientation // .orientation')
+  [ "$O" = "landscape_left" ] || [ "$O" = "landscape_right" ] && break
+  sleep 0.25
+done
+echo "interface orientation: $O"
+```
+
+`/config` reports `orientation` (the stream's orientation) and `interfaceOrientation` (what the app's interface is actually showing). Use `interfaceOrientation` when it is present. On composed views such as the Duo, `orientation` stays `portrait` because the composed video is always upright.
+
+## Rotation notes
+
+- **The app decides.** If its supported orientations are portrait only (`UISupportedInterfaceOrientations`), the device rotates but the interface does not. `portrait_upside_down` is unsupported on most iPhone apps.
+- **Coordinates follow the screen.** After a rotation, keep sending what-you-see coordinates; the helper maps them onto the panel.
+- **Apple Watch does not rotate.**
+- **If nothing happens at all**, the helper log shows `Orientation request failed` or a `PurpleWorkspacePort not found` message. This usually means the device has not finished booting. Wait for `xcrun simctl bootstatus "$UDID" -b` and try again.

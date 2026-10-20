@@ -1,220 +1,190 @@
 # Workflows reference
 
-Recipes for common end-to-end agent tasks. These compose the primitives documented in the other reference files.
+End-to-end recipes built from the primitives in the other reference files. Each one assumes `$UDID` is set to your simulator's UDID. List simulators with `xcrun simctl list devices`, or create one as shown in [parallel-agents.md](parallel-agents.md).
 
 ## Contents
 
-- Workflow 1: Tap on a UI element by accessibility label
-- Workflow 2: Deep-link into an app and verify the screen
-- Workflow 3: Test a camera capture flow
-- Workflow 4: Find blended layers in a screen
-- Workflow 5: Reset and re-test (clean slate)
-- Workflow 6: Drive a multi-step gesture reliably
-- Workflow 7: Show the simulator stream in the host's preview
+- 0. Start a session
+- 1. Tap an element by accessibility label
+- 2. Deep-link into an app and verify the screen
+- 3. Test a camera capture flow
+- 4. Find rendering problems (blended layers)
+- 5. Clean slate between runs
+- 6. Screenshot set for review (status bar, appearance, text size)
+- 7. Show the simulator to a human
 
-## Workflow 1: Tap on a UI element by accessibility label
-
-Pixel-hunting is fragile across device sizes. Prefer driving taps from the accessibility tree.
+## 0. Start a session
 
 ```sh
-# 1. Ensure headless-serve-sim is running and discover the stream port
-URL=$(headless-serve-sim --list -q | jq -r '.[0].streamUrl')
-PORT=$(echo "$URL" | sed -E 's|.*://[^:]+:([0-9]+).*|\1|')
+scripts/check-prereqs.sh                          # once per session
+headless-serve-sim --detach -q "$UDID"            # boots the device if needed; prints helper JSON
+xcrun simctl bootstatus "$UDID" -b >/dev/null     # wait until fully booted
+HELPER=$(jq -r .url "$TMPDIR/headless-serve-sim/server-$UDID.json")
+curl -sf "$HELPER/health"                         # {"status":"ok"}
+```
 
-# 2. Fetch the accessibility tree
-AX=$(curl -s "http://localhost:${PORT}/ax")
+To install and launch your app:
 
-# 3. Find the element by label (use jq with a query that matches your tree shape)
-TARGET=$(echo "$AX" | jq '.[] | select(.label == "Submit")')
+```sh
+xcrun simctl install "$UDID" path/to/MyApp.app
+xcrun simctl launch "$UDID" com.acme.MyApp
+```
 
-# Guard: if no element matched, fail loudly. Never guess coordinates when the
-# AX tree didn't contain the target — tapping a random spot is almost always
-# worse than reporting the failure.
-if [ -z "$TARGET" ] || [ "$TARGET" = "null" ]; then
-  echo "ERROR: no element with label 'Submit' found in accessibility tree" >&2
+Before driving the app, confirm it is in the foreground:
+
+```sh
+for i in $(seq 1 40); do
+  [ "$(curl -s "$HELPER/foreground" | jq -r .bundleId)" = "com.acme.MyApp" ] && break
+  sleep 0.25
+done
+```
+
+## 1. Tap an element by accessibility label
+
+Pixel-hunting breaks across device sizes, so drive taps from the accessibility tree. `/ax` frames are in **points**, so normalize them by the root frame, not by `/config` pixels.
+
+```sh
+AX=$(curl -s "$HELPER/ax")
+
+# Root frame = the whole screen, in points
+SW=$(echo "$AX" | jq '.[0].frame.width')
+SH=$(echo "$AX" | jq '.[0].frame.height')
+
+# First enabled element whose label is "Submit" (searches the whole tree)
+TARGET=$(echo "$AX" | jq -c '[.. | objects | select(.AXLabel? == "Submit" and (.enabled // true))][0] // empty')
+
+# Guard: never guess coordinates when the element is missing
+if [ -z "$TARGET" ]; then
+  echo "ERROR: no element labelled 'Submit' on screen" >&2
   exit 2
 fi
 
-CX=$(echo "$TARGET" | jq '.frame.x + .frame.width / 2')
-CY=$(echo "$TARGET" | jq '.frame.y + .frame.height / 2')
-
-# 4. Normalize coordinates against the display
-CONFIG=$(curl -s "http://localhost:${PORT}/config")
-W=$(echo "$CONFIG" | jq '.width')
-H=$(echo "$CONFIG" | jq '.height')
-NX=$(echo "scale=4; $CX / $W" | bc)
-NY=$(echo "scale=4; $CY / $H" | bc)
-
-# 5. Tap
-headless-serve-sim tap "$NX" "$NY"
+NX=$(echo "$TARGET" | jq --argjson w "$SW" '(.frame.x + .frame.width / 2) / $w')
+NY=$(echo "$TARGET" | jq --argjson h "$SH" '(.frame.y + .frame.height / 2) / $h')
+headless-serve-sim tap "$NX" "$NY" -d "$UDID"
 ```
 
-The exact `jq` query depends on your tree shape — inspect with `curl /ax | jq` and adapt.
+- To match on an identifier, select on `.AXUniqueId == "submit-button"`. Identifiers are more stable than labels across localizations.
+- After tapping, re-read `/ax` or take a screenshot to confirm the result. Do not assume the tap worked.
+- If the tree is empty or `/ax` returns 503, the app may still be launching. Wait and retry.
 
-## Workflow 2: Deep-link into an app and verify the screen
+## 2. Deep-link into an app and verify the screen
 
 ```sh
-# 1. Open the URL — uses Apple's simctl, not headless-serve-sim
-xcrun simctl openurl booted "myapp://products/42"
-
-# 2. Wait briefly for the app to handle the deep link
+headless-serve-sim app-actions open-url "myapp://products/42" -d "$UDID"
 sleep 1
 
-# 3. Resolve the stream endpoint — do not hardcode :3100, it may differ
-PORT=$(headless-serve-sim --list -q | jq -r '.[0].streamUrl' | sed -E 's|.*://[^:]+:([0-9]+).*|\1|')
-
-# 4. Verify the frontmost app is yours
-curl -s "http://localhost:${PORT}/foreground" | jq
-# Expect: {"bundleId":"com.acme.myapp","pid":12345}
-
-# 5. Verify the screen by reading the accessibility tree
-curl -s "http://localhost:${PORT}/ax" | jq '.[] | select(.label | test("Product #42"))'
+curl -s "$HELPER/foreground" | jq            # expect {"bundleId":"com.acme.MyApp", ...}
+curl -s "$HELPER/ax" | jq '[.. | objects | select((.AXLabel? // "") | test("Product 42"))] | length'
+headless-serve-sim screenshot /tmp/product-42.png -d "$UDID"
 ```
 
-## Workflow 3: Test a camera capture flow
+## 3. Test a camera capture flow
 
 ```sh
-# 1. Clean state
-headless-serve-sim camera --stop-webcam
-xcrun simctl terminate booted com.acme.MyApp
+headless-serve-sim camera --stop-webcam -d "$UDID"
+xcrun simctl terminate "$UDID" com.acme.MyApp 2>/dev/null
+headless-serve-sim permissions grant camera com.acme.MyApp -d "$UDID"
 
-# 2. Inject a known test image, force no-mirror so any text reads right
-headless-serve-sim camera com.acme.MyApp --file ~/test-assets/reference.png --mirror off
+# Inject a known image (no mirroring, so text in it reads correctly); this launches the app
+headless-serve-sim camera com.acme.MyApp --file ~/test-assets/reference.png --mirror off -d "$UDID"
 
-# 3. Navigate to the capture screen
-xcrun simctl openurl booted "myapp://camera/capture"
+headless-serve-sim app-actions open-url "myapp://camera/capture" -d "$UDID"
+sleep 1
+headless-serve-sim tap 0.5 0.9 -d "$UDID"      # shutter; prefer an AX lookup (workflow 1)
 sleep 1
 
-# 4. Tap the shutter (50% horizontal, 90% vertical)
-headless-serve-sim tap 0.5 0.9
+APP_DATA=$(xcrun simctl get_app_container "$UDID" com.acme.MyApp data)
+ls -la "$APP_DATA/Documents/"
+
+headless-serve-sim camera --stop-webcam -d "$UDID"
+```
+
+See [camera.md](camera.md) for the other sources (looping video, a host webcam) and for hot-swapping.
+
+## 4. Find rendering problems (blended layers)
+
+```sh
+headless-serve-sim ca-debug blended on -d "$UDID"
+headless-serve-sim app-actions open-url "myapp://settings" -d "$UDID"
 sleep 1
-
-# 5. Inspect the saved capture in the app's sandbox
-APP_DATA=$(xcrun simctl get_app_container booted com.acme.MyApp data)
-ls -la "$APP_DATA/Documents/captures/"
-
-# 6. Tear down
-headless-serve-sim camera --stop-webcam
+headless-serve-sim screenshot /tmp/blended.png -d "$UDID"
+headless-serve-sim ca-debug blended off -d "$UDID"
 ```
 
-## Workflow 4: Find blended layers in a screen
+Red regions are blended layers, which cost the GPU extra work; green regions are opaque. Read the screenshot and report which views are red. For the other overlays, see [ca-debug.md](ca-debug.md).
+
+## 5. Clean slate between runs
 
 ```sh
-# 1. Turn on blended-layers overlay
-headless-serve-sim ca-debug blended on
-
-# 2. Navigate to the screen of interest (via openurl, taps, etc.)
-xcrun simctl openurl booted "myapp://settings"
-
-# 3. Resolve the stream endpoint — do not hardcode :3100, it may differ
-PORT=$(headless-serve-sim --list -q | jq -r '.[0].streamUrl' | sed -E 's|.*://[^:]+:([0-9]+).*|\1|')
-
-# 4. Grab a screenshot from the MJPEG stream
-curl -s "http://localhost:${PORT}/stream.mjpeg?raw=1" \
-  --max-time 1 -o /tmp/blended.jpg
-
-# 5. Inspect — red regions are blended (expensive); green is opaque (good)
-open /tmp/blended.jpg
-
-# 6. Turn off
-headless-serve-sim ca-debug blended off
+xcrun simctl terminate "$UDID" com.acme.MyApp 2>/dev/null
+headless-serve-sim permissions reset all com.acme.MyApp -d "$UDID"
+headless-serve-sim defaults delete com.acme.MyApp hasOnboarded -d "$UDID"   # app-specific keys
+headless-serve-sim app-actions keychain-reset -d "$UDID"
+xcrun simctl launch "$UDID" com.acme.MyApp
 ```
 
-The single-shot `curl --max-time 1` grabs the first JPEG frame from the MJPEG stream. For a clean frame grab, prefer the preview UI's screenshot button or read multiple frames and pick a stable one.
-
-## Workflow 5: Reset and re-test (clean slate)
-
-When tests pollute the simulator state, fastest reset:
+For a full reset, which **destroys every app and all data** on that simulator, run the following only when the user asks for it:
 
 ```sh
-# Kill all headless-serve-sim helpers (frees ports, drops streams)
-headless-serve-sim --kill
-
-# Terminate your app
-xcrun simctl terminate booted com.acme.MyApp
-
-# (Optional) erase the simulator entirely — destroys app data
-# xcrun simctl shutdown booted
-# xcrun simctl erase booted
-# xcrun simctl boot <UDID>
-
-# Restart headless-serve-sim
-headless-serve-sim --detach -q
+headless-serve-sim --kill "$UDID"
+xcrun simctl shutdown "$UDID"
+xcrun simctl erase "$UDID"
+headless-serve-sim --detach -q "$UDID"
 ```
 
-The full erase is destructive — only do it when the user explicitly asks.
-
-## Workflow 6: Drive a multi-step gesture reliably
-
-For a complex gesture (long drag, multi-finger choreography), the CLI's `gesture` subcommand is unreliable because each call opens a fresh WebSocket. The reliable path is one persistent WebSocket connection.
-
-In a Node agent:
-
-```js
-import WebSocket from "ws";
-import { encodeSingleTouch, encodeMultiTouch } from "headless-serve-sim-client/touch-codec";
-
-// 3100 is the default stream port — discover the real one with
-// `headless-serve-sim --list -q` (.streamUrl) when it may differ.
-const ws = new WebSocket("ws://localhost:3100/ws");
-await new Promise((r) => ws.once("open", r));
-
-let seq = 0;
-function send(data) {
-  const buf = data.x1 !== undefined
-    ? encodeMultiTouch(data, seq++)
-    : encodeSingleTouch(data, seq++);
-  ws.send(buf);
-}
-
-// Long vertical drag
-send({ type: "begin", x: 0.5, y: 0.2 });
-for (let i = 1; i <= 30; i++) {
-  send({ type: "move", x: 0.5, y: 0.2 + (0.6 * i) / 30 });
-  await new Promise((r) => setTimeout(r, 16));
-}
-send({ type: "end", x: 0.5, y: 0.8 });
-
-ws.close();
-```
-
-If you do not want a Node dependency, you can build the same frames in any language — the binary format is documented in [endpoints.md](endpoints.md).
-
-## Workflow 7: Show the simulator stream in the host's preview
-
-The user has a simulator running with their app already in the foreground. They want to see it streamed into the same tool they're chatting with the agent in (Claude Code, Cursor, Codex CLI, or any other host) so they don't have to leave the conversation to open a browser.
-
-The trick is that **the skill cannot invoke the host's preview tool directly** — each host (Claude Code, Cursor, Codex, …) has its own URL-opening mechanism with a different tool name and signature. The agent must inspect its own toolset and route accordingly.
+## 6. Screenshot set for review (status bar, appearance, text size)
 
 ```sh
-# 1. Start headless-serve-sim in detached mode and capture the JSON
-STREAM_JSON=$(headless-serve-sim --detach -q)
-URL=$(echo "$STREAM_JSON" | jq -r '.url')
-STREAM_URL=$(echo "$STREAM_JSON" | jq -r '.streamUrl')
+headless-serve-sim status-bar override --time 9:41 --battery-level 100 --battery-state charged \
+  --wifi-bars 3 --cellular-bars 4 -d "$UDID"
 
-# 2. Surface the URL plainly to the user so they always have a manual fallback
-echo "Simulator stream URL: $URL"
-echo "Raw MJPEG endpoint:   $STREAM_URL"
+for look in light dark; do
+  headless-serve-sim ui appearance "$look" -d "$UDID"
+  sleep 1
+  headless-serve-sim screenshot "/tmp/home-$look.png" -d "$UDID"
+done
+
+headless-serve-sim ui text-size accessibility-large -d "$UDID"
+sleep 1
+headless-serve-sim screenshot /tmp/home-ax-large.png -d "$UDID"
+
+# Restore
+headless-serve-sim ui text-size large -d "$UDID"
+headless-serve-sim ui appearance light -d "$UDID"
+headless-serve-sim status-bar clear -d "$UDID"
 ```
 
-3. Hand off to the host's preview tool, **only if one is available in the current toolset**:
+Add `headless-serve-sim rotate landscape_left -d "$UDID"` (then confirm it with `/config`, see [buttons-rotation.md](buttons-rotation.md)) to capture landscape. On a foldable, add `headless-serve-sim motion angle 130 -d "$UDID"` to capture the book pose.
 
-   - **Claude Code**: if `preview_start` (or `mcp__Claude_Preview__preview_start`) appears in the toolset, call it with `{ url: "$URL" }`. The integrated preview pane will render the simulator stream live.
-   - **Cursor**: there is no agent-callable preview tool in Cursor today. Print the URL prominently and tell the user "open this URL in Cursor's built-in browser pane (Cmd+P → 'Open URL')".
-   - **Codex CLI**: print the URL and tell the user to open it in their browser. Codex does not expose a preview tool to the agent.
-   - **Other hosts / MCP setups**: scan available tools for names containing `preview`, `browser`, `open_url`, `open`, etc. If you find a match whose signature accepts a URL, try it; if it fails, fall back to printing.
+## 7. Show the simulator to a human
 
-4. **Never invent a tool name.** If your toolset does not include a URL-opening tool, do not pretend to call one. Tell the user explicitly: "I can't open URLs in your host's preview directly. Open $URL in your browser to see the stream."
+When the user wants to *see* the simulator ("show me", "open the preview", "let me watch"), give them the browser preview. `--detach` alone is not enough, because it only starts the stream helper and has no UI.
 
-5. The stream persists until `headless-serve-sim --kill`. Multiple clients (the host preview + the user's browser + a tunnel) can connect to the same URL at once.
+```sh
+# Start the preview server in the background and capture its URL
+LOG=$(mktemp)
+headless-serve-sim "$UDID" >"$LOG" 2>&1 &     # add -p <port> to pin a port
+PREVIEW_PID=$!
+for i in $(seq 1 120); do
+  URL=$(grep -Eo 'Local: +http://[^ ]+' "$LOG" | awk '{print $2}')
+  [ -n "$URL" ] && break
+  sleep 0.5
+done
+echo "Simulator preview: $URL"               # e.g. http://localhost:3200
+```
 
-### Why this is split between skill and host
+Then:
 
-The skill knows how to make a URL exist (`headless-serve-sim --detach`). The host knows how to render a URL in its preview. The agent is the glue — it should detect which side of that glue is available in the current session and act accordingly. There is no single "open in preview" command because each host has reinvented it.
+1. **Print the URL plainly** in your reply, so the user always has a manual fallback.
+2. **If your host has a preview or browser tool**, open the URL with it. Examples are a `preview_start`-style tool, an MCP browser, or an `open_url` tool. Only call tools that actually exist in your current toolset; never invent a tool name. If there is none, ask the user to open the URL in a browser, or run `open "$URL"` with their consent.
+3. **For a phone**, the toolbar's "Preview on phone" button shows a QR code that opens the stream on a device on the same Wi-Fi.
+4. **For a remote reviewer**, a tunnel to the preview port works. Bind with `--host` only on a trusted network (see [endpoints.md](endpoints.md#security-notes)).
 
-### Quick decision tree
+The preview keeps running until you stop it with `kill $PREVIEW_PID`. The device's helper keeps running after the preview exits, so also run `headless-serve-sim --kill "$UDID"` if you are finished with it. Several viewers can watch the same preview at once.
 
-- Did `--detach -q` return a valid `url`? If not, stop and report the failure.
-- Is there a `preview_start`-like tool in your current toolset? Call it.
-- No such tool? Print the URL plainly and instruct the user how to open it.
-- Did the preview tool reject the URL or fail? Fall back to printing.
+Quick decision tree:
+
+- No `- Local:` line? Read `$LOG` and report the error (for example, a busy pinned port or a device that could not be resolved).
+- Is there a preview or browser tool in your toolset? Use it and also print the URL.
+- No such tool? Print the URL and tell the user how to open it.

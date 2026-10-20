@@ -1,9 +1,14 @@
 # App permissions reference
 
-`headless-serve-sim permissions` manages an installed app's privacy permissions on
-the booted simulator. It is modelled on AppleSimulatorUtils but writes the
-underlying state stores directly, because `xcrun simctl privacy` is timing-
-fragile and cannot touch push notifications at all.
+`headless-serve-sim permissions` manages an installed app's privacy permissions
+on a booted simulator. No helper or preview server is needed. It writes the
+simulator's permission stores directly, because `xcrun simctl privacy` races
+simulator boot and has no notifications service at all.
+
+It targets `-d <UDID|name>`, or the first booted simulator when `-d` is left
+out. Pass `-d` whenever more than one simulator is booted. Running
+`headless-serve-sim permissions` with no arguments prints the usage; `--help` is
+rejected.
 
 ## CLI surface
 
@@ -46,10 +51,13 @@ installed; `location` in particular silently no-ops on an uninstalled bundle.
 | `user-tracking` | — | |
 | `homekit` | — | |
 
-Aliases accepted for parity with AppleSimulatorUtils / agent-device:
-`push` → `notifications`, `photo-library`/`photo` → `photos`, `mic` →
-`microphone`, `location-always` → `location --value always`,
-`location-inuse` → `location --value inuse`.
+Aliases (the names other simulator tools use):
+
+- `push` and `notification` → `notifications`
+- `photo-library` and `photo` → `photos`
+- `mic` → `microphone`
+- `location-always` → `location --value always`
+- `location-inuse` and `location-in-use` → `location --value inuse`
 
 A trailing positional is also accepted as the value, e.g.
 `permissions grant photos com.foo.bar limited`.
@@ -68,7 +76,9 @@ A trailing positional is also accepted as the value, e.g.
   correctly.
 
 This command manages the *permission* only — it does not deliver a
-notification. To push a test notification, use `xcrun simctl push`.
+notification. To deliver a test push, use
+`headless-serve-sim app-actions push <bundle-id> --payload '{"aps":{…}}'`
+(see [device-settings.md](device-settings.md#app-actions-urls-push-keychain)).
 
 ## Examples
 
@@ -96,4 +106,6 @@ headless-serve-sim permissions reset all com.example.app
 - Changes are written to disk immediately. An app that's already running may
   need to be relaunched to observe the new state.
 - Use a real installed bundle id. Find one with
-  `xcrun simctl listapps booted`.
+  `xcrun simctl listapps "$UDID"`.
+- To get a clean first-launch experience, run `permissions reset all <bundle-id>`
+  before launching the app, so each permission prompt appears again.

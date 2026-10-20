@@ -3,129 +3,152 @@
 ## Contents
 
 - Coordinate system
-- Single-touch JSON shape
-- Multi-touch JSON shape
-- Edge values (system edge gestures)
-- Common recipes (swipe, drag, pinch)
-- Why `tap` is preferred over `gesture` for taps
+- `tap`
+- `gesture` JSON shape
+- Edge values
+- Recipes: swipe, scroll, pull down, swipe back
+- One WebSocket for precise gestures
+- Pinch (two fingers)
+- Why `tap` beats two `gesture` calls
 
 ## Coordinate system
 
 All coordinates are normalized floats in `[0, 1]`:
 
-- `(0.0, 0.0)` = top-left of the display
-- `(1.0, 1.0)` = bottom-right of the display
-- `(0.5, 0.5)` = center
+- `(0, 0)` is the top-left of the screen, `(1, 1)` is the bottom-right, and `(0.5, 0.5)` is the centre.
+- They describe the screen **as it currently looks**, which is the orientation of a screenshot. After `rotate landscape_left` you keep using what-you-see coordinates. The CLI tags every touch with `"space":"interface"`, and the helper maps it onto the raw panel.
 
-The headless-serve-sim client compensates for device orientation automatically. After a `rotate landscape_left`, coords still describe the **logical** display from the user's perspective — you do not rotate them manually.
+To convert from accessibility frames, which are in points, divide by the size of the AX root frame. To convert from screenshot pixels, divide by the image size. See [workflows.md](workflows.md#1-tap-an-element-by-accessibility-label).
 
-To convert pixel coords to normalized, divide by the display dimensions reported by `GET http://localhost:3100/config` (`{width, height, orientation}`).
+## `tap`
 
-## Single-touch JSON shape
+```sh
+headless-serve-sim tap 0.5 0.9 -d "$UDID"
+```
 
-```json
-{
-  "type": "begin",
-  "x": 0.5,
-  "y": 0.5,
-  "edge": 0
-}
+This sends `begin` and `end` on one WebSocket about 40 ms apart, which iOS reads as a real tap. Use it for every single tap.
+
+## `gesture` JSON shape
+
+```sh
+headless-serve-sim gesture '{"type":"begin","x":0.5,"y":0.5}' -d "$UDID"
 ```
 
 | Field | Type | Required | Values |
 |---|---|---|---|
-| `type` | string | yes | `"begin"`, `"move"`, `"end"` |
-| `x` | number | yes | `0.0`–`1.0` |
-| `y` | number | yes | `0.0`–`1.0` |
-| `edge` | integer | no | `0`–`4` (see below) |
+| `type` | string | yes | `"begin"`, `"move"` or `"end"` |
+| `x`, `y` | number | yes | `0.0` to `1.0` |
+| `edge` | integer | no | `0` to `4`, see below |
 
-A complete touch is a sequence of `begin` → 0 or more `move` → `end` on the **same** WebSocket. The `gesture` CLI opens one socket per invocation, so a complete touch must fit inside a single CLI call's payload, or be issued via the WebSocket directly.
+Each `gesture` call opens a WebSocket, sends **one** event, waits about 50 ms and closes the socket. A complete touch is `begin`, then one or more `move` events, then `end`, sent as separate calls in order. The time between calls (around 100 to 200 ms, mostly process start-up) is part of the gesture, so CLI swipes are slow, deliberate drags rather than flicks.
 
-## Multi-touch JSON shape
-
-```json
-{
-  "type": "begin",
-  "x1": 0.4,
-  "y1": 0.5,
-  "x2": 0.6,
-  "y2": 0.5
-}
-```
-
-| Field | Type | Required | Values |
-|---|---|---|---|
-| `type` | string | yes | `"begin"`, `"move"`, `"end"` |
-| `x1`, `y1` | number | yes | first finger, `0.0`–`1.0` |
-| `x2`, `y2` | number | yes | second finger, `0.0`–`1.0` |
-
-Multi-touch does not support `edge`. Use it for pinch, zoom, and two-finger rotation gestures.
+The CLI `gesture` command accepts single-touch JSON only. Multi-touch JSON (`x1`/`y1`/`x2`/`y2`) sent through it is dropped by the helper. For a pinch, see [Pinch (two fingers)](#pinch-two-fingers).
 
 ## Edge values
 
-The `edge` field flags a touch as a system edge gesture. iOS interprets edge touches specially (e.g., bottom edge swipe = swipe-to-home on Face ID devices). Values:
+`edge` marks a touch as a system edge gesture.
 
-| Value | Edge | Effect |
+| Value | Edge | Typical effect |
 |---|---|---|
-| `0` | none | Regular touch (default; omit `edge` entirely) |
-| `1` | left | Left-edge swipe (back gesture in many apps) |
-| `2` | top | Top-edge pull (Notification Center / Control Center) |
-| `3` | bottom | Bottom-edge swipe (swipe-to-home on Face ID devices) |
+| `0` | none | A regular touch. This is the default, so you can leave `edge` out. |
+| `1` | left | Back gesture in navigation stacks |
+| `2` | top | Notification Center (left side) or Control Center (top-right) |
+| `3` | bottom | Go home or app switcher on Face ID devices |
 | `4` | right | Right-edge swipe |
 
-For a swipe-to-home on a Face ID device, you can use `headless-serve-sim button swipe_home` — it issues the correct edge-3 touch sequence for you.
+For going home, `headless-serve-sim button swipe_home` already performs the correct bottom-edge swipe.
 
-## Common recipes
+## Recipes
 
-### Tap (avoid `gesture` — use `tap`)
+Always include at least one `move`. A `begin` followed directly by `end` is a press, not a swipe.
 
-```sh
-headless-serve-sim tap 0.5 0.5
-```
-
-Two back-to-back `gesture` calls for `begin` and `end` will be interpreted as a long-press because each call opens a fresh WebSocket. Always use `tap`.
-
-### Drag (vertical scroll down)
-
-A drag is a sequence on a single WebSocket. With the CLI, the simplest correct approach is the streaming server's WebSocket. From an agent that only has the CLI, prefer breaking the drag into a single `gesture` call that contains the full sequence — or use `button swipe_home` for the specific case of swipe-to-home.
-
-For ad-hoc drags via the CLI, this minimal sequence works because it issues one socket call per phase but the simulator coalesces them when issued rapidly:
+### Scroll content up (finger moves up)
 
 ```sh
-headless-serve-sim gesture '{"type":"begin","x":0.5,"y":0.2}'
-headless-serve-sim gesture '{"type":"move","x":0.5,"y":0.5}'
-headless-serve-sim gesture '{"type":"move","x":0.5,"y":0.8}'
-headless-serve-sim gesture '{"type":"end","x":0.5,"y":0.8}'
+D=(-d "$UDID")
+headless-serve-sim gesture '{"type":"begin","x":0.5,"y":0.75}' "${D[@]}"
+headless-serve-sim gesture '{"type":"move","x":0.5,"y":0.5}'   "${D[@]}"
+headless-serve-sim gesture '{"type":"move","x":0.5,"y":0.25}'  "${D[@]}"
+headless-serve-sim gesture '{"type":"end","x":0.5,"y":0.25}'   "${D[@]}"
 ```
 
-The agent should accept that this may produce a long-press start on some hosts. For reliable drags, drive the WebSocket directly (see `references/endpoints.md`).
-
-### Pinch to zoom in
-
-```sh
-headless-serve-sim gesture '{"type":"begin","x1":0.4,"y1":0.5,"x2":0.6,"y2":0.5}'
-headless-serve-sim gesture '{"type":"move","x1":0.25,"y1":0.5,"x2":0.75,"y2":0.5}'
-headless-serve-sim gesture '{"type":"end","x1":0.25,"y1":0.5,"x2":0.75,"y2":0.5}'
-```
+The delay before the first `move` makes iOS treat the touch as a held press that then drags. Scroll views still scroll, but a cell under the finger can briefly highlight, and a list with long-press actions may open its context menu. When that matters, use one WebSocket (below).
 
 ### Pull down Notification Center (top edge)
 
 ```sh
-headless-serve-sim gesture '{"type":"begin","x":0.5,"y":0.02,"edge":2}'
-headless-serve-sim gesture '{"type":"move","x":0.5,"y":0.4,"edge":2}'
-headless-serve-sim gesture '{"type":"end","x":0.5,"y":0.4,"edge":2}'
+headless-serve-sim gesture '{"type":"begin","x":0.3,"y":0.01,"edge":2}' -d "$UDID"
+headless-serve-sim gesture '{"type":"move","x":0.3,"y":0.4,"edge":2}'   -d "$UDID"
+headless-serve-sim gesture '{"type":"end","x":0.3,"y":0.6,"edge":2}'    -d "$UDID"
 ```
 
-### Swipe back from left edge
+### Swipe back from the left edge
 
 ```sh
-headless-serve-sim gesture '{"type":"begin","x":0.01,"y":0.5,"edge":1}'
-headless-serve-sim gesture '{"type":"move","x":0.5,"y":0.5,"edge":1}'
-headless-serve-sim gesture '{"type":"end","x":0.5,"y":0.5,"edge":1}'
+headless-serve-sim gesture '{"type":"begin","x":0.01,"y":0.5,"edge":1}' -d "$UDID"
+headless-serve-sim gesture '{"type":"move","x":0.5,"y":0.5,"edge":1}'   -d "$UDID"
+headless-serve-sim gesture '{"type":"end","x":0.9,"y":0.5,"edge":1}'    -d "$UDID"
 ```
 
-## Why `tap` is preferred
+## One WebSocket for precise gestures
 
-The CLI's `gesture` subcommand opens a fresh WebSocket on each invocation. When you issue `begin` and `end` as two separate calls, the round-trip plus socket setup introduces a delay of tens of milliseconds. The simulator's HID layer measures touch duration; anything beyond ~100ms reads as a long-press, not a tap.
+For flicks, fast scrolls, long precise drags or anything timing-sensitive, keep every event on **one** connection to the helper's `/ws`. Each message is a single binary frame: one type byte followed by UTF-8 JSON.
 
-The `tap` subcommand exists specifically to bypass this: it issues `begin` and `end` over a single connection with negligible latency, producing a true tap every time. There is no good reason to emulate a tap with `gesture`.
+| Byte | Payload |
+|---|---|
+| `0x03` | single touch `{type, x, y, edge?, space?}` |
+| `0x05` | two-finger touch `{type, x1, y1, x2, y2, space?}` |
+
+Include `"space":"interface"` so the coordinates follow the current orientation, as the CLI does. Without it, coordinates are raw panel space.
+
+Get the URL from the state file (`.wsUrl`) or from `headless-serve-sim --list "$UDID"`. The script below works with any runtime that has a global `WebSocket` (Node 22+, Bun, Deno) and has no dependencies:
+
+```js
+// swipe.mjs. Usage: node swipe.mjs ws://127.0.0.1:3100/ws
+const ws = new WebSocket(process.argv[2]);
+ws.binaryType = "arraybuffer";
+await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
+
+const frame = (type, payload) => {
+  const json = new TextEncoder().encode(JSON.stringify({ space: "interface", ...payload }));
+  const msg = new Uint8Array(1 + json.length);
+  msg[0] = type;
+  msg.set(json, 1);
+  ws.send(msg);
+};
+const touch = (type, x, y) => frame(0x03, { type, x, y });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Fast upward flick: ~150 ms total
+touch("begin", 0.5, 0.8);
+for (let i = 1; i <= 8; i++) { await sleep(16); touch("move", 0.5, 0.8 - (0.6 * i) / 8); }
+touch("end", 0.5, 0.2);
+
+await sleep(50);
+ws.close();
+```
+
+The helper also sends a JSON screen-config frame (tag `0x82`) when the socket connects. Input-only clients can ignore it.
+
+## Pinch (two fingers)
+
+Pinching needs the `0x05` multi-touch frame on one socket. Reuse the script above with:
+
+```js
+const pinch = (type, x1, y1, x2, y2) => frame(0x05, { type, x1, y1, x2, y2 });
+
+// Zoom in: fingers move apart
+pinch("begin", 0.45, 0.5, 0.55, 0.5);
+for (let i = 1; i <= 10; i++) {
+  await sleep(16);
+  const d = 0.05 + (0.25 * i) / 10;
+  pinch("move", 0.5 - d, 0.5, 0.5 + d, 0.5);
+}
+pinch("end", 0.2, 0.5, 0.8, 0.5);
+```
+
+Reverse the direction to zoom out. Rotate the two points around the centre for a two-finger rotation. Multi-touch has no `edge`.
+
+## Why `tap` beats two `gesture` calls
+
+iOS measures how long a finger stays down. `tap` holds for about 40 ms on one socket. Two `gesture` processes, one for `begin` and one for `end`, are separated by process start-up and a socket handshake (roughly 150 ms), which crosses the long-press threshold. There is never a reason to build a tap out of `gesture` calls.

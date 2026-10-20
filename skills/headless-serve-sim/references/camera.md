@@ -12,17 +12,19 @@
 
 ## What camera injection does
 
-`headless-serve-sim camera <bundle-id>` replaces the simulator's camera feed for a single app. The headless-serve-sim helper writes BGRA frames into a POSIX shared-memory region on the host. An injected dylib (`DYLD_INSERT_LIBRARIES`) inside the simulator process swizzles `AVFoundation` so the app reads from that region instead of the simulator's default stub camera.
+`headless-serve-sim camera <bundle-id>` gives one app a working camera on the simulator, which normally has none. A host-side camera helper (`headless-serve-sim-camera-helper`) writes BGRA frames into a POSIX shared-memory region. The command then relaunches the app with `libSimCameraInjector.dylib` attached (`DYLD_INSERT_LIBRARIES`). The dylib swizzles AVFoundation so the app reads frames from that region.
 
-The helper is **one-per-device** and outlives any single app launch. Multiple apps on the same simulator can share the feed — run `headless-serve-sim camera <other-bundle-id>` again to (re)launch the next app with the dylib attached.
+The camera helper is separate from the stream helper and does not need it, so camera injection works without `--detach` or a preview server. It targets `-d <UDID|name>`, or the first booted simulator when `-d` is left out.
+
+There is **one camera helper per device**, and it outlives any single app launch. Several apps on the same simulator can share the feed: run `headless-serve-sim camera <other-bundle-id>` to launch the next app with the dylib attached. Running `camera <bundle-id>` with a source flag while the helper is already running hot-swaps the source without relaunching.
+
+The release tarball ships the dylib and the camera helper in `simcam/` next to the binary; keep that folder in place. `--build` rebuilds them from source and only applies to a source checkout.
 
 ## Requirements
 
-- macOS 14+ (Sonoma or later) on the host.
-- An iOS Simulator running iOS 17+ recommended.
-- The target app must use standard `AVFoundation` capture APIs.
-
-If macOS is older than 14, the `camera` subcommand exits with an error.
+- A recent iOS runtime (iOS 17+ recommended).
+- The target app must be installed and must use standard AVFoundation capture APIs (`AVCaptureSession` and friends, which SwiftUI, UIKit and React Native camera libraries build on).
+- The camera permission. Grant it up front so no prompt blocks the flow: `headless-serve-sim permissions grant camera <bundle-id>`.
 
 ## Sources
 
@@ -95,14 +97,13 @@ headless-serve-sim camera mirror on
 headless-serve-sim camera mirror auto
 ```
 
-The helper has a Unix-domain control socket; these commands send a single message and exit. The app keeps running and sees the new source on the next frame.
+The camera helper has a Unix-domain control socket; these commands send a single message and exit. Add `-d "$UDID"` when more than one simulator is booted. The app keeps running and sees the new source on the next frame.
 
 ## Status and listing
 
 ```sh
-headless-serve-sim camera status         # human-readable
-headless-serve-sim camera status -q      # JSON: {alive, source, mirror, ...}
-headless-serve-sim camera --list-webcams # host cameras
+headless-serve-sim camera status -d "$UDID"   # JSON: {alive, source, mirror, ...}
+headless-serve-sim camera --list-webcams      # host cameras
 ```
 
 `status` reports whether the helper is alive, the current source kind and argument, and the active mirror mode. An agent should call this before issuing a `switch` to confirm a helper exists; otherwise spawn one via `camera <bundle-id>`.
@@ -110,42 +111,45 @@ headless-serve-sim camera --list-webcams # host cameras
 ## Stopping the helper
 
 ```sh
-headless-serve-sim camera --stop-webcam              # stop for current device
-headless-serve-sim camera --stop-webcam -d "iPhone 16 Pro"
+headless-serve-sim camera --stop-webcam -d "$UDID"   # stops the camera helper, whatever its source
 ```
 
 The injected dylib persists in the next app launch unless you also restart the simulator process. To force a clean state, terminate the target app first:
 
 ```sh
-xcrun simctl terminate booted com.acme.MyApp
-headless-serve-sim camera --stop-webcam
+xcrun simctl terminate "$UDID" com.acme.MyApp
+headless-serve-sim camera --stop-webcam -d "$UDID"
 ```
 
 ## Typical end-to-end recipe
 
-Test that the target app captures a static reference image and saves it correctly:
+This recipe tests that the app captures a known reference image and saves it. Here `$UDID` is your simulator, and the app is already installed.
 
 ```sh
 # 1. Clean slate
-headless-serve-sim camera --stop-webcam
-xcrun simctl terminate booted com.acme.MyApp
+headless-serve-sim camera --stop-webcam -d "$UDID"
+xcrun simctl terminate "$UDID" com.acme.MyApp 2>/dev/null
+headless-serve-sim permissions grant camera com.acme.MyApp -d "$UDID"
 
-# 2. Inject the test image, force no-mirror so any embedded text reads right
-headless-serve-sim camera com.acme.MyApp --file ~/test-assets/reference.png --mirror off
+# 2. Inject the test image (no mirroring, so text in it reads correctly); this launches the app
+headless-serve-sim camera com.acme.MyApp --file ~/test-assets/reference.png --mirror off -d "$UDID"
 
 # 3. Open the capture screen via deep link
-xcrun simctl openurl booted "myapp://camera/capture"
+headless-serve-sim app-actions open-url "myapp://camera/capture" -d "$UDID"
+sleep 1
 
-# 4. Tap the shutter (assume it's at 50% horizontal, 90% vertical)
-headless-serve-sim tap 0.5 0.9
+# 4. Look before tapping, then tap the shutter (50% across, 90% down in this example)
+headless-serve-sim screenshot /tmp/capture-screen.png -d "$UDID"
+headless-serve-sim --detach -q "$UDID" >/dev/null   # tap needs the stream helper
+headless-serve-sim tap 0.5 0.9 -d "$UDID"
 
-# 5. Confirm the helper still owns the feed
-headless-serve-sim camera status -q
+# 5. Confirm the camera helper still owns the feed
+headless-serve-sim camera status -d "$UDID"
 
-# 6. Inspect the saved image on disk in the app's sandbox
-APP_DATA=$(xcrun simctl get_app_container booted com.acme.MyApp data)
-ls -la "$APP_DATA/Documents/captures/"
+# 6. Inspect the saved image in the app's sandbox
+APP_DATA=$(xcrun simctl get_app_container "$UDID" com.acme.MyApp data)
+ls -la "$APP_DATA/Documents/"
 
 # 7. Tear down
-headless-serve-sim camera --stop-webcam
+headless-serve-sim camera --stop-webcam -d "$UDID"
 ```
