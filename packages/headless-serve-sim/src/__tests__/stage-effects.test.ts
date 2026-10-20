@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { glowColors, screenCaptureAngle } from "../client/shell/stage-effects";
+import { glowColors, screenCaptureAngle, screenGlowFrame } from "../client/shell/stage-effects";
+import { rotationStart } from "../client/utils/stage-pose";
 
 test("glow colours come out clockwise from the top-left quadrant", () => {
   // Canvas order: TL, TR, BL, BR.
@@ -22,4 +23,20 @@ test("a stream turned with CSS is captured as it looks, not as it decodes", () =
   expect(screenCaptureAngle("matrix(0, -1, 1, 0, 0, 0)")).toBeCloseTo(-90);
   expect(screenCaptureAngle("matrix(-1, 0, 0, -1, 0, 0)")).toBeCloseTo(180);
   expect(screenCaptureAngle("none")).toBe(0);
+});
+
+test("the glow is drawn in the device's own frame, so a turn carries it unchanged", () => {
+  const portrait = { rotation: 0, cx: 500, cy: 450, width: 400, height: 800 };
+  // Landscape fits the stage at a different size than portrait.
+  const landscape = { rotation: 90, cx: 500, cy: 350, width: 900, height: 450 };
+  const before = screenGlowFrame(portrait);
+  const after = screenGlowFrame(landscape);
+  const start = rotationStart(portrait, landscape);
+  // The turn's start transform maps the new glow exactly onto the old one.
+  expect(after.width * start.scale).toBeCloseTo(before.width);
+  expect(after.height * start.scale).toBeCloseTo(before.height);
+  expect(after.blur * start.scale).toBeCloseTo(before.blur);
+  expect((after.rotate + start.rotate) % 360).toBe(before.rotate);
+  // At rest it lies along the device: across a landscape screen, turned with it.
+  expect(after).toMatchObject({ width: 450, height: 900, rotate: 90 });
 });

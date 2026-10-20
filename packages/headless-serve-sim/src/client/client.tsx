@@ -106,10 +106,10 @@ import {
   isPreviewControlTarget,
 } from "./utils/shortcuts";
 import { rotateLeft } from "./utils/rotate";
-import { whenStreamMoves } from "./utils/stream-motion";
 import { cn } from "./lib/cn";
 import { sameDuoBounds, type DuoBounds } from "./utils/duo-bounds";
-import { rotationStart, type StagePose } from "./utils/stage-pose";
+import { rotationStart, type StagePose, type TurnOffsets } from "./utils/stage-pose";
+import { confirmsOrientation } from "./utils/orientation-confirm";
 import {
   handOffStage,
   primeStageFrame,
@@ -1050,10 +1050,12 @@ function AppWithConfig({
   // Set when someone asks for a turn, so only that turn animates — not a
   // landscape stream arriving on load.
   const rotateRequestedAt = useRef(0);
+  // Only turns we command ourselves, not ones we read back.
+  const turnCommandedAt = useRef(0);
   const deviceOrientationEdit = useRef(0);
   const rotateDevice = useCallback(
     (orientation: SimulatorOrientation) => {
-      rotateRequestedAt.current = Date.now();
+      rotateRequestedAt.current = turnCommandedAt.current = Date.now();
       if (!foldable) {
         deviceOrientationEdit.current++;
         setDeviceOrientation(orientation);
@@ -1086,12 +1088,14 @@ function AppWithConfig({
   );
   // Confirm how the device is held: on connect, and whenever the app's own
   // orientation moves (something turned it). A read that raced one of our own
-  // turns is dropped rather than snapping the stage back.
+  // turns is dropped rather than snapping the stage back, and the app turning
+  // with one we just made isn't read at all.
   const reportedOrientation = (streamConfig as { orientation?: SimulatorOrientation } | null)
     ?.orientation;
   const deviceOrientationKnown = useRef(false);
   useEffect(() => {
     if (foldable || !streaming) return;
+    if (!confirmsOrientation(Date.now(), turnCommandedAt.current)) return;
     let stopped = false;
     const edit = deviceOrientationEdit.current;
     const timer = setTimeout(() => {
@@ -1743,13 +1747,17 @@ function AppWithConfig({
     if (prev.rotation === pose.rotation || !prev.width || !pose.width) return;
     if (Date.now() - rotateRequestedAt.current > 5000) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const start = rotationStart(prev, pose);
-    flyRotate.set(start.rotate);
-    flyScale.set(start.scale);
-    flyX.set(start.x);
-    flyY.set(start.y);
-    dockLift.set(start.lift);
-    shadowWidth.set(start.footprint);
+    // Start from where the device is drawn now — partway through a turn if one
+    // is still running — so a second turn picks it up rather than snapping.
+    const drawn: TurnOffsets = {
+      rotate: flyRotate.get(),
+      scale: flyScale.get(),
+      x: flyX.get(),
+      y: flyY.get(),
+      lift: dockLift.get(),
+      footprint: shadowWidth.get(),
+    };
+    const start = rotationStart(prev, pose, drawn);
     // Motion writes these on its next frame; the new geometry paints on this
     // one. Write the start pose now so the two land together.
     if (turnRef.current)
@@ -1758,33 +1766,44 @@ function AppWithConfig({
       if (el) el.style.transform = `translateY(${start.lift}px)`;
     if (shadowWidthRef.current)
       shadowWidthRef.current.style.transform = `scaleX(${start.footprint})`;
-    // iOS turns the picture inside the screen as one motion with the device,
-    // the way a real phone does: hold the device until the stream starts
-    // turning, then swing with it on a physical spring that lands with a
+    // Keep a running turn's speed. The ratios (rest 1) are rescaled to the new
+    // pose; the offsets only moved by a constant.
+    const channels = (
+      [
+        ["rotate", flyRotate, 0],
+        ["scale", flyScale, 1],
+        ["x", flyX, 0],
+        ["y", flyY, 0],
+        ["lift", dockLift, 0],
+        ["footprint", shadowWidth, 1],
+      ] as const
+    ).map(
+      ([key, value, rest]) =>
+        [
+          key,
+          value,
+          rest,
+          value.getVelocity() * (rest === 1 ? start[key] / (drawn[key] || 1) : 1),
+        ] as const,
+    );
+    // The body turns at once, the way a real phone's hardware turns first and
+    // iOS swings the picture inside it, on a physical spring that lands with a
     // touch of settle; a half turn takes a little longer than a quarter.
-    let turning = false;
-    const turn = () => {
-      if (turning) return;
-      turning = true;
-      const transition = {
-        ...spring.rotate,
-        duration: spring.rotate.duration * Math.sqrt(Math.abs(start.rotate) / 90),
-      };
-      for (const [value, rest] of [
-        [flyRotate, 0],
-        [flyScale, 1],
-        [flyX, 0],
-        [flyY, 0],
-        [dockLift, 0],
-        [shadowWidth, 1],
-      ] as const)
-        animate(value, rest, transition);
-    };
-    const cancel = whenStreamMoves(simContainerRef.current, 200, turn);
-    return () => {
-      cancel();
-      turn();
-    };
+    // Motion's duration springs drop a moving device's speed, so picking one
+    // up mid-turn uses the response and damping spring.rotate stands for.
+    const moving = channels.some(([, , , velocity]) => velocity !== 0);
+    const response = (2 * Math.PI) / 0.4;
+    const transition = moving
+      ? { type: "spring" as const, stiffness: response ** 2, damping: 2 * 0.8 * response }
+      : {
+          ...spring.rotate,
+          duration: spring.rotate.duration * Math.sqrt(Math.max(Math.abs(start.rotate), 90) / 90),
+        };
+    for (const [key, value, rest, velocity] of channels) {
+      // jump(), not set(): set() leaves the old animation running.
+      value.jump(start[key]);
+      animate(value, rest, { ...transition, velocity });
+    }
   }, [pose, flyRotate, flyScale, flyX, flyY, dockLift, shadowWidth]);
 
   // Arriving from the wall: fly in from the tile once the device has a place
@@ -1947,7 +1966,7 @@ function AppWithConfig({
       },
     },
     onOrientationChange: (orientation) => {
-      rotateRequestedAt.current = Date.now();
+      rotateRequestedAt.current = turnCommandedAt.current = Date.now();
       orientationEditRef.current++;
       setDuoOrientation(orientation);
       deviceOrientationEdit.current++;
@@ -2256,7 +2275,14 @@ function AppWithConfig({
                     <motion.div
                       ref={turnRef}
                       className="absolute inset-0"
-                      style={{ x: flyX, y: flyY, scale: flyScale, rotate: flyRotate }}
+                      // Promoted for good, so a turn doesn't re-rasterize as it lands.
+                      style={{
+                        x: flyX,
+                        y: flyY,
+                        scale: flyScale,
+                        rotate: flyRotate,
+                        willChange: "transform",
+                      }}
                     >
                       <div
                         className="absolute"
@@ -2267,7 +2293,7 @@ function AppWithConfig({
                           height: visible.height,
                         }}
                       >
-                        <ScreenGlow colors={glowColors} w={visible.width} h={visible.height} />
+                        <ScreenGlow colors={glowColors} pose={pose} />
                       </div>
                       <div className="relative size-full">{device}</div>
                     </motion.div>
