@@ -1,6 +1,5 @@
 import { useId, type ReactNode } from "react";
-import { ease, mix } from "../lib/time";
-import { FOLD, FOLD_STEP } from "./assets";
+import { screens, sizeOf } from "./assets";
 import { artwork, RealDevice, type Kind } from "./real-device";
 
 /** Each kind is drawn once at this scale, then transformed: crisp at any size. */
@@ -12,50 +11,84 @@ const DUO_PX = 0.9;
 export type Body = { kind: Kind } | { duo: number };
 
 /** The Duo is laid out by its flat-open frame; the others by their artwork. */
-const OPEN = () => FOLD.at(-1)!;
+const OPEN = () => sizeOf("duoOpen");
 
 export function size(body: Body, s: number) {
   if ("kind" in body) return { w: artwork(body.kind).w * s, h: artwork(body.kind).h * s };
   return { w: OPEN().w * DUO_PX * s, h: OPEN().h * DUO_PX * s };
 }
 
+/** How thick the folded Duo reads edge-on, in its render's pixels. */
+const DUO_THICKNESS = 26;
+
 /**
- * The iPhone Duo at a hinge angle, in the stream pixels the Stage drew it in.
- * From 5° on, each angle is the real render nearest to it. Below that the
- * Stage shows the cover display face-on, so the closed device turns on its
- * hinge to meet the first edge-on frame, the way it would in a hand.
+ * The iPhone Duo at a hinge angle, seen straight on, the way a hand opens it:
+ * the left panel turns on the centre hinge, its cover display narrowing to
+ * edge-on before its half of the inner display widens out, and the device
+ * stays centred as it grows. Orthographic, so everything moves horizontally.
  */
 function DuoFold({ angle }: { angle: number }) {
-  const ref = OPEN();
-  const a = Math.min(180, Math.max(0, angle));
-  const place = (f: (typeof FOLD)[number], extra?: React.CSSProperties) => (
-    <img
-      key={f.angle}
-      src={f.src}
-      alt=""
-      className="absolute max-w-none"
-      style={{ left: f.x - ref.x, top: f.y - ref.y, width: f.w, height: f.h, ...extra }}
-    />
-  );
-  if (a >= FOLD_STEP) return place(FOLD[Math.min(FOLD.length - 1, Math.round(a / FOLD_STEP))]!);
-  const cover = FOLD[0]!;
-  const edge = FOLD[1]!;
-  const k = a / FOLD_STEP;
-  // The cover grows into the edge-on frame's box while it turns on its hinge (its right edge).
-  const grow = edge.h / cover.h;
-  const right = mix(cover.x + cover.w, edge.x + edge.w, k);
-  const top = mix(cover.y, edge.y, k);
-  const sc = mix(1, grow, k);
+  const { w, h } = OPEN();
+  const half = w / 2;
+  const a = (Math.min(180, Math.max(0, angle)) * Math.PI) / 180;
+  const left = half + Math.min(0, half * Math.cos(a));
+  const away = 1 - Math.abs(Math.cos(a));
+  // The panel's edge shows only while it is near edge-on.
+  const edge = DUO_THICKNESS * Math.sin(a) ** 4;
+  const open = `url(${screens.duoOpen})`;
+  const shade = <div className="absolute inset-0 bg-black" style={{ opacity: away * 0.6 }} />;
+  const face: React.CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    backfaceVisibility: "hidden",
+  };
   return (
-    <div className="absolute" style={{ left: 0, top: 0, perspective: 2400 }}>
-      {place(cover, {
-        left: right - cover.w - ref.x,
-        top: top - ref.y,
-        transformOrigin: "100% 0",
-        transform: `scale(${sc}) rotateY(${k * 82}deg)`,
-        opacity: 1 - ease(k, 0.85, 0.15),
-      })}
-      {k > 0.85 && place(edge, { opacity: ease(k, 0.85, 0.15) })}
+    <div className="absolute inset-0" style={{ transform: `translateX(${-left / 2}px)` }}>
+      <div
+        className="absolute top-0"
+        style={{
+          left: half,
+          width: half,
+          height: h,
+          background: `${open} ${-half}px 0 / ${w}px ${h}px`,
+        }}
+      />
+      <div
+        className="absolute top-0"
+        style={{
+          left: half,
+          width: half,
+          height: h,
+          transformOrigin: "0 50%",
+          transform: `rotateY(${angle}deg)`,
+          transformStyle: "preserve-3d",
+        }}
+      >
+        <div style={{ ...face, background: `url(${screens.duoClosed}) 0 0 / 100% 100%` }}>
+          {shade}
+        </div>
+        <div
+          style={{
+            ...face,
+            transform: "rotateY(180deg)",
+            background: `${open} 0 0 / ${w}px ${h}px`,
+          }}
+        >
+          {shade}
+        </div>
+      </div>
+      {edge > 0.1 && (
+        <div
+          className="absolute top-0"
+          style={{
+            left: half - edge / 2,
+            width: edge,
+            height: h,
+            borderRadius: `${DUO_THICKNESS / 2}px / 64px`,
+            background: "linear-gradient(90deg, #1b1b1d, #4a4a4f 45%, #2a2a2d)",
+          }}
+        />
+      )}
     </div>
   );
 }

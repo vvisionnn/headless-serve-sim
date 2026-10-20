@@ -19,11 +19,11 @@ otherwise. In the player, <kbd>Space</kbd> plays and pauses with sound,
 <kbd>←</kbd> <kbd>→</kbd> step a frame (hold <kbd>⇧</kbd> for a second),
 `?t=12.5` opens at a time, and `?scheme=light` plays the light cut.
 
-| Output                            | What it is                                     |
-| --------------------------------- | ---------------------------------------------- |
-| `headless-serve-sim-<scheme>.mp4` | 1920×1080, 60 fps, H.264 with the AAC score    |
+| Output                            | What it is                                       |
+| --------------------------------- | ------------------------------------------------ |
+| `headless-serve-sim-<scheme>.mp4` | 1920×1080, 60 fps, H.264 with the AAC score      |
 | `readme-<scheme>.webp`            | 960×540, 20 fps, animated; what the README shows |
-| `poster-<scheme>.png`             | 1920×1080, the closing frame                   |
+| `poster-<scheme>.png`             | 1920×1080, the closing frame                     |
 
 `bun run promo/render.ts dark` renders one cut only.
 
@@ -34,10 +34,12 @@ otherwise. In the player, <kbd>Space</kbd> plays and pauses with sound,
   accessibility boxes in the console are the real tree of the captured Settings
   screen. `scripts/capture.ts` makes its own simulators, answers first-boot
   prompts, waits for widgets to settle, and deletes the simulators afterwards.
-- **A real unfold.** The iPhone Duo opens through its own hinge: the capture
-  sweeps the hinge from 180° to 0° in 5° steps as headless-serve-sim's Stage
-  draws it (`assets/duo-fold/`, `fold.json`), and the film plays the nearest
-  frame for each angle. `capture.ts --duo-only` re-captures just that sweep.
+- **A real unfold.** The iPhone Duo opens the way the stream helper moves its
+  hinge (`DuoMotion`, a critically damped spring), seen straight on: the cover
+  panel turns on the centre hinge to edge-on, then its half of the inner
+  display widens out while the device re-centres. Every frame is computed from
+  the hinge angle, between the two real poses `capture.ts` takes (closed and
+  flat open); `capture.ts --duo-only` re-captures just those.
 - **One take.** The iPhone that slams out of the dark is the same object
   throughout: it sheds its window, docks into the Stage, records itself, joins
   the wall, takes commands, and hands the frame to the wordmark.
@@ -54,15 +56,15 @@ otherwise. In the player, <kbd>Space</kbd> plays and pauses with sound,
   120 BPM in D major: each click, keystroke, log line, toast, landing, hinge
   and shutter sounds on its frame.
 
-| Path                    | What it is                                                         |
-| ----------------------- | ------------------------------------------------------------------ |
-| `src/film/film.tsx`     | The film: rooms, appearance sweeps, camera, grain, the hero device |
-| `src/film/acts/*.tsx`   | The acts, from the cold open to the wordmark                       |
-| `src/film/cues.ts`      | Every cue, and the commands typed on screen                        |
-| `src/film/layout.ts`    | Where the hero device is at any time, and the wall's layout        |
-| `src/film/scheme.ts`    | The cut's colour scheme                                            |
-| `src/score/score.ts`    | The score and its sound effects                                    |
-| `assets/`               | The captured screens, Duo fold, AX tree and device artwork         |
-| `scripts/capture.ts`    | Re-captures `assets/` from simulators                              |
-| `build.ts`              | Builds `dist/promo.html` and serves it                             |
-| `render.ts`             | Captures every frame, then encodes the outputs with ffmpeg         |
+| Path                  | What it is                                                         |
+| --------------------- | ------------------------------------------------------------------ |
+| `src/film/film.tsx`   | The film: rooms, appearance sweeps, camera, grain, the hero device |
+| `src/film/acts/*.tsx` | The acts, from the cold open to the wordmark                       |
+| `src/film/cues.ts`    | Every cue, and the commands typed on screen                        |
+| `src/film/layout.ts`  | Where the hero device is at any time, and the wall's layout        |
+| `src/film/scheme.ts`  | The cut's colour scheme                                            |
+| `src/score/score.ts`  | The score and its sound effects                                    |
+| `assets/`             | The captured screens, AX tree and device artwork                   |
+| `scripts/capture.ts`  | Re-captures `assets/` from simulators                              |
+| `build.ts`            | Builds `dist/promo.html` and serves it                             |
+| `render.ts`           | Captures every frame, then encodes the outputs with ffmpeg         |

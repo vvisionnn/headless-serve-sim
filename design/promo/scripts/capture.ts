@@ -3,13 +3,13 @@
  * Captures the real pixels the promo film shows: fresh simulators on Apple's
  * default wallpaper, the 9:41 status bar, the Lock Screen, Settings and its
  * accessibility tree, the iPad, iPhone Air and Apple Watch, and the iPhone Duo
- * in its poses as headless-serve-sim itself renders it. Also exports Simulator's
+ * closed and open as headless-serve-sim itself renders it. Also exports Simulator's
  * own device artwork for them. Everything lands in promo/assets/, which the
  * film reads, so rendering never needs a Mac — only re-capturing does.
  *
  *   mise run promo:capture            # macOS, Xcode, iOS and watchOS simulator runtimes
  *   bun run promo/scripts/capture.ts --keep       # leave the simulators booted afterwards
- *   bun run promo/scripts/capture.ts --duo-only   # only re-capture the iPhone Duo's fold
+ *   bun run promo/scripts/capture.ts --duo-only   # only re-capture the iPhone Duo
  *
  * It creates its own "hss-promo …" simulators and deletes them when done; it
  * never touches existing ones. Needs a built CLI (`bun run --cwd
@@ -27,9 +27,8 @@ const out = join(root, "assets");
 const tmp = join(root, ".capture");
 const HSS = join(repo, "packages/headless-serve-sim/dist/headless-serve-sim");
 const keep = process.argv.includes("--keep");
-/** Only the iPhone Duo's fold, for iterating on it. */
+/** Only the iPhone Duo, for iterating on it. */
 const duoOnly = process.argv.includes("--duo-only");
-const FOLD_STEP = 5;
 
 const TYPES = {
   phone: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
@@ -270,8 +269,8 @@ try {
     if (sims[key]) simctl("ui", sims[key], "appearance", "dark");
   if (!duoOnly) await stills();
 
-  // iPhone Duo: its fold as the Stage's own 3D renderer draws it. The hinge
-  // moves physically, so each angle gets time to settle.
+  // iPhone Duo: closed and open, as the Stage's own 3D renderer draws it. The
+  // hinge moves physically, so each pose gets time to settle.
   server = spawn(HSS, [sims.duo], { stdio: ["ignore", "pipe", "inherit"] });
   const local = await new Promise<string>((resolve) =>
     server!.stdout!.on("data", (d: Buffer) => {
@@ -284,34 +283,27 @@ try {
     viewport: { width: 1440, height: 900 },
     deviceScaleFactor: 2,
   });
-  // The Stage crops the Duo's canvas to the device at every angle. Note where
-  // each crop sits in the stream, so the film can hold the hinge still.
+  // The Stage crops the Duo's canvas to the device; it is ready once it has.
   await page.addInitScript(() => {
     const draw = CanvasRenderingContext2D.prototype.drawImage;
     CanvasRenderingContext2D.prototype.drawImage = function (
       this: CanvasRenderingContext2D,
       ...a: unknown[]
     ) {
-      if (a.length === 9)
-        (this.canvas as HTMLCanvasElement & { crop?: number[] }).crop = [
-          a[1],
-          a[2],
-          a[3],
-          a[4],
-        ] as number[];
+      if (a.length === 9) (this.canvas as HTMLCanvasElement & { drawn?: boolean }).drawn = true;
       return (draw as (...x: unknown[]) => void).apply(this, a);
     } as typeof draw;
   });
   await page.goto(local);
   const grab = async () => {
     for (let i = 0; i < 80; i++) {
-      const got = await page.evaluate(() => {
+      const url = await page.evaluate(() => {
         const c = [...document.querySelectorAll("canvas")].find((c) => c.width > 200) as
-          | (HTMLCanvasElement & { crop?: number[] })
+          | (HTMLCanvasElement & { drawn?: boolean })
           | undefined;
-        return c?.crop ? { url: c.toDataURL("image/png"), crop: c.crop } : null;
+        return c?.drawn ? c.toDataURL("image/png") : null;
       });
-      if (got) return { png: Buffer.from(got.url.split(",")[1]!, "base64"), crop: got.crop };
+      if (url) return Buffer.from(url.split(",")[1]!, "base64");
       await wait(250);
     }
     throw new Error("the Duo never drew");
@@ -320,31 +312,16 @@ try {
   const settled = async () => {
     let last = 0n;
     for (let still = 0, i = 0; i < 60; i++) {
-      const shot = await grab();
-      const hash = BigInt(Bun.hash(shot.png));
+      const png = await grab();
+      const hash = BigInt(Bun.hash(png));
       still = hash === last ? still + 1 : 0;
-      if (still >= 2) return shot;
+      if (still >= 2) return png;
       last = hash;
       await wait(2000);
     }
     throw new Error("the Duo never settled");
   };
-  await grab();
-  await clearAlerts(sims.duo);
-  // The inner display draws its widgets only once it is open, so open it first.
-  hss("motion", "angle", "180", "-d", sims.duo);
-  await settled();
-  // The fold, every few degrees, as the real hinge renders it. It is swept from
-  // open to closed so the inner display's widgets stay drawn; the film plays it
-  // backwards to open the Duo.
-  const fold = join(out, "duo-fold");
-  rmSync(fold, { recursive: true, force: true });
-  mkdirSync(fold);
-  const angles: { angle: number; crop: number[] }[] = [];
-  for (let angle = 180; angle >= 0; angle -= FOLD_STEP) {
-    hss("motion", "angle", String(angle), "-d", sims.duo);
-    const { png, crop } = await settled();
-    const name = String(angle).padStart(3, "0");
+  const save = (name: string, png: Buffer) => {
     writeFileSync(join(tmp, `${name}.png`), png);
     run("cwebp", [
       "-quiet",
@@ -354,14 +331,18 @@ try {
       "100",
       join(tmp, `${name}.png`),
       "-o",
-      join(fold, `${name}.webp`),
+      join(out, `${name}.webp`),
     ]);
-    angles.unshift({ angle, crop });
-  }
-  writeFileSync(
-    join(fold, "fold.json"),
-    `${JSON.stringify({ step: FOLD_STEP, frames: angles })}\n`,
-  );
+  };
+  await grab();
+  await clearAlerts(sims.duo);
+  // Flat open, then closed on its cover display: the film turns the hinge
+  // between the two. The inner display draws its widgets only once it is
+  // open, so it opens first.
+  hss("motion", "angle", "180", "-d", sims.duo);
+  save("duo-open", await settled());
+  hss("motion", "angle", "0", "-d", sims.duo);
+  save("duo-closed", await settled());
   await browser.close();
 } finally {
   server?.kill();

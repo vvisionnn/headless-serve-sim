@@ -1,11 +1,10 @@
 /**
  * Real pixels, captured from simulators by scripts/capture.ts: Apple's
- * default wallpaper, the 9:41 status bar, and the iPhone Duo's fold as the
- * Stage's own renderer draws it, every five degrees. Each screen's light is sampled from the image itself,
- * the way the shipped Stage samples the stream.
+ * default wallpaper, the 9:41 status bar, and the iPhone Duo closed and open
+ * as the Stage's own renderer draws it. Each screen's light is sampled from
+ * the image itself, the way the shipped Stage samples the stream.
  */
 import ax from "../../assets/phone-settings-ax.json";
-import fold from "../../assets/duo-fold/fold.json";
 
 const at = (file: string) => new URL(`../assets/${file}`, location.href).href;
 
@@ -17,6 +16,9 @@ export const screens = {
   air: at("air-home-dark.jpg"),
   ipad: at("ipad-home-light.jpg"),
   watch: at("watch-apps.jpg"),
+  /** The iPhone Duo's cover display, face-on, and its inner display flat open. */
+  duoClosed: at("duo-closed.webp"),
+  duoOpen: at("duo-open.webp"),
 };
 export type Screen = keyof typeof screens;
 
@@ -26,24 +28,6 @@ const sizes = new Map<Screen, { w: number; h: number }>();
 /** Four colours a screen lights the room with (top-left, top-right, bottom-right, bottom-left). */
 export const glowOf = (s: Screen) => glows.get(s) ?? ["#888", "#888", "#888", "#888"];
 export const sizeOf = (s: Screen) => sizes.get(s) ?? { w: 1, h: 1 };
-
-/**
- * The iPhone Duo's hinge, from closed (0°) to flat open (180°): each frame is
- * where the Stage drew the device in its stream, so laying them out at their
- * crops keeps the hinge where the renderer put it.
- */
-export const FOLD = fold.frames.map((f) => ({
-  angle: f.angle,
-  src: at(`duo-fold/${String(f.angle).padStart(3, "0")}.webp`),
-  x: f.crop[0]!,
-  y: f.crop[1]!,
-  w: f.crop[2]!,
-  h: f.crop[3]!,
-}));
-export const FOLD_STEP = fold.step;
-let foldGlow = ["#888", "#888", "#888", "#888"];
-/** The light of the Duo's open inner display. */
-export const duoGlow = () => foldGlow;
 
 function sample(img: HTMLImageElement) {
   const c = document.createElement("canvas");
@@ -57,21 +41,15 @@ function sample(img: HTMLImageElement) {
 
 /** Decode every image and sample its light before the first frame paints. */
 export async function loadScreens() {
-  await Promise.all([
-    ...(Object.keys(screens) as Screen[]).map(async (key) => {
+  await Promise.all(
+    (Object.keys(screens) as Screen[]).map(async (key) => {
       const img = new Image();
       img.src = screens[key];
       await img.decode();
       sizes.set(key, { w: img.naturalWidth, h: img.naturalHeight });
       glows.set(key, sample(img));
     }),
-    ...FOLD.map(async (f) => {
-      const img = new Image();
-      img.src = f.src;
-      await img.decode();
-      if (f.angle === 180) foldGlow = sample(img);
-    }),
-  ]);
+  );
 }
 
 interface AxNode {

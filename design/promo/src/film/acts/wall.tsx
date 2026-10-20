@@ -1,6 +1,6 @@
 import { StatusDot } from "../../../../src/ui/badge";
 import { clamp, curve, ease, FPS, mix, spring } from "../../lib/time";
-import { duoGlow, glowOf, type Screen } from "../assets";
+import { glowOf, type Screen } from "../assets";
 import { commands, cue, keyTimes, land } from "../cues";
 import { Device, type Pose } from "../device";
 import { duoAngle, FLOOR, wall, WALL_BOUNCE, WALL_DUR } from "../layout";
@@ -52,14 +52,17 @@ export function Wall({ t }: { t: number }) {
         const pose = thrown(t, d, i);
         const label =
           clamp(spring(t, d.at + 0.35, 0.6)) * (1 - ease(t, cue.wallOut - 0.15, 0.25, curve.in));
-        const colors = d.id === "duo" ? duoGlow() : glowOf(SCREEN[d.id] ?? "homeDark");
+        const colors = glowOf(d.id === "duo" ? "duoClosed" : (SCREEN[d.id] ?? "homeDark"));
         return (
           <div key={d.id}>
             {d.id === "duo" ? (
               <Device
                 body={{ duo: angle }}
                 pose={pose}
-                glow={[{ colors, o: 0.35 + 0.55 * (angle / 180) }]}
+                glow={[
+                  { colors, o: 0.6 * (1 - angle / 180) },
+                  { colors: glowOf("duoOpen"), o: 0.9 * (angle / 180) },
+                ]}
               />
             ) : (
               d.id !== "hero" && (

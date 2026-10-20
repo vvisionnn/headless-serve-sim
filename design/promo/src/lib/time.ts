@@ -49,8 +49,6 @@ export const curve = {
   quint: bezier(0.22, 1, 0.36, 1),
   inOut: bezier(0.65, 0, 0.35, 1),
   in: bezier(0.4, 0, 1, 1),
-  /** A hinge under a thumb: it gives slowly, swings, and settles flat. */
-  hinge: bezier(0.5, 0, 0.15, 1),
 };
 
 /** Eased progress over a fixed window. */

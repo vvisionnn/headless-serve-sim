@@ -117,8 +117,14 @@ export function hero(t: number): Pose {
   };
 }
 
-export const HINGE_DUR = 1.35;
-/** The Duo's hinge: closed until its command lands, then opened to flat. */
+/**
+ * The Duo's hinge: closed until its command lands, then opened to flat the way
+ * the stream helper moves it (DuoMotion, a critically damped spring at ω = 8).
+ */
+const HINGE_OMEGA = 8;
+/** When the hinge is within 5% of flat. */
+export const HINGE_DUR = 4.74 / HINGE_OMEGA;
 export function duoAngle(t: number) {
-  return 180 * ease(t, land(commands.hinge), HINGE_DUR, curve.hinge);
+  const x = Math.max(0, t - land(commands.hinge)) * HINGE_OMEGA;
+  return 180 * (1 - (1 + x) * Math.exp(-x));
 }
