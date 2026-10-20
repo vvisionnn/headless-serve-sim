@@ -67,6 +67,9 @@ final class AccessibilityBridge: NSObject {
     private var tokenToDevice: [String: NSObject] = [:]
     private var translator: NSObject?
     private var loaded = false
+    /// Where each window/widget context last sat on screen (interface points).
+    private var contextOffsets: [UInt32: CGPoint] = [:]
+    private var springBoardPids: [Int32: Bool] = [:]
 
     private override init() { super.init() }
 
@@ -143,16 +146,6 @@ final class AccessibilityBridge: NSObject {
         }
         translation.setValue(token, forKey: "bridgeDelegateToken")
 
-        // SpringBoard reports every frame (its own included) in the fixed
-        // portrait screen however the interface is turned, so walk it there
-        // and turn the finished tree.
-        var fixedScreen: CGSize?
-        if let displayPixels, Self.identity(of: translation).bundleId == "com.apple.springboard",
-           let deviceType = device.value(forKey: "deviceType") as? NSObject,
-           let scale = (deviceType.value(forKey: "mainScreenScale") as? NSNumber)?.doubleValue, scale > 0 {
-            fixedScreen = CGSize(width: displayPixels.width / scale, height: displayPixels.height / scale)
-        }
-
         // Convert the translation object to a real AXPMacPlatformElement —
         // an NSAccessibilityElement subclass whose accessibility properties
         // lazily fault in via more delegate callbacks.
@@ -169,6 +162,38 @@ final class AccessibilityBridge: NSObject {
             rootTranslation.setValue(token, forKey: "bridgeDelegateToken")
         }
 
+        // Frames come in two spaces: SpringBoard's fixed portrait screen and
+        // each other process's own context. Publish them all on the interface
+        // screen; hit-testing (and so coverage) works on the fixed screen.
+        let rootFrame = (rootElement as? NSAccessibilityElement)?.accessibilityFrame() ?? .zero
+        let landscape = interfaceOrientation?.hasPrefix("landscape") == true
+        let scale = (device.value(forKey: "deviceType") as? NSObject)
+            .flatMap { ($0.value(forKey: "mainScreenScale") as? NSNumber)?.doubleValue }.flatMap { $0 > 0 ? CGFloat($0) : nil }
+        let fixedScreen: CGSize
+        if let displayPixels, let scale {
+            fixedScreen = CGSize(width: displayPixels.width / scale, height: displayPixels.height / scale)
+        } else {
+            let app = AXInterfaceFrame.normalize(rootFrame, interfaceOrientation: interfaceOrientation, screen: nil)
+            fixedScreen = landscape ? CGSize(width: app.height, height: app.width) : app.size
+        }
+        let interfaceScreen = landscape ? CGSize(width: fixedScreen.height, height: fixedScreen.width) : fixedScreen
+        let appFrame = AXInterfaceFrame.normalize(rootFrame, interfaceOrientation: interfaceOrientation, screen: interfaceScreen)
+        let placement = AXPlacement(
+            fixedScreen: fixedScreen, interfaceOrientation: interfaceOrientation, scale: scale ?? 2,
+            hitTest: { [unowned self] in self.hitTest($0, displayID: displayID, token: token) },
+            isSpringBoard: { [unowned self] in self.isSpringBoard(pid: $0) },
+            cachedOffset: { [unowned self] context in
+                self.lock.lock(); defer { self.lock.unlock() }
+                return self.contextOffsets[context]
+            },
+            storeOffset: { [unowned self] context, offset in
+                self.lock.lock(); defer { self.lock.unlock() }
+                if self.contextOffsets.count > 64 { self.contextOffsets.removeAll() }
+                self.contextOffsets[context] = offset
+            })
+        let rootPid = AXPlacement.pid(of: rootElement)
+        let (rootSpace, window) = placement.rootSpace(element: rootElement, pid: rootPid, appFrame: appFrame)
+
         // 1. Recursive walk from the application element, collecting the
         //    frames we've covered. This catches everything iOS exposes via
         //    standard accessibility-children traversal.
@@ -182,47 +207,41 @@ final class AccessibilityBridge: NSObject {
             visited: &visited,
             remainingElements: &remainingElements,
             deadline: &deadline,
-            depth: 0
+            depth: 0,
+            placement: placement,
+            space: rootSpace,
+            parentPid: rootPid,
+            parentFrame: nil
         ) else {
             throw AccessibilityError.noFrontmostApplication
         }
-        let screenFrame: NSRect
-        if let fixedScreen {
-            screenFrame = NSRect(origin: .zero, size: fixedScreen)
-            root["frame"] = ["x": screenFrame.origin.x, "y": screenFrame.origin.y,
-                             "width": screenFrame.size.width, "height": screenFrame.size.height]
-        } else if let app = rootElement as? NSAccessibilityElement {
-            screenFrame = AXInterfaceFrame.normalize(app.accessibilityFrame(), interfaceOrientation: interfaceOrientation)
-            root["frame"] = ["x": screenFrame.origin.x, "y": screenFrame.origin.y,
-                             "width": screenFrame.size.width, "height": screenFrame.size.height]
-        } else {
-            screenFrame = .zero
-        }
+        // The root stands for the whole screen; a windowed app's own window
+        // shows up as its full-window group.
+        let screenFrame = NSRect(origin: .zero, size: placement.interfaceScreen)
+        root["frame"] = ["x": screenFrame.origin.x, "y": screenFrame.origin.y,
+                         "width": screenFrame.size.width, "height": screenFrame.size.height]
 
         // 2. Grid hit-test discovery: many iOS containers (UIScrollView,
         //    UICollectionView, custom group elements) hide their AX
         //    children from the recursive walk. We sample points across the
-        //    screen and ask the translator what's under each — anything
-        //    that's still a real accessibility element shows up here. Same
-        //    technique as idb's processRemoteContent path.
-        if gridPass, screenFrame.width > 1, screenFrame.height > 1 {
+        //    screen (or just the app's window) and ask the translator what's
+        //    under each — anything that's still a real accessibility element
+        //    shows up here. Same technique as idb's processRemoteContent path.
+        let gridBounds = window ?? screenFrame
+        if gridPass, gridBounds.width > 1, gridBounds.height > 1 {
             var children = (root["children"] as? [[String: Any]]) ?? []
             let discovered = discoverByGrid(
-                token: token,
-                displayID: displayID,
-                bounds: screenFrame,
+                placement: placement,
+                bounds: gridBounds,
                 coverage: &coverage,
                 visited: &visited,
                 remainingElements: &remainingElements,
-                deadline: &deadline
+                deadline: &deadline,
+                token: token,
+                appSpace: rootSpace
             )
             children.append(contentsOf: discovered)
             root["children"] = children
-        }
-        if let fixedScreen {
-            AXInterfaceFrame.mapFrames(in: &root) {
-                AXInterfaceFrame.fromFixed($0, screen: fixedScreen, interfaceOrientation: interfaceOrientation)
-            }
         }
         if deadline.hit { root["truncated"] = true }
 
@@ -337,36 +356,29 @@ final class AccessibilityBridge: NSObject {
     /// element at each. Dedupes by frame against `coverage` and skips
     /// points whose enclosing rect we've already cataloged — that lets
     /// the cost scale with the number of *unique* elements rather than
-    /// the grid size. Caller owns the token.
+    /// the grid size. Caller owns the token. `bounds` is in interface
+    /// points; probes and coverage are on the fixed screen. Hits that can't
+    /// be placed on their own share the frontmost app's `appSpace`.
     private func discoverByGrid(
-        token: String,
-        displayID: UInt32,
+        placement: AXPlacement,
         bounds: CGRect,
         coverage: inout AccessibilityCoverage,
         visited: inout Set<ObjectIdentifier>,
         remainingElements: inout Int,
-        deadline: inout AXDeadline
+        deadline: inout AXDeadline,
+        token: String,
+        appSpace: AXPlacement.Space
     ) -> [[String: Any]] {
-        guard let translator = translator else { return [] }
-
-        let pointSel = NSSelectorFromString("objectAtPoint:displayId:bridgeDelegateToken:")
-        typealias PointFunc = @convention(c) (AnyObject, Selector, CGPoint, UInt32, NSString) -> AnyObject?
-        guard let pointIMP = translator.method(for: pointSel) else { return [] }
-        let objectAtPoint = unsafeBitCast(pointIMP, to: PointFunc.self)
-
-        let macSel = NSSelectorFromString("macPlatformElementFromTranslation:")
-        typealias MacFunc = @convention(c) (AnyObject, Selector, AnyObject) -> AnyObject?
-        guard let macIMP = translator.method(for: macSel) else { return [] }
-        let toMacElement = unsafeBitCast(macIMP, to: MacFunc.self)
-
-        let step: CGFloat = 32
+        let fixedBounds = placement.fixed(bounds)
         var pointBudget = 600  // safety cap for misbehaving sims
+        // 32pt apart, wider where that many points couldn't cover the bounds.
+        let step = max(32, (fixedBounds.width * fixedBounds.height / CGFloat(pointBudget)).squareRoot().rounded(.up))
         var discovered: [[String: Any]] = []
 
-        var y = bounds.minY + step / 2
-        while y < bounds.maxY, pointBudget > 0, remainingElements > 0, !deadline.passed() {
-            var x = bounds.minX + step / 2
-            while x < bounds.maxX, pointBudget > 0, remainingElements > 0, !deadline.passed() {
+        var y = fixedBounds.minY + step / 2
+        while y < fixedBounds.maxY, pointBudget > 0, remainingElements > 0, !deadline.passed() {
+            var x = fixedBounds.minX + step / 2
+            while x < fixedBounds.maxX, pointBudget > 0, remainingElements > 0, !deadline.passed() {
                 let point = CGPoint(x: x, y: y)
                 x += step
 
@@ -377,27 +389,27 @@ final class AccessibilityBridge: NSObject {
                 if coverage.contains(point) { continue }
                 pointBudget -= 1
 
-                guard let translation = objectAtPoint(translator, pointSel, point, displayID, token as NSString) as? NSObject else {
+                let shownPoint = placement.interface(point)
+                guard let element = placement.element(at: shownPoint) else { continue }
+                // Hits on an element we walked (often the screen-wide
+                // background) need nothing more.
+                if visited.contains(ObjectIdentifier(element)) { continue }
+                if let key = AXPlacement.key(of: element), placement.walked.contains(key) { continue }
+                guard let pid = AXPlacement.pid(of: element) else { continue }
+                let raw = (element as? NSAccessibilityElement)?.accessibilityFrame() ?? .zero
+                let space = placement.space(pid: pid, element: element, raw: raw,
+                                            seed: shownPoint, guess: nil) ?? appSpace
+                let frame = placement.fixed(placement.interface(raw, in: space))
+                if coverage.contains(frame) {
+                    if let key = AXPlacement.key(of: element) { placement.walked.insert(key) }
                     continue
                 }
-                translation.setValue(token, forKey: "bridgeDelegateToken")
-                guard let element = toMacElement(translator, macSel, translation) as? NSObject else {
-                    continue
-                }
-                if let t = element.value(forKey: "translation") as? NSObject {
-                    t.setValue(token, forKey: "bridgeDelegateToken")
-                }
-
-                // Read the frame once; serialize() will read it again for
-                // the dict, but the AXP element caches lazily so the cost
-                // collapses.
-                let frame: NSRect = (element as? NSAccessibilityElement)?.accessibilityFrame() ?? .zero
-                if coverage.contains(frame) { continue }
                 // The Application/window itself is too coarse to be
                 // useful — skip when the hit returns the screen.
-                if abs(frame.width - bounds.width) < 1,
-                   abs(frame.height - bounds.height) < 1 {
+                if abs(frame.width - fixedBounds.width) < 1,
+                   abs(frame.height - fixedBounds.height) < 1 {
                     coverage.insertContainer(frame)
+                    if let key = AXPlacement.key(of: element) { placement.walked.insert(key) }
                     continue
                 }
                 if let serialized = serialize(
@@ -407,7 +419,11 @@ final class AccessibilityBridge: NSObject {
                     visited: &visited,
                     remainingElements: &remainingElements,
                     deadline: &deadline,
-                    depth: 0
+                    depth: 0,
+                    placement: placement,
+                    space: space,
+                    parentPid: pid,
+                    parentFrame: nil
                 ) {
                     discovered.append(serialized)
                 }
@@ -415,6 +431,36 @@ final class AccessibilityBridge: NSObject {
             y += step
         }
         return discovered
+    }
+
+    /// The element under a fixed-screen point, stamped with the token.
+    private func hitTest(_ point: CGPoint, displayID: UInt32, token: String) -> NSObject? {
+        guard let translator else { return nil }
+        let pointSel = NSSelectorFromString("objectAtPoint:displayId:bridgeDelegateToken:")
+        typealias PointFunc = @convention(c) (AnyObject, Selector, CGPoint, UInt32, NSString) -> AnyObject?
+        let macSel = NSSelectorFromString("macPlatformElementFromTranslation:")
+        typealias MacFunc = @convention(c) (AnyObject, Selector, AnyObject) -> AnyObject?
+        guard let pointIMP = translator.method(for: pointSel), let macIMP = translator.method(for: macSel) else { return nil }
+        let objectAtPoint = unsafeBitCast(pointIMP, to: PointFunc.self)
+        let toMacElement = unsafeBitCast(macIMP, to: MacFunc.self)
+        guard let translation = objectAtPoint(translator, pointSel, point, displayID, token as NSString) as? NSObject else {
+            return nil
+        }
+        translation.setValue(token, forKey: "bridgeDelegateToken")
+        guard let element = toMacElement(translator, macSel, translation) as? NSObject else { return nil }
+        if let t = element.value(forKey: "translation") as? NSObject {
+            t.setValue(token, forKey: "bridgeDelegateToken")
+        }
+        return element
+    }
+
+    private func isSpringBoard(pid: Int32) -> Bool {
+        lock.lock()
+        if let known = springBoardPids[pid] { lock.unlock(); return known }
+        lock.unlock()
+        let known = Self.bundleIdForPid(pid) == "com.apple.springboard"
+        lock.lock(); springBoardPids[pid] = known; lock.unlock()
+        return known
     }
 
     // MARK: - Token registry
@@ -446,7 +492,11 @@ final class AccessibilityBridge: NSObject {
         visited: inout Set<ObjectIdentifier>,
         remainingElements: inout Int,
         deadline: inout AXDeadline,
-        depth: Int
+        depth: Int,
+        placement: AXPlacement,
+        space parentSpace: AXPlacement.Space,
+        parentPid: Int32?,
+        parentFrame: NSRect?
     ) -> [String: Any]? {
         guard remainingElements > 0, depth <= Self.maxSerializationDepth, !deadline.passed() else {
             return nil
@@ -476,11 +526,20 @@ final class AccessibilityBridge: NSObject {
                 frame = value.rectValue
             }
         }
+        // Content from another process (a remote view, a widget body) sits
+        // in its own space.
+        let pid = AXPlacement.pid(of: element) ?? parentPid
+        var space = parentSpace
+        if pid != parentPid, let pid {
+            space = placement.space(pid: pid, element: element, raw: frame, seed: nil,
+                                    guess: parentFrame?.origin) ?? parentSpace
+        }
+        let shown = placement.interface(frame, in: space)
         dict["frame"] = [
-            "x": frame.origin.x,
-            "y": frame.origin.y,
-            "width": frame.size.width,
-            "height": frame.size.height,
+            "x": shown.origin.x,
+            "y": shown.origin.y,
+            "width": shown.size.width,
+            "height": shown.size.height,
         ]
 
         // Role → "type" with the AX prefix stripped, matching SimulatorBridge.
@@ -519,7 +578,11 @@ final class AccessibilityBridge: NSObject {
                     visited: &visited,
                     remainingElements: &remainingElements,
                     deadline: &deadline,
-                    depth: depth + 1
+                    depth: depth + 1,
+                    placement: placement,
+                    space: space,
+                    parentPid: pid,
+                    parentFrame: shown
                 ) {
                     childDicts.append(childDict)
                 }
@@ -531,10 +594,13 @@ final class AccessibilityBridge: NSObject {
         // physically too large to be a single tappable element) stays
         // probe-able so we can discover "remote" elements iOS hid under
         // empty-children Groups (Nav bar / Tab Bar / scroll views).
-        if !childDicts.isEmpty || isLikelyContainer(frame: frame) {
-            coverage.insertContainer(frame)
+        placement.note(shown, in: space)
+        if let key = AXPlacement.key(of: element) { placement.walked.insert(key) }
+        let covered = placement.fixed(shown)
+        if !childDicts.isEmpty || isLikelyContainer(frame: covered) {
+            coverage.insertContainer(covered)
         } else {
-            coverage.insertLeaf(frame)
+            coverage.insertLeaf(covered)
         }
         dict["children"] = childDicts
 
