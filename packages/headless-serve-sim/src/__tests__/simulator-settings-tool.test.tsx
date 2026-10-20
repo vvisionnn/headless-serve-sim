@@ -6,6 +6,7 @@ import {
   fitsSegments,
   textSizeLabel,
 } from "../client/components/simulator-settings-tool";
+import { storeSimulatorSettings } from "../client/utils/simulator-settings-cache";
 
 describe("textSizeLabel", () => {
   test("names every slider stop", () => {
@@ -66,5 +67,13 @@ describe("SimulatorSettingsTool", () => {
       expect(html).toContain(
         `role="switch" aria-checked="false" aria-label="${label}" disabled=""`,
       );
+  });
+
+  test("a simulator read before renders its last values, enabled, at once", () => {
+    storeSimulatorSettings("CACHED", { appearance: "dark", voiceover: "on" }, 0);
+    const html = renderToStaticMarkup(<SimulatorSettingsTool udid="CACHED" />);
+    expect(html).toContain('role="switch" aria-checked="true" aria-label="VoiceOver"');
+    expect(html).not.toContain('aria-label="VoiceOver" disabled=""');
+    expect(html).not.toContain('disabled=""');
   });
 });

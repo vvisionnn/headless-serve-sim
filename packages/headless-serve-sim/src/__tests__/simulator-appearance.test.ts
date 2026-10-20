@@ -28,6 +28,19 @@ describe("toggleSimulatorAppearance", () => {
     expect(changed).toBe(1);
   });
 
+  test("a known current appearance takes one exec, with no read first", async () => {
+    const commands: string[] = [];
+    const exec = async (command: string) => {
+      commands.push(command);
+      return result();
+    };
+
+    await expect(toggleSimulatorAppearance("DEVICE", exec, () => {}, "light")).resolves.toBe(
+      "dark",
+    );
+    expect(commands).toEqual(["xcrun simctl ui DEVICE appearance dark"]);
+  });
+
   test("does not notify settings consumers when the mutation fails", async () => {
     let changed = 0;
     const exec = async (command: string) =>

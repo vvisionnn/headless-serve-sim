@@ -274,6 +274,89 @@ test.each(["ready", "cancel", "device", "stream", "unmount", "source", "failure"
   },
 );
 
+test("the native recorder is warmed while idle, so the first start doesn't wait on it", async () => {
+  const key = "__warmRecorderFixture";
+  let requested = 0;
+  let started = 0;
+  Object.assign(globalThis, {
+    [key]: { requested: () => requested++, started: () => started++ },
+  });
+  const code = `const fixture=globalThis[${JSON.stringify(key)}]; fixture.requested(); export class NativeStreamRecorder { start(){fixture.started()} cancel(){} async stop(){} } //`;
+  const globals = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      __SIM_PREVIEW__: { basePath: `data:text/javascript,${encodeURIComponent(code)}` },
+      addEventListener() {},
+      removeEventListener() {},
+    },
+  });
+  const idle = Object.getOwnPropertyDescriptor(globalThis, "requestIdleCallback");
+  Object.defineProperty(globalThis, "requestIdleCallback", {
+    configurable: true,
+    value: (callback: () => void) => {
+      callback();
+      return 1;
+    },
+  });
+  const refs: { current: unknown }[] = [];
+  const states: unknown[] = [];
+  let refIndex = 0;
+  let stateIndex = 0;
+  let effects: React.EffectCallback[] = [];
+  const spies = [
+    spyOn(React, "useEffect").mockImplementation((effect) => {
+      effects.push(effect);
+    }),
+    spyOn(React, "useRef").mockImplementation((initial) => {
+      const index = refIndex++;
+      return refs[index] ?? (refs[index] = { current: initial });
+    }),
+    spyOn(React, "useState").mockImplementation((initial?: any) => {
+      const index = stateIndex++;
+      if (!(index in states)) states[index] = initial;
+      return [
+        states[index],
+        (value: any) => {
+          states[index] = typeof value === "function" ? value(states[index]) : value;
+        },
+      ] as any;
+    }),
+    spyOn(React, "useCallback").mockImplementation((callback) => callback),
+  ];
+  const options = {
+    sourceRef: { current: { snapshot: () => null, subscribeEncoded: () => () => {} } },
+    deviceFrameSpec: null,
+    deviceKey: "DUO",
+    streaming: true,
+    touchMarkersAvailable: false,
+  };
+  const render = () => {
+    refIndex = stateIndex = 0;
+    effects = [];
+    return useScreenRecording(options as ScreenRecordingOptions);
+  };
+  try {
+    render();
+    // Effects in registration order: … 3 stream end, 4 recorder warm-up.
+    effects[4]!();
+    for (let i = 0; i < 100 && requested === 0; i++) await Bun.sleep(1);
+    expect(requested).toBe(1);
+    expect(started).toBe(0);
+    render().start();
+    for (let i = 0; i < 100 && started === 0; i++) await Bun.sleep(1);
+    expect(started).toBe(1);
+    expect(requested).toBe(1);
+  } finally {
+    spies.forEach((spy) => spy.mockRestore());
+    Reflect.deleteProperty(globalThis, key);
+    if (globals) Object.defineProperty(globalThis, "window", globals);
+    else Reflect.deleteProperty(globalThis, "window");
+    if (idle) Object.defineProperty(globalThis, "requestIdleCallback", idle);
+    else Reflect.deleteProperty(globalThis, "requestIdleCallback");
+  }
+});
+
 /** The hook is owned by client.tsx; for markup tests, own it here. */
 function Recorder({
   stream,

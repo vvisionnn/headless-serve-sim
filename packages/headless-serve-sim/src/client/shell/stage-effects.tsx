@@ -2,6 +2,12 @@ import { animate, AnimatePresence, motion, useMotionTemplate, useMotionValue } f
 import { ImageDown } from "lucide-react";
 import { useEffect, useState, type RefObject } from "react";
 import { spring } from "../lib/motion";
+import {
+  luminanceGrid,
+  revealShouldStart,
+  SCREEN_SAMPLE_SIZE,
+  screenChanged,
+} from "../utils/screen-change";
 import { unturnedSize, type StagePose } from "../utils/stage-pose";
 
 const NEUTRAL_GLOW = ["#8a8a8e", "#a1a1a6", "#7c7c80", "#98989d"];
@@ -261,17 +267,48 @@ export function ScreenGlow({
   );
 }
 
+/** Reads the stream into a small luminance grid, or null if it can't be read. */
+function screenSampler(source: CanvasImageSource | null): () => Float32Array | null {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = SCREEN_SAMPLE_SIZE;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  return () => {
+    if (!source || !ctx) return null;
+    try {
+      ctx.drawImage(source, 0, 0, SCREEN_SAMPLE_SIZE, SCREEN_SAMPLE_SIZE);
+      return luminanceGrid(ctx.getImageData(0, 0, SCREEN_SAMPLE_SIZE, SCREEN_SAMPLE_SIZE).data);
+    } catch {
+      return null;
+    }
+  };
+}
+
 /**
  * Appearance change: the old frame stays on top and a circle opens in it from
  * the bottom edge — where the appearance control sits — revealing the new
- * appearance underneath. Waits a beat first so the simulator has repainted.
+ * appearance underneath. It opens on the first stream frame that shows the
+ * repaint (sampled every frame), so the circle starts from closed rather than
+ * half-open, with a fallback if the change is never seen.
  */
-export function AppearanceReveal({ url, onDone }: { url: string; onDone: () => void }) {
+export function AppearanceReveal({
+  url,
+  source,
+  onDone,
+}: {
+  url: string;
+  /** The live stream surface, watched for the repaint. */
+  source: CanvasImageSource | null;
+  onDone: () => void;
+}) {
   const radius = useMotionValue(0);
   const mask = useMotionTemplate`radial-gradient(circle at 50% 100%, transparent ${radius}px, #000 calc(${radius}px + 1px))`;
   useEffect(() => {
     let stop = () => {};
-    const t = setTimeout(() => {
+    let frame = 0;
+    const began = performance.now();
+    const sample = screenSampler(source);
+    const base = sample();
+    const open = () => {
       const el = document.querySelector("[data-appearance-reveal]");
       const r = el?.getBoundingClientRect();
       const end = r ? Math.hypot(r.width / 2, r.height) : 2000;
@@ -281,12 +318,19 @@ export function AppearanceReveal({ url, onDone }: { url: string; onDone: () => v
         onComplete: onDone,
       });
       stop = () => anim.stop();
-    }, 380);
+    };
+    const watch = () => {
+      const next = base ? sample() : null;
+      const changed = Boolean(base && next && screenChanged(base, next));
+      if (revealShouldStart({ changed, elapsedMs: performance.now() - began })) open();
+      else frame = requestAnimationFrame(watch);
+    };
+    frame = requestAnimationFrame(watch);
     return () => {
-      clearTimeout(t);
+      cancelAnimationFrame(frame);
       stop();
     };
-  }, [radius, onDone]);
+  }, [radius, source, onDone]);
   return (
     <motion.img
       data-appearance-reveal

@@ -12,6 +12,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { spring } from "../lib/motion";
 import { Shortcut } from "../ui/kbd";
+import { recordMorphed } from "../utils/record-morph";
 import { useShell } from "./shell-context";
 
 const BASE = 36;
@@ -30,6 +31,7 @@ export function DeviceDock({ intro = true }: { intro?: boolean }) {
   const off = !shell.streaming;
   return (
     <motion.div
+      data-device-dock
       onMouseMove={(e) => mouseX.set(e.clientX)}
       onMouseLeave={() => mouseX.set(Infinity)}
       className="glass flex h-[50px] items-end gap-1 rounded-[25px] px-[7px] pb-[7px]"
@@ -251,8 +253,10 @@ const TIMER_W = 34;
 
 function RecordItem({ mouseX }: { mouseX: MotionValue<number> }) {
   const { recording: rec, streaming } = useShell();
-  const recording = rec.status === "recording" || rec.status === "finishing";
-  const busy = rec.status === "preparing" || rec.status === "finishing";
+  // The capsule opens at the click, while the recorder is still starting;
+  // stop during that cancels the start.
+  const recording = recordMorphed(rec.status);
+  const busy = rec.status === "finishing";
   const ref = useRef<HTMLButtonElement>(null);
   const size = useMagnify(mouseX, ref);
   const p = useMotionValue(recording ? 1 : 0);
@@ -273,7 +277,7 @@ function RecordItem({ mouseX }: { mouseX: MotionValue<number> }) {
   const markColor = useTransform(p, [0, 1], ["#ff3b30", "#ffffff"]);
   const elapsed = useElapsed(rec.status === "recording" ? rec.startedAt : null);
   const [hover, setHover] = useState(false);
-  const disabled = !recording && (!streaming || !rec.available || busy);
+  const disabled = !recording && (!streaming || !rec.available);
   const label = recording ? "Stop recording" : "Record screen";
 
   return (

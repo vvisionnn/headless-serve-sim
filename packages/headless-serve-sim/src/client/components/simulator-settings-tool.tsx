@@ -1,5 +1,12 @@
 import { Contrast, Eye, Moon, SquareDashed, Sun, Volume2, Waves } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { ErrorNote, Hold, LiveSlider, SliderRow } from "../inspector/device-rows";
 import { Button } from "../ui/button";
 import { Row, Section } from "../ui/group";
@@ -7,6 +14,14 @@ import { Segmented } from "../ui/segmented";
 import { Select } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { hostUiRequest } from "../utils/exec";
+import {
+  cachedSimulatorSettings,
+  patchSimulatorSettings,
+  settingsRevision,
+  storeSimulatorSettings,
+  subscribeSimulatorSettings,
+  type SimulatorSettings,
+} from "../utils/simulator-settings-cache";
 
 // Simulator-wide UI options, mirroring the Xcode Devices app sidebar. Every
 // control drives `headless-serve-sim ui <option> <value>`, which handles the
@@ -28,10 +43,10 @@ export const TEXT_SIZE_CATEGORIES = [
 
 const TEXT_SIZE_DEBOUNCE_MS = 250;
 
-type SettingsState = Record<string, string>;
+type SettingsState = SimulatorSettings;
 
-// Stock values rendered (disabled) until the real state arrives, so the
-// section keeps its full height instead of swapping a "Loading…" line for
+// Stock values rendered (disabled) until a simulator's first read arrives, so
+// the section keeps its full height instead of swapping a "Loading…" line for
 // the controls.
 const DEFAULT_STATE: SettingsState = {
   appearance: "light",
@@ -219,8 +234,13 @@ export function SimulatorSettingsTool({
   execToken?: string;
   refreshKey?: unknown;
 }) {
-  const [state, setState] = useState<SettingsState | null>(null);
-  const [pending, setPending] = useState<string | null>(null);
+  // The last known values for this simulator, shared across remounts and
+  // devices, so a refresh never blanks the controls.
+  const readCache = useCallback(() => cachedSimulatorSettings(udid), [udid]);
+  const state = useSyncExternalStore(subscribeSimulatorSettings, readCache, readCache);
+  // Options with a set in flight. A repeat click on one is ignored, but the
+  // control keeps its optimistic value at full colour meanwhile.
+  const pending = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null);
 
   // Hydration can fail outright (server restarted under the tab, control
@@ -228,9 +248,10 @@ export function SimulatorSettingsTool({
   // Retry, never an eternal disabled section.
   const refresh = useCallback(async () => {
     setError(null);
+    const startedAt = settingsRevision(udid);
     try {
       const status = await hostUiRequest({ device: udid }, { signal: AbortSignal.timeout(15_000) });
-      if (status) setState(status);
+      if (status) storeSimulatorSettings(udid, status, startedAt);
       else setError("Unexpected simulator-settings reply");
     } catch (e) {
       setError(
@@ -246,17 +267,18 @@ export function SimulatorSettingsTool({
   // Re-hydrate on device change and whenever the control token rotates. A
   // server restart mints a fresh exec token, which closes the old socket; once
   // the live token propagates here we re-auth and clear any stale "socket
-  // closed" error on our own, without the user reloading the page.
+  // closed" error on our own, without the user reloading the page. Refreshes
+  // are silent: the cached values stay up until the new ones land.
   useEffect(() => {
-    setState(null);
     void refresh();
   }, [refresh, execToken, refreshKey]);
 
   const apply = useCallback(
     async (option: string, value: string) => {
-      setPending(option);
+      if (pending.current.has(option)) return;
+      pending.current.add(option);
       setError(null);
-      setState((s) => (s ? { ...s, [option]: value } : s));
+      patchSimulatorSettings(udid, { [option]: value });
       try {
         await hostUiRequest(
           { device: udid, option, value },
@@ -269,7 +291,7 @@ export function SimulatorSettingsTool({
         // successful sets and would yank the control backwards.
         void refresh();
       } finally {
-        setPending(null);
+        pending.current.delete(option);
       }
     },
     [udid, refresh],
@@ -328,21 +350,21 @@ export function SimulatorSettingsTool({
           label="Appearance"
           value={shown.appearance ?? "light"}
           options={SELECT_OPTIONS.appearance!}
-          disabled={!ready || pending === "appearance"}
+          disabled={!ready}
           onChange={(v) => apply("appearance", v)}
         />
         <SettingSelect
           label="Liquid Glass"
           value={shown["liquid-glass"] ?? "clear"}
           options={SELECT_OPTIONS["liquid-glass"]!}
-          disabled={!ready || pending === "liquid-glass"}
+          disabled={!ready}
           onChange={(v) => apply("liquid-glass", v)}
         />
         <SettingSelect
           label="Color filter"
           value={shown["color-filter"] ?? "none"}
           options={SELECT_OPTIONS["color-filter"]!}
-          disabled={!ready || pending === "color-filter"}
+          disabled={!ready}
           onChange={(v) => apply("color-filter", v)}
         />
         <TextSizeSlider value={textSizeIndex} disabled={!ready} onChange={applyTextSize} />
@@ -354,7 +376,7 @@ export function SimulatorSettingsTool({
             <Switch
               label={label}
               checked={shown[key] === "on"}
-              disabled={!ready || pending === key}
+              disabled={!ready}
               onChange={(next) => apply(key, next ? "on" : "off")}
             />
           </Row>
