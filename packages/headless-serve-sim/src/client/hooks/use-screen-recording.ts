@@ -136,6 +136,27 @@ export function recordingCaptureMeta(
   return `${durationLabel(artifact.durationSeconds)} · ${bytesLabel(artifact.bytes)} · ${container}`;
 }
 
+const nativeRecorderModules = new Map<
+  string,
+  Promise<typeof import("../native-stream-recorder")>
+>();
+
+/** The native recorder ships as its own module; load it once, ahead of the first start. */
+function loadNativeRecorder() {
+  const url = simEndpoint("native-stream-recorder.js");
+  let module = nativeRecorderModules.get(url);
+  if (!module) {
+    module = (import(url) as Promise<typeof import("../native-stream-recorder")>).catch(
+      (error: unknown) => {
+        nativeRecorderModules.delete(url);
+        throw error;
+      },
+    );
+    nativeRecorderModules.set(url, module);
+  }
+  return module;
+}
+
 function browserRecordingSupport(): Record<RecordingFormat, boolean> {
   if (
     typeof MediaRecorder === "undefined" ||
@@ -253,6 +274,19 @@ export function useScreenRecording({
     cancelCurrent("Recording cancelled because the simulator stream ended.");
   }, [cancelCurrent, phase, streaming]);
 
+  // Warm the recorder once the stream is up, so the first start doesn't stall
+  // on fetching and evaluating it.
+  useEffect(() => {
+    if (!streaming || !nativeRecording) return;
+    const warm = () => void loadNativeRecorder().catch(() => {});
+    if (typeof requestIdleCallback !== "function") {
+      const timer = setTimeout(warm, 500);
+      return () => clearTimeout(timer);
+    }
+    const handle = requestIdleCallback(warm, { timeout: 2_000 });
+    return () => cancelIdleCallback(handle);
+  }, [streaming, nativeRecording]);
+
   const start = useCallback(async () => {
     if (startingRef.current || phase !== "idle") return;
     setError(null);
@@ -288,9 +322,7 @@ export function useScreenRecording({
     };
     try {
       if (nativeRecording && format !== "webm") {
-        const module = (await import(
-          simEndpoint("native-stream-recorder.js")
-        )) as typeof import("../native-stream-recorder");
+        const module = await loadNativeRecorder();
         if (!mountedRef.current || startRevision !== startRevisionRef.current) return;
         if (sourceRef.current !== source) {
           cancelCurrent("Recording cancelled because the simulator stream changed.");
