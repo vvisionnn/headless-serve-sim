@@ -22,7 +22,14 @@ const SHARDS = (() => {
   const grid = Array.from({ length: rows + 1 }, (_, r) =>
     Array.from({ length: cols + 1 }, (_, c) => pt(c, r)),
   );
-  const out: { pts: { x: number; y: number }[]; cx: number; cy: number; spin: number[]; v: number }[] = [];
+  const out: {
+    pts: { x: number; y: number }[];
+    box: { x: number; y: number; w: number; h: number };
+    cx: number;
+    cy: number;
+    spin: number[];
+    v: number;
+  }[] = [];
   for (let r = 0; r < rows; r++)
     for (let c = 0; c < cols; c++) {
       const [a, b2, cc, d] = [grid[r]![c]!, grid[r]![c + 1]!, grid[r + 1]![c + 1]!, grid[r + 1]![c]!];
@@ -30,7 +37,12 @@ const SHARDS = (() => {
       for (const pts of tris) {
         const cx = (pts[0]!.x + pts[1]!.x + pts[2]!.x) / 3;
         const cy = (pts[0]!.y + pts[1]!.y + pts[2]!.y) / 3;
-        out.push({ pts, cx, cy, spin: [rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1], v: 0.6 + rand() * 0.8 });
+        const xs = pts.map((p) => p.x);
+        const ys = pts.map((p) => p.y);
+        const box = { x: Math.min(...xs), y: Math.min(...ys), w: 0, h: 0 };
+        box.w = Math.max(...xs) - box.x;
+        box.h = Math.max(...ys) - box.y;
+        out.push({ pts, box, cx, cy, spin: [rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1], v: 0.6 + rand() * 0.8 });
       }
     }
   return out;
@@ -102,19 +114,41 @@ export function GhostWindow({ t }: { t: number }) {
         const [rx, ry, rz] = s.spin.map((k) => k * 540 * e);
         const blur = Math.min(10, speed * 0.006 * Math.exp(-e * 2));
         return (
+          // Each shard is only as big as its triangle: a window-sized glass
+          // layer per shard costs the backdrop blur eighty whole windows.
           <div
             key={i}
-            className="glass absolute inset-0 overflow-hidden rounded-[18px]"
+            className="glass absolute overflow-hidden"
             style={{
-              clipPath: `polygon(${s.pts.map((p) => `${p.x}px ${p.y}px`).join(",")})`,
-              transformOrigin: `${s.cx}px ${s.cy}px`,
+              left: s.box.x,
+              top: s.box.y,
+              width: s.box.w,
+              height: s.box.h,
+              // Only the window's own corners are round.
+              borderTopLeftRadius: s.box.x === 0 && s.box.y === 0 ? 18 : 0,
+              borderTopRightRadius: s.box.x + s.box.w === WIN.w && s.box.y === 0 ? 18 : 0,
+              borderBottomRightRadius: s.box.x + s.box.w === WIN.w && s.box.y + s.box.h === WIN.h ? 18 : 0,
+              borderBottomLeftRadius: s.box.x === 0 && s.box.y + s.box.h === WIN.h ? 18 : 0,
+              clipPath: `polygon(${s.pts.map((p) => `${p.x - s.box.x}px ${p.y - s.box.y}px`).join(",")})`,
+              transformOrigin: `${s.cx - s.box.x}px ${s.cy - s.box.y}px`,
               transform: `translate3d(${x}px, ${y}px, ${z}px) rotateX(${rx}deg) rotateY(${ry}deg) rotateZ(${rz}deg)`,
               opacity: o,
               filter: `blur(${blur}px) brightness(${1 + 0.8 * Math.exp(-e * 10)})`,
-              boxShadow: "inset 0 0 0 1.5px rgba(255,255,255,0.6)",
+              boxShadow: "none",
             }}
           >
-            <Chrome t={t} />
+            <div
+              className="absolute rounded-[18px]"
+              style={{
+                left: -s.box.x,
+                top: -s.box.y,
+                width: WIN.w,
+                height: WIN.h,
+                boxShadow: "inset 0 0 0 1.5px rgba(255,255,255,0.6)",
+              }}
+            >
+              <Chrome t={t} />
+            </div>
           </div>
         );
       })}

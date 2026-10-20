@@ -60,14 +60,30 @@ for (const scheme of SCHEMES) {
   const chunk = Math.ceil(total / workers);
   let done = 0;
   const started = performance.now();
+  const open = async () => {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 810 }, deviceScaleFactor: SCALE });
+    await page.goto(url);
+    await page.evaluate(() => window.__promo.ready);
+    return page;
+  };
   await Promise.all(
     Array.from({ length: workers }, async (_, w) => {
-      const page = await browser.newPage({ viewport: { width: 1440, height: 810 }, deviceScaleFactor: SCALE });
-      await page.goto(url);
-      await page.evaluate(() => window.__promo.ready);
+      let page = await open();
       for (let f = w * chunk; f < Math.min(total, (w + 1) * chunk); f++) {
-        await page.evaluate((n) => window.__promo.seek(n), f);
-        await page.screenshot({ path: join(dir, `${String(f).padStart(5, "0")}.png`) });
+        // A busy machine can starve a screenshot past its timeout; every frame
+        // is a pure function of f, so retry it on a fresh page.
+        for (let attempt = 1; ; attempt++) {
+          try {
+            await page.evaluate((n) => window.__promo.seek(n), f);
+            await page.screenshot({ path: join(dir, `${String(f).padStart(5, "0")}.png`) });
+            break;
+          } catch (error) {
+            if (attempt === 3) throw error;
+            console.log(`\n${scheme}: frame ${f} failed (${(error as Error).message.split("\n")[0]}), retrying`);
+            await page.close().catch(() => {});
+            page = await open();
+          }
+        }
         if (++done % 120 === 0)
           process.stdout.write(`\r${scheme}: ${done}/${total} frames · ${((performance.now() - started) / 1000).toFixed(0)} s`);
       }
